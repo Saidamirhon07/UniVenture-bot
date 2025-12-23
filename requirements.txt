@@ -1,0 +1,8 @@
+python-telegram-bot==20.7
+openai
+chromadb
+python-dotenv
+pdfminer.six
+python-docx
+trafilatura
+nest_asyncio

@@ -1,0 +1,34 @@
+{
+  "users": [
+    "886181760",
+    "8489671503",
+    "794882815"
+  ],
+  "messages_total": 592,
+  "messages_per_user": {
+    "886181760": 566,
+    "8489671503": 17,
+    "794882815": 9
+  },
+  "topic_counts": {
+    "start": 27,
+    "essays_personal": 192,
+    "essays_supplemental": 55,
+    "ielts_writing": 48,
+    "ielts_speaking": 12,
+    "ielts_reading": 13,
+    "extracurriculars": 55,
+    "recommendations": 57,
+    "sat_math": 9,
+    "sat_english": 14,
+    "portfolio": 32,
+    "ielts_listening": 20,
+    "application_plan": 10,
+    "school_finder": 5,
+    "general": 43
+  },
+  "eval_counts": {
+    "essays_personal": 5,
+    "essays_supplemental": 2
+  }
+}
