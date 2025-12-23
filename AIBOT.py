@@ -2259,5 +2259,7 @@ print(
     "+ per-topic evaluation + embedded tools (brainstorm, rewrite, plan, recpacket, schoolfinder, portfolioideas) "
     "+ Application Plan & School Finder topics + analytics…"
 )
-nest_asyncio.apply()
-asyncio.run(app.run_polling())
+
+if __name__ == "__main__":
+    app.run_polling()
+
