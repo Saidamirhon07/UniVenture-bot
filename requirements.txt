@@ -6,3 +6,5 @@ pdfminer.six
 python-docx
 trafilatura
 nest_asyncio
+# 🔒 CRITICAL FIX
+numpy<2
