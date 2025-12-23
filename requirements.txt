@@ -1,4 +1,4 @@
-python-telegram-bot==20.7
+python-telegram-bot==20.3
 openai
 chromadb
 python-dotenv
@@ -6,5 +6,4 @@ pdfminer.six
 python-docx
 trafilatura
 nest_asyncio
-# 🔒 CRITICAL FIX
 numpy<2
