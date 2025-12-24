@@ -2247,33 +2247,33 @@ def start_dummy_server():
 
 app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-# 🔥 ALL COMMANDS FIRST (NO EXCEPTIONS)
-app.add_handler(CommandHandler("start", start))
-app.add_handler(CommandHandler("teach", teach))
-app.add_handler(CommandHandler("teachrubric", teachrubric))
-app.add_handler(CommandHandler("teachfile", teachfile))
-app.add_handler(CommandHandler("teachfile_eval", teachfile_eval))
-app.add_handler(CommandHandler("teachlink", teachlink))
-app.add_handler(CommandHandler("teachlink_eval", teachlink_eval))
-app.add_handler(CommandHandler("teachimage", teachimage))
-app.add_handler(CommandHandler("sources", sources))
-app.add_handler(CommandHandler("sources_all", sources_all))
-app.add_handler(CommandHandler("unlearn", unlearn))
-app.add_handler(CommandHandler("clear", clear))
-app.add_handler(CommandHandler("stats", stats_cmd))
-app.add_handler(CommandHandler("brainstorm", brainstorm_cmd))
-app.add_handler(CommandHandler("rewrite", rewrite_cmd))
-app.add_handler(CommandHandler("plan", plan_cmd))
-app.add_handler(CommandHandler("recpacket", recpacket_cmd))
-app.add_handler(CommandHandler("schoolfinder", schoolfinder_cmd))
-app.add_handler(CommandHandler("portfolioideas", portfolioideas_cmd))
+# ===== GROUP 0: COMMANDS ONLY =====
+app.add_handler(CommandHandler("start", start), group=0)
+app.add_handler(CommandHandler("teach", teach), group=0)
+app.add_handler(CommandHandler("teachrubric", teachrubric), group=0)
+app.add_handler(CommandHandler("teachfile", teachfile), group=0)
+app.add_handler(CommandHandler("teachfile_eval", teachfile_eval), group=0)
+app.add_handler(CommandHandler("teachlink", teachlink), group=0)
+app.add_handler(CommandHandler("teachlink_eval", teachlink_eval), group=0)
+app.add_handler(CommandHandler("sources", sources), group=0)
+app.add_handler(CommandHandler("sources_all", sources_all), group=0)
+app.add_handler(CommandHandler("unlearn", unlearn), group=0)
+app.add_handler(CommandHandler("clear", clear), group=0)
+app.add_handler(CommandHandler("stats", stats_cmd), group=0)
+app.add_handler(CommandHandler("brainstorm", brainstorm_cmd), group=0)
+app.add_handler(CommandHandler("rewrite", rewrite_cmd), group=0)
+app.add_handler(CommandHandler("plan", plan_cmd), group=0)
+app.add_handler(CommandHandler("recpacket", recpacket_cmd), group=0)
+app.add_handler(CommandHandler("schoolfinder", schoolfinder_cmd), group=0)
+app.add_handler(CommandHandler("portfolioideas", portfolioideas_cmd), group=0)
 
-# File & photo routers
-app.add_handler(MessageHandler(filters.Document.ALL, document_router))
-app.add_handler(MessageHandler(filters.PHOTO, photo_router))
+# ===== GROUP 1: FILES / PHOTOS =====
+app.add_handler(MessageHandler(filters.Document.ALL, document_router), group=1)
+app.add_handler(MessageHandler(filters.PHOTO, photo_router), group=1)
 
-# 🔴 TEXT HANDLER ABSOLUTELY LAST
-app.add_handler(MessageHandler(filters.TEXT, answer))
+# ===== GROUP 1: NORMAL TEXT (ABSOLUTELY LAST) =====
+app.add_handler(MessageHandler(filters.TEXT, answer), group=1)
+
 
 
 print(
