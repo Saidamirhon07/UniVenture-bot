@@ -454,6 +454,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ---------- TEACH (Q&A sources) ----------
 async def teach(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logging.info("🔥 /teach RECEIVED")
+
     await show_typing(update, context)
     chat_id = update.effective_chat.id
     user = update.effective_user
@@ -1812,6 +1814,8 @@ async def portfolioideas_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 # ---------- MAIN ANSWER ----------
 async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logging.info(f"💬 TEXT RECEIVED: {update.message.text}")
+
     chat_id = update.effective_chat.id
     user = update.effective_user
     q = (update.message.text or "").strip()
@@ -2241,13 +2245,9 @@ def start_dummy_server():
     server.serve_forever()
 
 
-# -------- App wiring --------
 app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-# 🔥 COMMANDS FIRST (CRITICAL)
-app.add_handler(CommandHandler("sources", sources))
-app.add_handler(CommandHandler("sources_all", sources_all))
-
+# 🔥 ALL COMMANDS FIRST (NO EXCEPTIONS)
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("teach", teach))
 app.add_handler(CommandHandler("teachrubric", teachrubric))
@@ -2255,20 +2255,12 @@ app.add_handler(CommandHandler("teachfile", teachfile))
 app.add_handler(CommandHandler("teachfile_eval", teachfile_eval))
 app.add_handler(CommandHandler("teachlink", teachlink))
 app.add_handler(CommandHandler("teachlink_eval", teachlink_eval))
-app.add_handler(
-    CommandHandler(
-        "teachimage",
-        lambda u, c: u.message.reply_text(
-            "To teach me from an image, send a photo with caption:\n\n/teachimage <title>"
-        ),
-    )
-)
-
+app.add_handler(CommandHandler("teachimage", teachimage))
+app.add_handler(CommandHandler("sources", sources))
+app.add_handler(CommandHandler("sources_all", sources_all))
 app.add_handler(CommandHandler("unlearn", unlearn))
 app.add_handler(CommandHandler("clear", clear))
 app.add_handler(CommandHandler("stats", stats_cmd))
-
-# New feature commands (still available via slash, plus via buttons)
 app.add_handler(CommandHandler("brainstorm", brainstorm_cmd))
 app.add_handler(CommandHandler("rewrite", rewrite_cmd))
 app.add_handler(CommandHandler("plan", plan_cmd))
@@ -2276,12 +2268,13 @@ app.add_handler(CommandHandler("recpacket", recpacket_cmd))
 app.add_handler(CommandHandler("schoolfinder", schoolfinder_cmd))
 app.add_handler(CommandHandler("portfolioideas", portfolioideas_cmd))
 
-
 # File & photo routers
 app.add_handler(MessageHandler(filters.Document.ALL, document_router))
 app.add_handler(MessageHandler(filters.PHOTO, photo_router))
-# Normal text goes to main answer
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, answer))
+
+# 🔴 TEXT HANDLER ABSOLUTELY LAST
+app.add_handler(MessageHandler(filters.TEXT, answer))
+
 
 print(
     "Bot is running with topic-scoped RAG + metadata separation (qa/evaluation) + submenus "
