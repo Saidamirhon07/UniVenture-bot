@@ -871,6 +871,7 @@ async def teachimage(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ---------- SOURCES ----------
 async def sources_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logging.info("🔥 /sources_all handler hit")
     client = chroma
     collections = client.list_collections()
 
@@ -921,6 +922,7 @@ async def sources_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_long(update, msg)
 
 async def sources(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logging.info("🔥 /sources handler hit")
     chat_id = update.effective_chat.id
     topic = get_current_topic(context)
     col = get_collection(chat_id, topic)
@@ -2241,6 +2243,11 @@ def start_dummy_server():
 
 # -------- App wiring --------
 app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+
+# 🔥 COMMANDS FIRST (CRITICAL)
+app.add_handler(CommandHandler("sources", sources))
+app.add_handler(CommandHandler("sources_all", sources_all))
+
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("teach", teach))
 app.add_handler(CommandHandler("teachrubric", teachrubric))
@@ -2256,10 +2263,7 @@ app.add_handler(
         ),
     )
 )
-#sources handler
-app.add_handler(CommandHandler("sources_all", sources_all))
 
-app.add_handler(CommandHandler("sources", sources))
 app.add_handler(CommandHandler("unlearn", unlearn))
 app.add_handler(CommandHandler("clear", clear))
 app.add_handler(CommandHandler("stats", stats_cmd))
