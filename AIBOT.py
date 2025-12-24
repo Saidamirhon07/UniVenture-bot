@@ -1816,8 +1816,17 @@ async def portfolioideas_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (update.message.text or "").strip()
 
-    # 🔴 IMPORTANT: ignore commands, let CommandHandlers handle them
+    # 🔥 Handle keyboard-triggered "commands"
+    if text == "/sources":
+        await sources(update, context)
+        return
+
+    if text == "/sources_all":
+        await sources_all(update, context)
+        return
+
     if text.startswith("/"):
+        # Let real slash commands be ignored here
         return
     logging.info(f"💬 TEXT RECEIVED: {update.message.text}")
 
