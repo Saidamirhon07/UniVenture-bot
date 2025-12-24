@@ -21,8 +21,12 @@ from docx import Document as DocxDocument
 # -------- Web page extraction (for teachlink) --------
 import trafilatura
 
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
+
 logging.basicConfig(level=logging.INFO)
 load_dotenv()
+nest_asyncio.apply()
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -2216,6 +2220,25 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_long(update, a)
 
 
+# -------- Dummy HTTP server for Render (to satisfy port check) --------
+def start_dummy_server():
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-type", "text/plain")
+            self.end_headers()
+            self.wfile.write(b"OK")
+
+        def log_message(self, format, *args):
+            # Silence HTTP request logs
+            return
+
+    # Render usually sets PORT; fallback to 10000 if not set
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(("0.0.0.0", port), Handler)
+    server.serve_forever()
+
+
 # -------- App wiring --------
 app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 app.add_handler(CommandHandler("start", start))
@@ -2261,5 +2284,8 @@ print(
 )
 
 if __name__ == "__main__":
+    # Start a tiny HTTP server in the background so Render sees an open port
+    threading.Thread(target=start_dummy_server, daemon=True).start()
+    # Main Telegram long-polling loop
     app.run_polling()
 
