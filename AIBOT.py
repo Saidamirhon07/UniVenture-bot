@@ -1814,6 +1814,11 @@ async def portfolioideas_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 # ---------- MAIN ANSWER ----------
 async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = (update.message.text or "").strip()
+
+    # 🔴 IMPORTANT: ignore commands, let CommandHandlers handle them
+    if text.startswith("/"):
+        return
     logging.info(f"💬 TEXT RECEIVED: {update.message.text}")
 
     chat_id = update.effective_chat.id
