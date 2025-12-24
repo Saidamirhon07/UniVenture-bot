@@ -2256,6 +2256,9 @@ app.add_handler(
         ),
     )
 )
+#sources handler
+app.add_handler(CommandHandler("sources_all", sources_all))
+
 app.add_handler(CommandHandler("sources", sources))
 app.add_handler(CommandHandler("unlearn", unlearn))
 app.add_handler(CommandHandler("clear", clear))
@@ -2269,13 +2272,12 @@ app.add_handler(CommandHandler("recpacket", recpacket_cmd))
 app.add_handler(CommandHandler("schoolfinder", schoolfinder_cmd))
 app.add_handler(CommandHandler("portfolioideas", portfolioideas_cmd))
 
+
 # File & photo routers
 app.add_handler(MessageHandler(filters.Document.ALL, document_router))
 app.add_handler(MessageHandler(filters.PHOTO, photo_router))
 # Normal text goes to main answer
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, answer))
-#sources handler
-app.add_handler(CommandHandler("sources_all", sources_all))
 
 print(
     "Bot is running with topic-scoped RAG + metadata separation (qa/evaluation) + submenus "
