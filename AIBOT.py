@@ -8,7 +8,7 @@ from telegram.ext import (
     filters,
 )
 from dotenv import load_dotenv
-from openai import OpenAI
+import openai
 import chromadb
 from chromadb.utils import embedding_functions
 import os, io, asyncio, nest_asyncio, logging, json, base64
@@ -30,7 +30,7 @@ nest_asyncio.apply()
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-oa = OpenAI(api_key=OPENAI_API_KEY)
+openai.api_key = OPENAI_API_KEY
 
 # -------- Data / storage config (for Railway volume etc.) --------
 DATA_DIR = os.getenv("DATA_DIR", "./data")
@@ -434,7 +434,7 @@ def extract_text_from_image_bytes(image_bytes: bytes) -> str:
     b64 = base64.b64encode(image_bytes).decode("utf-8")
     data_url = f"data:image/jpeg;base64,{b64}"
 
-    resp = oa.chat.completions.create(
+    resp = openai.ChatCompletion.create(
         model="gpt-4o-mini",
         messages=[
             {
@@ -456,7 +456,8 @@ def extract_text_from_image_bytes(image_bytes: bytes) -> str:
         ],
         temperature=0.0,
     )
-    return resp.choices[0].message.content or ""
+    content = resp["choices"][0]["message"]["content"]
+    return content or ""
 
 
 # -------- Handlers --------
@@ -1193,12 +1194,12 @@ async def evaluate_file_for_topic(update: Update, context: ContextTypes.DEFAULT_
     ]
 
     try:
-        r = oa.chat.completions.create(
+        r = openai.ChatCompletion.create(
             model="gpt-4.1-mini",
             messages=messages,
             temperature=0.3,
         )
-        a = r.choices[0].message.content
+        a = r["choices"][0]["message"]["content"]
     except Exception as e:
         a = f"Error during evaluation: {e}"
 
@@ -1272,12 +1273,12 @@ async def evaluate_ielts_writing_image(update: Update, context: ContextTypes.DEF
     ]
 
     try:
-        r = oa.chat.completions.create(
+        r = openai.ChatCompletion.create(
             model="gpt-4.1-mini",
             messages=messages,
             temperature=0.3,
         )
-        a = r.choices[0].message.content
+        a = r["choices"][0]["message"]["content"]
     except Exception as e:
         a = f"Error during IELTS Writing evaluation: {e}"
 
@@ -1387,12 +1388,12 @@ async def evaluate_text_for_topic(update: Update, context: ContextTypes.DEFAULT_
     ]
 
     try:
-        r = oa.chat.completions.create(
+        r = openai.ChatCompletion.create(
             model="gpt-4.1-mini",
             messages=messages,
             temperature=0.3,
         )
-        a = r.choices[0].message.content
+        a = r["choices"][0]["message"]["content"]
     except Exception as e:
         a = f"Error during text evaluation: {e}"
 
@@ -1540,12 +1541,12 @@ async def run_brainstorm(update: Update, context: ContextTypes.DEFAULT_TYPE, des
     )
 
     try:
-        r = oa.chat.completions.create(
+        r = openai.ChatCompletion.create(
             model="gpt-4.1-mini",
             messages=messages,
             temperature=0.5,
         )
-        a = r.choices[0].message.content
+        a = r["choices"][0]["message"]["content"]
     except Exception as e:
         a = f"Error during brainstorming: {e}"
 
@@ -1605,12 +1606,12 @@ async def run_rewrite(update: Update, context: ContextTypes.DEFAULT_TYPE, text_t
     messages.append({"role": "user", "content": text_to_fix})
 
     try:
-        r = oa.chat.completions.create(
+        r = openai.ChatCompletion.create(
             model="gpt-4.1-mini",
             messages=messages,
             temperature=0.4,
         )
-        a = r.choices[0].message.content
+        a = r["choices"][0]["message"]["content"]
     except Exception as e:
         a = f"Error during rewrite: {e}"
 
@@ -1675,12 +1676,12 @@ async def run_plan(update: Update, context: ContextTypes.DEFAULT_TYPE, descripti
     )
 
     try:
-        r = oa.chat.completions.create(
+        r = openai.ChatCompletion.create(
             model="gpt-4.1-mini",
             messages=messages,
             temperature=0.5,
         )
-        a = r.choices[0].message.content
+        a = r["choices"][0]["message"]["content"]
     except Exception as e:
         a = f"Error while building plan: {e}"
 
@@ -1730,12 +1731,12 @@ async def run_recpacket(update: Update, context: ContextTypes.DEFAULT_TYPE, desc
     ]
 
     try:
-        r = oa.chat.completions.create(
+        r = openai.ChatCompletion.create(
             model="gpt-4.1-mini",
             messages=messages,
             temperature=0.5,
         )
-        a = r.choices[0].message.content
+        a = r["choices"][0]["message"]["content"]
     except Exception as e:
         a = f"Error while generating rec letter packet: {e}"
 
@@ -1797,16 +1798,16 @@ async def run_schoolfinder(update: Update, context: ContextTypes.DEFAULT_TYPE, d
                 "Here are my stats and preferences (GPA, tests, budget, countries, major, special interests):\n\n"
                 + description
             ),
-        },
+        }
     )
 
     try:
-        r = oa.chat.completions.create(
+        r = openai.ChatCompletion.create(
             model="gpt-4.1-mini",
             messages=messages,
             temperature=0.6,
         )
-        a = r.choices[0].message.content
+        a = r["choices"][0]["message"]["content"]
     except Exception as e:
         a = f"Error while suggesting schools: {e}"
 
@@ -1856,12 +1857,12 @@ async def run_portfolioideas(update: Update, context: ContextTypes.DEFAULT_TYPE,
     ]
 
     try:
-        r = oa.chat.completions.create(
+        r = openai.ChatCompletion.create(
             model="gpt-4.1-mini",
             messages=messages,
             temperature=0.6,
         )
-        a = r.choices[0].message.content
+        a = r["choices"][0]["message"]["content"]
     except Exception as e:
         a = f"Error while generating portfolio ideas: {e}"
 
@@ -2291,12 +2292,12 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
 
     try:
-        r = oa.chat.completions.create(
+        r = openai.ChatCompletion.create(
             model="gpt-4.1-mini",
             messages=messages,
             temperature=0.4,
         )
-        a = r.choices[0].message.content
+        a = r["choices"][0]["message"]["content"]
     except Exception as e:
         a = f"Error: {e}"
 
