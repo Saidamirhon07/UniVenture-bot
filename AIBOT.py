@@ -380,6 +380,18 @@ def _chunk(text: str, max_chars=1000, overlap=150):
     return chunks
 
 
+def extract_command_text(update: Update) -> str:
+    """Get text for slash-commands from either message text or caption."""
+    msg = update.message
+    if not msg:
+        return ""
+    if msg.text:
+        return msg.text.strip()
+    if msg.caption:
+        return msg.caption.strip()
+    return ""
+
+
 async def show_typing(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
@@ -473,7 +485,7 @@ async def teach(update: Update, context: ContextTypes.DEFAULT_TYPE):
     topic = get_current_topic(context)
     record_event(user.id, topic, kind="teach")
 
-    text = update.message.text or ""
+    text = extract_command_text(update)
 
     if "|" not in text:
         await update.message.reply_text(
@@ -499,7 +511,9 @@ async def teach(update: Update, context: ContextTypes.DEFAULT_TYPE):
         metadatas=[{"title": title, "topic": topic, "type": "qa", "source": "manual"}],
         documents=[content],
     )
-    await update.message.reply_text(f"Learned '{title}' ✅ (topic: {topic}, mode: Q&A, scope: GLOBAL)")
+    await update.message.reply_text(
+        f"Learned '{title}' ✅ (topic: {topic}, mode: Q&A, scope: GLOBAL)"
+    )
 
 
 # ---------- TEACH RUBRIC (EVALUATION sources) ----------
@@ -511,7 +525,7 @@ async def teachrubric(update: Update, context: ContextTypes.DEFAULT_TYPE):
     topic = get_current_topic(context)
     record_event(user.id, topic, kind="teachrubric")
 
-    text = update.message.text or ""
+    text = extract_command_text(update)
     if "|" not in text:
         await update.message.reply_text(
             "Use format:\n/teachrubric <title> | <rubric / evaluation criteria>\n\n"
@@ -552,7 +566,9 @@ async def teachfile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     topic = get_current_topic(context)
     record_event(user.id, topic, kind="teachfile")
 
-    await update.message.reply_text("Reading your file and extracting text to learn from it (Q&A)…")
+    await update.message.reply_text(
+        "Reading your file and extracting text to learn from it (Q&A)…"
+    )
     doc = update.message.document
     if not doc:
         await update.message.reply_text(
@@ -620,7 +636,9 @@ async def teachfile_eval(update: Update, context: ContextTypes.DEFAULT_TYPE):
     topic = get_current_topic(context)
     record_event(user.id, topic, kind="teachfile_eval")
 
-    await update.message.reply_text("Reading your rubric file and extracting evaluation criteria…")
+    await update.message.reply_text(
+        "Reading your rubric file and extracting evaluation criteria…"
+    )
     doc = update.message.document
     if not doc:
         await update.message.reply_text(
@@ -639,7 +657,9 @@ async def teachfile_eval(update: Update, context: ContextTypes.DEFAULT_TYPE):
             d = DocxDocument(io.BytesIO(file_bytes))
             text = "\n".join(p.text for p in d.paragraphs)
         else:
-            await update.message.reply_text("Only PDF or DOCX are supported for /teachfile_eval.")
+            await update.message.reply_text(
+                "Only PDF or DOCX are supported for /teachfile_eval."
+            )
             return
     except Exception as e:
         await update.message.reply_text(f"Could not read file: {e}")
@@ -687,14 +707,16 @@ async def teachlink(update: Update, context: ContextTypes.DEFAULT_TYPE):
     topic = get_current_topic(context)
     record_event(user.id, topic, kind="teachlink")
 
-    msg_text = (update.message.text or "").strip()
+    msg_text = extract_command_text(update)
     parts = msg_text.split(maxsplit=1)
     if len(parts) < 2:
         await update.message.reply_text("Use: /teachlink <url>")
         return
 
     url = parts[1].strip()
-    await update.message.reply_text("Fetching content from link and learning from it (Q&A)…")
+    await update.message.reply_text(
+        "Fetching content from link and learning from it (Q&A)…"
+    )
 
     try:
         downloaded = trafilatura.fetch_url(url)
@@ -709,7 +731,9 @@ async def teachlink(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     chunks = _chunk(text)
     if not chunks:
-        await update.message.reply_text("The page did not contain enough text to learn from.")
+        await update.message.reply_text(
+            "The page did not contain enough text to learn from."
+        )
         return
 
     col = get_collection(chat_id, topic)
@@ -749,7 +773,7 @@ async def teachlink_eval(update: Update, context: ContextTypes.DEFAULT_TYPE):
     topic = get_current_topic(context)
     record_event(user.id, topic, kind="teachlink_eval")
 
-    msg_text = (update.message.text or "").strip()
+    msg_text = extract_command_text(update)
     parts = msg_text.split(maxsplit=1)
     if len(parts) < 2:
         await update.message.reply_text("Use: /teachlink_eval <url>")
@@ -773,7 +797,9 @@ async def teachlink_eval(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     chunks = _chunk(text)
     if not chunks:
-        await update.message.reply_text("The page did not contain enough text to learn from.")
+        await update.message.reply_text(
+            "The page did not contain enough text to learn from."
+        )
         return
 
     col = get_collection(chat_id, topic)
@@ -976,7 +1002,7 @@ async def unlearn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     topic = get_current_topic(context)
     record_event(user.id, topic, kind="unlearn")
 
-    text = (update.message.text or "").strip()
+    text = extract_command_text(update)
     parts = text.split(maxsplit=1)
     if len(parts) < 2:
         await update.message.reply_text("Usage: /unlearn <exact title shown in /sources>")
@@ -1002,7 +1028,6 @@ async def unlearn(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ---------- CLEAR ----------
 async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_typing(update, context)
-    chat_id = update.effective_chat.id  # kept for compatibility, unused
     user = update.effective_user
     topic = get_current_topic(context)
     record_event(user.id, topic, kind="clear")
@@ -1010,7 +1035,9 @@ async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
     collection_name = f"{COLLECTION_PREFIX}_{topic}"
     try:
         chroma.delete_collection(collection_name)
-        await update.message.reply_text(f"Forgot everything 🧹 (topic: {topic}, scope: GLOBAL)")
+        await update.message.reply_text(
+            f"Forgot everything 🧹 (topic: {topic}, scope: GLOBAL)"
+        )
     except Exception as e:
         logging.warning(f"Could not delete collection {collection_name}: {e}")
         await update.message.reply_text(
@@ -1155,7 +1182,10 @@ async def evaluate_file_for_topic(update: Update, context: ContextTypes.DEFAULT_
                 "If guidelines are missing or incomplete, use general best practices."
             ),
         },
-        {"role": "system", "content": f"Guidelines + examples (may be empty):\n{context_block}"},
+        {
+            "role": "system",
+            "content": f"Guidelines + examples (may be empty):\n{context_block}"
+        },
         {
             "role": "user",
             "content": f"Here is the student's {pretty_topic}. Please evaluate it:\n\n{student_text}",
@@ -1185,7 +1215,9 @@ async def evaluate_ielts_writing_image(update: Update, context: ContextTypes.DEF
 
     photos = update.message.photo or []
     if not photos:
-        await update.message.reply_text("Please send a clear photo of your IELTS Writing answer.")
+        await update.message.reply_text(
+            "Please send a clear photo of your IELTS Writing answer."
+        )
         return
 
     largest = photos[-1]
@@ -1229,7 +1261,10 @@ async def evaluate_ielts_writing_image(update: Update, context: ContextTypes.DEF
                 "If the text seems incomplete or too short, mention that in your feedback."
             ),
         },
-        {"role": "system", "content": f"IELTS writing rubrics and notes (may be empty):\n{context_block}"},
+        {
+            "role": "system",
+            "content": f"IELTS writing rubrics and notes (may be empty):\n{context_block}",
+        },
         {
             "role": "user",
             "content": f"Here is the student's IELTS Writing answer (from an image):\n\n{student_text}",
@@ -1341,7 +1376,10 @@ async def evaluate_text_for_topic(update: Update, context: ContextTypes.DEFAULT_
                 "If guidelines are missing or incomplete, use general best practices."
             ),
         },
-        {"role": "system", "content": f"Guidelines + examples (may be empty):\n{context_block}"},
+        {
+            "role": "system",
+            "content": f"Guidelines + examples (may be empty):\n{context_block}"
+        },
         {
             "role": "user",
             "content": f"Here is the student's {pretty_topic}. Please evaluate it:\n\n{student_text}",
@@ -1366,6 +1404,7 @@ async def document_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     caption = (update.message.caption or "").strip()
     topic = get_current_topic(context)
 
+    # teach commands that are caption-based
     if caption.startswith("/teachfile_eval"):
         await teachfile_eval(update, context)
         return
@@ -1374,13 +1413,26 @@ async def document_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await teachfile(update, context)
         return
 
+    if caption.startswith("/teachlink_eval"):
+        await teachlink_eval(update, context)
+        return
+
+    if caption.startswith("/teachlink"):
+        await teachlink(update, context)
+        return
+
+    if caption.startswith("/teachrubric"):
+        await teachrubric(update, context)
+        return
+
+    # If we're in an evaluation topic, treat document as student work
     if topic in (set(EVAL_TOPICS) | {"ielts_writing"}):
         await evaluate_file_for_topic(update, context)
         return
 
     await update.message.reply_text(
-        "If you want me to LEARN from this file, send it again and write /teachfile "
-        "or /teachfile_eval in the caption.\n\n"
+        "If you want me to LEARN from this file, send it again and write /teachfile, "
+        "/teachfile_eval, /teachlink, or /teachlink_eval in the caption.\n\n"
         "If this is an essay, recommendation, EC description, portfolio, or IELTS Writing for feedback, "
         "choose the correct topic and tap its Evaluation button."
     )
@@ -1835,24 +1887,15 @@ async def portfolioideas_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (update.message.text or "").strip()
 
-    # Handle /sources shortcuts if CommandHandler didn't for some reason
-    if text == "/sources":
-        await sources(update, context)
-        return
-
-    if text == "/sources_all":
-        await sources_all(update, context)
-        return
-
+    # extra guard: never handle slash commands here
     if text.startswith("/"):
-        # Let real slash commands be handled by CommandHandlers
         return
 
     logging.info(f"💬 TEXT RECEIVED: {update.message.text}")
 
     chat_id = update.effective_chat.id
     user = update.effective_user
-    q = (update.message.text or "").strip()
+    q = text
 
     topic_before = get_current_topic(context)
     record_event(user.id, topic_before, kind="message")
@@ -2306,7 +2349,7 @@ app.add_handler(MessageHandler(filters.Document.ALL, document_router), group=1)
 app.add_handler(MessageHandler(filters.PHOTO, photo_router), group=1)
 
 # ===== GROUP 1: NORMAL TEXT (ABSOLUTELY LAST) =====
-app.add_handler(MessageHandler(filters.TEXT, answer), group=1)
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, answer), group=1)
 
 print(
     "Bot is running with GLOBAL per-topic RAG + metadata separation (qa/evaluation) + submenus "
