@@ -32,15 +32,22 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 oa = OpenAI(api_key=OPENAI_API_KEY)
 
-# -------- Persistent local Chroma --------
-chroma = chromadb.PersistentClient(path="./chroma_store")
+# -------- Data / storage config (for Railway volume etc.) --------
+DATA_DIR = os.getenv("DATA_DIR", "./data")
+os.makedirs(DATA_DIR, exist_ok=True)
+
+CHROMA_PATH = os.getenv("CHROMA_PATH", os.path.join(DATA_DIR, "chroma_store"))
+COLLECTION_PREFIX = os.getenv("CHROMA_COLLECTION_PREFIX", "global")
+
+# -------- Persistent Chroma (GLOBAL per-topic collections) --------
+chroma = chromadb.PersistentClient(path=CHROMA_PATH)
 emb_fn = embedding_functions.OpenAIEmbeddingFunction(
     api_key=OPENAI_API_KEY,
     model_name="text-embedding-3-small",
 )
 
 # -------- Analytics storage --------
-STATS_FILE = "analytics.json"
+STATS_FILE = os.path.join(DATA_DIR, "analytics.json")
 
 
 def _default_stats():
@@ -348,8 +355,12 @@ def get_current_topic(context: ContextTypes.DEFAULT_TYPE) -> str:
 
 
 def get_collection(chat_id: int, topic: str):
+    """
+    GLOBAL per-topic collections shared by all users.
+    chat_id is kept in the signature for backwards compatibility but ignored.
+    """
     return chroma.get_or_create_collection(
-        name=f"chat_{chat_id}_{topic}",
+        name=f"{COLLECTION_PREFIX}_{topic}",
         embedding_function=emb_fn,
     )
 
@@ -482,13 +493,13 @@ async def teach(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    doc_id = f"{chat_id}_{topic}_{col.count()+1}"
+    doc_id = f"{topic}_{col.count()+1}"
     col.add(
         ids=[doc_id],
         metadatas=[{"title": title, "topic": topic, "type": "qa", "source": "manual"}],
         documents=[content],
     )
-    await update.message.reply_text(f"Learned '{title}' ✅ (topic: {topic}, mode: Q&A)")
+    await update.message.reply_text(f"Learned '{title}' ✅ (topic: {topic}, mode: Q&A, scope: GLOBAL)")
 
 
 # ---------- TEACH RUBRIC (EVALUATION sources) ----------
@@ -519,7 +530,7 @@ async def teachrubric(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    doc_id = f"{chat_id}_{topic}_{col.count()+1}"
+    doc_id = f"{topic}_{col.count()+1}"
     col.add(
         ids=[doc_id],
         metadatas=[
@@ -528,7 +539,7 @@ async def teachrubric(update: Update, context: ContextTypes.DEFAULT_TYPE):
         documents=[content],
     )
     await update.message.reply_text(
-        f"Learned evaluation rubric '{title}' ✅ (topic: {topic})"
+        f"Learned evaluation rubric '{title}' ✅ (topic: {topic}, scope: GLOBAL)"
     )
 
 
@@ -581,7 +592,7 @@ async def teachfile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    base = f"{chat_id}_{topic}_{col.count()+1}"
+    base = f"{topic}_{col.count()+1}"
     ids = [f"{base}_{i}" for i in range(len(parts))]
     metas = [
         {
@@ -596,7 +607,7 @@ async def teachfile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     col.add(ids=ids, metadatas=metas, documents=parts)
 
     await update.message.reply_text(
-        f"Learned from file ✅ ({len(parts)} parts) in topic: {topic} (Q&A)"
+        f"Learned from file ✅ ({len(parts)} parts) in topic: {topic} (Q&A, scope: GLOBAL)"
     )
 
 
@@ -649,7 +660,7 @@ async def teachfile_eval(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    base = f"{chat_id}_{topic}_{col.count()+1}"
+    base = f"{topic}_{col.count()+1}"
     ids = [f"{base}_eval_{i}" for i in range(len(parts))]
     metas = [
         {
@@ -664,7 +675,7 @@ async def teachfile_eval(update: Update, context: ContextTypes.DEFAULT_TYPE):
     col.add(ids=ids, metadatas=metas, documents=parts)
 
     await update.message.reply_text(
-        f"Learned evaluation rubric from file ✅ ({len(parts)} parts) in topic: {topic}"
+        f"Learned evaluation rubric from file ✅ ({len(parts)} parts) in topic: {topic} (scope: GLOBAL)"
     )
 
 
@@ -711,7 +722,7 @@ async def teachlink(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    base = f"{chat_id}_{topic}_{col.count()+1}"
+    base = f"{topic}_{col.count()+1}"
     ids = [f"{base}_{i}" for i in range(len(chunks))]
     metas = [
         {
@@ -726,7 +737,7 @@ async def teachlink(update: Update, context: ContextTypes.DEFAULT_TYPE):
     col.add(ids=ids, metadatas=metas, documents=chunks)
 
     await update.message.reply_text(
-        f"Learned from link ✅ ({len(chunks)} parts) in topic: {topic} (Q&A)"
+        f"Learned from link ✅ ({len(chunks)} parts) in topic: {topic} (Q&A, scope: GLOBAL)"
     )
 
 
@@ -775,7 +786,7 @@ async def teachlink_eval(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    base = f"{chat_id}_{topic}_{col.count()+1}"
+    base = f"{topic}_{col.count()+1}"
     ids = [f"{base}_eval_{i}" for i in range(len(chunks))]
     metas = [
         {
@@ -790,7 +801,7 @@ async def teachlink_eval(update: Update, context: ContextTypes.DEFAULT_TYPE):
     col.add(ids=ids, metadatas=metas, documents=chunks)
 
     await update.message.reply_text(
-        f"Learned evaluation material from link ✅ ({len(chunks)} parts) in topic: {topic}"
+        f"Learned evaluation material from link ✅ ({len(chunks)} parts) in topic: {topic} (scope: GLOBAL)"
     )
 
 
@@ -852,7 +863,7 @@ async def teachimage(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    base = f"{chat_id}_{topic}_{col.count()+1}"
+    base = f"{topic}_{col.count()+1}"
     ids = [f"{base}_img_{i}" for i in range(len(parts))]
     metas = [
         {
@@ -867,7 +878,7 @@ async def teachimage(update: Update, context: ContextTypes.DEFAULT_TYPE):
     col.add(ids=ids, metadatas=metas, documents=parts)
 
     await update.message.reply_text(
-        f"Learned from image '{title}' ✅ ({len(parts)} parts) in topic: {topic} (Q&A)"
+        f"Learned from image '{title}' ✅ ({len(parts)} parts) in topic: {topic} (Q&A, scope: GLOBAL)"
     )
 
 
@@ -915,13 +926,14 @@ async def sources_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
     total_mb = total_bytes / (1024 * 1024)
 
     msg = (
-        "📚 ALL BOT SOURCES (ALL TOPICS)\n\n"
+        "📚 ALL BOT SOURCES (ALL TOPICS, GLOBAL)\n\n"
         f"Total chunks: {total_chunks}\n"
         f"Total text size: {total_mb:.2f} MB\n\n"
         + "\n".join(lines)
     )
 
     await send_long(update, msg)
+
 
 async def sources(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logging.info("🔥 /sources handler hit")
@@ -933,7 +945,7 @@ async def sources(update: Update, context: ContextTypes.DEFAULT_TYPE):
     counts = Counter(m.get("title", "Untitled") for m in metas)
 
     if not counts:
-        msg = f"📌 Active topic: {topic}\nNo sources yet."
+        msg = f"📌 Active topic: {topic}\nNo sources yet. (Global collection is empty.)"
         await update.message.reply_text(msg)
         return
 
@@ -952,7 +964,7 @@ async def sources(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             lines.append(f"• {title} ({label})")
 
-    msg = f"📌 Active topic: {topic}\n" + "\n".join(lines)
+    msg = f"📌 Active topic: {topic} (GLOBAL)\n" + "\n".join(lines)
     await update.message.reply_text(msg)
 
 
@@ -977,26 +989,33 @@ async def unlearn(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if removed == 0:
         await update.message.reply_text(
-            f"No source titled '{title}' found in topic: {topic}."
+            f"No source titled '{title}' found in topic: {topic} (GLOBAL)."
         )
         return
 
     col.delete(where={"title": title})
     await update.message.reply_text(
-        f"Removed '{title}' ✅ ({removed} parts) from topic: {topic}"
+        f"Removed '{title}' ✅ ({removed} parts) from topic: {topic} (GLOBAL)"
     )
 
 
 # ---------- CLEAR ----------
 async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_typing(update, context)
-    chat_id = update.effective_chat.id
+    chat_id = update.effective_chat.id  # kept for compatibility, unused
     user = update.effective_user
     topic = get_current_topic(context)
     record_event(user.id, topic, kind="clear")
 
-    chroma.delete_collection(f"chat_{chat_id}_{topic}")
-    await update.message.reply_text(f"Forgot everything 🧹 (topic: {topic})")
+    collection_name = f"{COLLECTION_PREFIX}_{topic}"
+    try:
+        chroma.delete_collection(collection_name)
+        await update.message.reply_text(f"Forgot everything 🧹 (topic: {topic}, scope: GLOBAL)")
+    except Exception as e:
+        logging.warning(f"Could not delete collection {collection_name}: {e}")
+        await update.message.reply_text(
+            f"Didn't find any stored sources to clear for topic: {topic} (GLOBAL)."
+        )
 
 
 # ---------- EVALUATION HELPERS ----------
@@ -1816,7 +1835,7 @@ async def portfolioideas_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (update.message.text or "").strip()
 
-    # 🔥 Handle keyboard-triggered "commands"
+    # Handle /sources shortcuts if CommandHandler didn't for some reason
     if text == "/sources":
         await sources(update, context)
         return
@@ -1826,8 +1845,9 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if text.startswith("/"):
-        # Let real slash commands be ignored here
+        # Let real slash commands be handled by CommandHandlers
         return
+
     logging.info(f"💬 TEXT RECEIVED: {update.message.text}")
 
     chat_id = update.effective_chat.id
@@ -2240,7 +2260,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_long(update, a)
 
 
-# -------- Dummy HTTP server for Render (to satisfy port check) --------
+# -------- Dummy HTTP server for Render/Railway (to satisfy port check) --------
 def start_dummy_server():
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -2253,7 +2273,7 @@ def start_dummy_server():
             # Silence HTTP request logs
             return
 
-    # Render usually sets PORT; fallback to 10000 if not set
+    # Railway/Render usually set PORT; fallback to 10000 if not set
     port = int(os.environ.get("PORT", 10000))
     server = HTTPServer(("0.0.0.0", port), Handler)
     server.serve_forever()
@@ -2288,17 +2308,14 @@ app.add_handler(MessageHandler(filters.PHOTO, photo_router), group=1)
 # ===== GROUP 1: NORMAL TEXT (ABSOLUTELY LAST) =====
 app.add_handler(MessageHandler(filters.TEXT, answer), group=1)
 
-
-
 print(
-    "Bot is running with topic-scoped RAG + metadata separation (qa/evaluation) + submenus "
+    "Bot is running with GLOBAL per-topic RAG + metadata separation (qa/evaluation) + submenus "
     "+ per-topic evaluation + embedded tools (brainstorm, rewrite, plan, recpacket, schoolfinder, portfolioideas) "
     "+ Application Plan & School Finder topics + analytics…"
 )
 
 if __name__ == "__main__":
-    # Start a tiny HTTP server in the background so Render sees an open port
+    # Start a tiny HTTP server in the background so Railway/Render see an open port
     threading.Thread(target=start_dummy_server, daemon=True).start()
     # Main Telegram long-polling loop
     app.run_polling()
-
