@@ -1,5 +1,5 @@
-python-telegram-bot==20.3
-openai
+python-telegram-bot==20.7
+openai==0.28.1
 chromadb
 python-dotenv
 pdfminer.six
