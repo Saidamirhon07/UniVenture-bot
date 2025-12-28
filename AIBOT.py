@@ -32,6 +32,17 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 openai.api_key = OPENAI_API_KEY
 
+# -------- Admin config --------
+ADMIN_IDS = {
+    886181760,  # TODO: replace this with YOUR Telegram user ID (from @userinfobot)
+}
+
+
+def require_admin(update: Update) -> bool:
+    user = update.effective_user
+    return bool(user and user.id in ADMIN_IDS)
+
+
 # -------- Data / storage config (for Railway volume etc.) --------
 DATA_DIR = os.getenv("DATA_DIR", "./data")
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -161,20 +172,6 @@ def main_menu_keyboard():
     )
 
 
-def main_menu_with_back():
-    return ReplyKeyboardMarkup(
-        [
-            [KeyboardButton(BTN_ESSAY), KeyboardButton(BTN_EC)],
-            [KeyboardButton(BTN_REC), KeyboardButton(BTN_SAT)],
-            [KeyboardButton(BTN_IELTS), KeyboardButton(BTN_PORT)],
-            [KeyboardButton(BTN_PLAN_MAIN), KeyboardButton(BTN_SF_MAIN)],
-            [KeyboardButton(BTN_BACK)],
-        ],
-        resize_keyboard=True,
-        one_time_keyboard=False,
-    )
-
-
 def essay_main_keyboard():
     return ReplyKeyboardMarkup(
         [
@@ -261,10 +258,10 @@ def ielts_main_keyboard():
 
 
 def ielts_writing_keyboard():
+    # Inside IELTS Writing: ONLY eval + back (as you requested)
     return ReplyKeyboardMarkup(
         [
-            [KeyboardButton(BTN_IELTS_READING), KeyboardButton(BTN_IELTS_LISTENING)],
-            [KeyboardButton(BTN_IELTS_SPEAKING), KeyboardButton(BTN_IW_EVAL)],
+            [KeyboardButton(BTN_IW_EVAL)],
             [KeyboardButton(BTN_BACK)],
         ],
         resize_keyboard=True,
@@ -282,6 +279,33 @@ def portfolio_keyboard():
         resize_keyboard=True,
         one_time_keyboard=False,
     )
+
+
+def plan_keyboard():
+    # Inside Application Plan: only Back
+    return ReplyKeyboardMarkup(
+        [
+            [KeyboardButton(BTN_BACK)],
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=False,
+    )
+
+
+def schoolfinder_keyboard():
+    # Inside School Finder: only Back
+    return ReplyKeyboardMarkup(
+        [
+            [KeyboardButton(BTN_BACK)],
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=False,
+    )
+
+
+def is_back_message(text: str) -> bool:
+    t = (text or "").strip()
+    return t == BTN_BACK or t.lower() == "back"
 
 
 # -------- Topic mapping & helpers --------
@@ -480,6 +504,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def teach(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logging.info("🔥 /teach RECEIVED")
 
+    if not require_admin(update):
+        await update.message.reply_text("⛔ You are not allowed to teach global sources.")
+        return
+
     await show_typing(update, context)
     chat_id = update.effective_chat.id
     user = update.effective_user
@@ -520,6 +548,10 @@ async def teach(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ---------- TEACH RUBRIC (EVALUATION sources) ----------
 async def teachrubric(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Teach evaluation criteria / rubric as text, for evaluation mode."""
+    if not require_admin(update):
+        await update.message.reply_text("⛔ You are not allowed to teach global rubrics.")
+        return
+
     await show_typing(update, context)
     chat_id = update.effective_chat.id
     user = update.effective_user
@@ -561,6 +593,10 @@ async def teachrubric(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ---------- TEACH FILE (Q&A sources) ----------
 async def teachfile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Teach by sending a PDF or DOCX, for Q&A use."""
+    if not require_admin(update):
+        await update.message.reply_text("⛔ You are not allowed to teach from files.")
+        return
+
     await show_typing(update, context)
     chat_id = update.effective_chat.id
     user = update.effective_user
@@ -631,6 +667,10 @@ async def teachfile(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ---------- TEACH FILE EVAL (EVALUATION sources) ----------
 async def teachfile_eval(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Teach evaluation rubric by sending a PDF or DOCX."""
+    if not require_admin(update):
+        await update.message.reply_text("⛔ You are not allowed to teach evaluation rubrics from files.")
+        return
+
     await show_typing(update, context)
     chat_id = update.effective_chat.id
     user = update.effective_user
@@ -702,6 +742,10 @@ async def teachfile_eval(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ---------- TEACH LINK (Q&A) ----------
 async def teachlink(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not require_admin(update):
+        await update.message.reply_text("⛔ You are not allowed to teach from links.")
+        return
+
     await show_typing(update, context)
     chat_id = update.effective_chat.id
     user = update.effective_user
@@ -768,6 +812,12 @@ async def teachlink(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ---------- TEACH LINK EVAL (EVALUATION sources) ----------
 async def teachlink_eval(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not require_admin(update):
+        await update.message.reply_text(
+            "⛔ You are not allowed to teach evaluation material from links."
+        )
+        return
+
     await show_typing(update, context)
     chat_id = update.effective_chat.id
     user = update.effective_user
@@ -834,6 +884,10 @@ async def teachlink_eval(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ---------- TEACH IMAGE (Q&A) ----------
 async def teachimage(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not require_admin(update):
+        await update.message.reply_text("⛔ You are not allowed to teach from images.")
+        return
+
     await show_typing(update, context)
     chat_id = update.effective_chat.id
     user = update.effective_user
@@ -997,6 +1051,10 @@ async def sources(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ---------- UNLEARN ----------
 async def unlearn(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not require_admin(update):
+        await update.message.reply_text("⛔ You are not allowed to remove global sources.")
+        return
+
     await show_typing(update, context)
     chat_id = update.effective_chat.id
     user = update.effective_user
@@ -1028,6 +1086,10 @@ async def unlearn(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ---------- CLEAR ----------
 async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not require_admin(update):
+        await update.message.reply_text("⛔ You are not allowed to clear global knowledge.")
+        return
+
     await show_typing(update, context)
     user = update.effective_user
     topic = get_current_topic(context)
@@ -1491,6 +1553,73 @@ async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg)
 
 
+# ---------- BACKUP SOURCES ----------
+async def backup_sources(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not require_admin(update):
+        await update.message.reply_text("⛔ Admin only.")
+        return
+
+    await update.message.reply_text("📦 Backing up all sources…")
+
+    data = {}
+    client = chroma
+    collections = client.list_collections()
+
+    for col_info in collections:
+        col = client.get_collection(col_info.name)
+        payload = col.get(include=["documents", "metadatas", "ids"])
+        data[col_info.name] = payload
+
+    path = os.path.join(DATA_DIR, "backup_sources.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+    await update.message.reply_text(
+        f"✅ Backup completed.\nSaved to:\n{path}\n\nYou can download it from the Railway volume."
+    )
+
+
+# ---------- HEALTH CHECK ----------
+async def health(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    checks = []
+
+    # 1) OpenAI check
+    try:
+        _ = openai.ChatCompletion.create(
+            model="gpt-4.1-mini",
+            messages=[{"role": "user", "content": "ping"}],
+            max_tokens=5,
+        )
+        checks.append("✅ OpenAI: OK")
+    except Exception as e:
+        checks.append(f"❌ OpenAI: {e}")
+
+    # 2) Chroma write test
+    try:
+        test_col = chroma.get_or_create_collection("health_check")
+        test_col.add(
+            ids=["ping"],
+            documents=["pong"],
+            metadatas=[{"type": "health"}],
+        )
+        test_col.delete(ids=["ping"])
+        checks.append("✅ Chroma: writable")
+    except Exception as e:
+        checks.append(f"❌ Chroma: {e}")
+
+    # 3) Volume check
+    try:
+        test_path = os.path.join(DATA_DIR, "health.txt")
+        with open(test_path, "w") as f:
+            f.write("ok")
+        os.remove(test_path)
+        checks.append(f"✅ Volume: writable ({DATA_DIR})")
+    except Exception as e:
+        checks.append(f"❌ Volume: {e}")
+
+    await update.message.reply_text("🧪 Health Check\n\n" + "\n".join(checks))
+
+
 # ---------- NEW FEATURE HELPERS ----------
 def set_pending_feature(context: ContextTypes.DEFAULT_TYPE, feature: str | None):
     context.user_data["pending_feature"] = feature
@@ -1696,7 +1825,8 @@ async def plan_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         set_pending_feature(context, "plan")
         await update.message.reply_text(
             "📅 Application Plan mode ON.\n\n"
-            "Tell me your grade, target countries, intended major, test scores (if any), and your rough deadlines."
+            "Tell me your grade, target countries, intended major, test scores (if any), and your rough deadlines.",
+            reply_markup=plan_keyboard(),
         )
         return
 
@@ -1823,7 +1953,8 @@ async def schoolfinder_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "🏫 School Finder mode ON.\n\n"
             "Send me your GPA (or approximate), test scores (if any), budget, target countries, "
-            "intended major, and any constraints (e.g. need scholarship)."
+            "intended major, and any constraints (e.g. need scholarship).",
+            reply_markup=schoolfinder_keyboard(),
         )
         return
 
@@ -1901,7 +2032,18 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     topic_before = get_current_topic(context)
     record_event(user.id, topic_before, kind="message")
 
-    # --- Handle pending feature input first ---
+    # ---- HANDLE BACK FIRST (fixes back-as-question bug) ----
+    if is_back_message(q):
+        context.user_data["eval_active"] = False
+        context.user_data["pending_feature"] = None
+        context.user_data["topic"] = DEFAULT_TOPIC
+        await update.message.reply_text(
+            "Back to main menu. You're now in general mode – you can just ask questions or choose a section again.",
+            reply_markup=main_menu_keyboard(),
+        )
+        return
+
+    # --- Handle pending feature input (only if not Back) ---
     pending = context.user_data.get("pending_feature")
     if pending:
         context.user_data["pending_feature"] = None
@@ -1960,7 +2102,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             update,
             "📅 Application Plan mode ON.\n\n"
             "Tell me your grade, target countries, intended major, test scores (if any), and your rough deadlines.",
-            reply_markup=main_menu_with_back(),
+            reply_markup=plan_keyboard(),
             image_key="plan_main",
         )
         return
@@ -1974,18 +2116,8 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🏫 School Finder mode ON.\n\n"
             "Send me your GPA (or approximate), test scores (if any), budget, target countries, "
             "intended major, and any constraints (e.g. need scholarship).",
-            reply_markup=main_menu_with_back(),
+            reply_markup=schoolfinder_keyboard(),
             image_key="schoolfinder_main",
-        )
-        return
-
-    if q == BTN_BACK:
-        context.user_data["eval_active"] = False
-        context.user_data["pending_feature"] = None
-        context.user_data["topic"] = DEFAULT_TOPIC
-        await update.message.reply_text(
-            "Back to main menu. You're now in general mode – you can just ask questions or choose a section again.",
-            reply_markup=main_menu_keyboard(),
         )
         return
 
@@ -2344,6 +2476,8 @@ app.add_handler(CommandHandler("plan", plan_cmd), group=0)
 app.add_handler(CommandHandler("recpacket", recpacket_cmd), group=0)
 app.add_handler(CommandHandler("schoolfinder", schoolfinder_cmd), group=0)
 app.add_handler(CommandHandler("portfolioideas", portfolioideas_cmd), group=0)
+app.add_handler(CommandHandler("backup_sources", backup_sources), group=0)
+app.add_handler(CommandHandler("health", health), group=0)
 
 # ===== GROUP 1: FILES / PHOTOS =====
 app.add_handler(MessageHandler(filters.Document.ALL, document_router), group=1)
@@ -2355,7 +2489,7 @@ app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, answer), group=1
 print(
     "Bot is running with GLOBAL per-topic RAG + metadata separation (qa/evaluation) + submenus "
     "+ per-topic evaluation + embedded tools (brainstorm, rewrite, plan, recpacket, schoolfinder, portfolioideas) "
-    "+ Application Plan & School Finder topics + analytics…"
+    "+ Application Plan & School Finder topics + analytics + admin locks + backup + health…"
 )
 
 if __name__ == "__main__":
