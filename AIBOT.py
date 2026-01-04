@@ -1659,8 +1659,8 @@ async def run_brainstorm(update: Update, context: ContextTypes.DEFAULT_TYPE, des
 
     sys = (
         f"You are an admissions mentor helping a student brainstorm ideas for {nice_topic}.\n"
-        "- Give 3–5 short bullet ideas or angles.\n"
-        "- Each bullet should be 1–2 concise sentences.\n"
+        "- Give 3-5 short bullet ideas or angles.\n"
+        "- Each bullet should be 1-2 concise sentences.\n"
         "- Focus on realistic, personal, and application-relevant ideas.\n"
         "- Keep the tone friendly, specific, and not generic."
     )
@@ -1796,7 +1796,7 @@ async def run_plan(update: Update, context: ContextTypes.DEFAULT_TYPE, descripti
         "- Based on the student's situation, create a concise application plan.\n"
         "- Organize it into short bullet points under 3 headings: "
         "Academics & Testing, Essays & Recs, Activities & Extras.\n"
-        "- Keep total response around 120–200 words.\n"
+        "- Keep total response around 120-200 words.\n"
         "- Focus on practical next steps, not theory."
     )
 
@@ -1857,9 +1857,9 @@ async def run_recpacket(update: Update, context: ContextTypes.DEFAULT_TYPE, desc
     sys = (
         "You are creating a recommendation letter 'brag sheet' for a teacher.\n"
         "- Output in 3 short sections:\n"
-        "  1) 3–5 sentence summary the student can give the teacher.\n"
+        "  1) 3-5 sentence summary the student can give the teacher.\n"
         "  2) Bullet list of key achievements/impacts.\n"
-        "  3) Bullet list of personal qualities and 2–3 specific story ideas.\n"
+        "  3) Bullet list of personal qualities and 2-3 specific story ideas.\n"
         "- Keep it concise and realistic for competitive admissions."
     )
 
@@ -1922,8 +1922,8 @@ async def run_schoolfinder(update: Update, context: ContextTypes.DEFAULT_TYPE, d
         "You are a university match advisor.\n"
         "- Based on the student's stats and preferences, suggest Reach, Match, and Safety school *types* "
         "and a few example universities.\n"
-        "- For each category, give 2–4 example schools and 1–2 bullets about why they fit.\n"
-        "- Keep total response concise (around 150–220 words).\n"
+        "- For each category, give 2-4 example schools and 1-2 bullets about why they fit.\n"
+        "- Keep total response concise (around 150-220 words).\n"
         "- Make it clear this is an approximate starting point and they must research details themselves."
     )
 
@@ -1985,8 +1985,8 @@ async def run_portfolioideas(update: Update, context: ContextTypes.DEFAULT_TYPE,
     sys = (
         "You are a portfolio mentor for university applications.\n"
         "- Based on the student's field (e.g. CS, design, art, film, business) and interests, "
-        "suggest 3–6 concrete project ideas.\n"
-        "- Each idea should be 1–2 sentences, focused on impact and what it shows about the student.\n"
+        "suggest 3-6 concrete project ideas.\n"
+        "- Each idea should be 1-2 sentences, focused on impact and what it shows about the student.\n"
         "- Make ideas realistic for a high school student, but impressive."
     )
 
@@ -2052,7 +2052,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["pending_feature"] = None
         context.user_data["topic"] = DEFAULT_TOPIC
         await update.message.reply_text(
-            "Back to main menu. You're now in general mode – you can just ask questions or choose a section again.",
+            "Back to main menu. You're now in general mode - you can just ask questions or choose a section again.",
             reply_markup=main_menu_keyboard(),
         )
         return
@@ -2432,7 +2432,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sys = (
         f"You are UniVenture, a focused university admissions mentor.\n"
         f"Current topic: {nice_topic}.\n"
-        "- Give short, clear, high-value answers (3–7 sentences max).\n"
+        "- Give short, clear, high-value answers (3-7 sentences max).\n"
         "- Speak in a natural, human tone, like a friendly but direct older student mentor.\n"
         "- Prioritize practical, actionable advice over theory.\n"
         "- Use the provided context (if any) as trusted program material and do not contradict it."
