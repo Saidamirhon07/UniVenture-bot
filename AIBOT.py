@@ -139,6 +139,7 @@ BTN_ESSAY_PS = "📝 Personal Statement"
 BTN_ESSAY_SUPP = "📝 Supplemental Essays"
 
 # Extra tools (as buttons inside menus)
+BTN_EC_PROGRAMS = "🌍 Top Programs & Opportunities"
 BTN_BRAINSTORM = "🧠 Brainstorm ideas"
 BTN_REWRITE = "✍️ Rewrite my text"
 BTN_REC_PACKET = "📄 Rec Letter Packet"
@@ -215,6 +216,7 @@ def ec_keyboard():
     return ReplyKeyboardMarkup(
         [
             [KeyboardButton(BTN_EC_EVAL)],
+            [KeyboardButton(BTN_EC_PROGRAMS)],
             [KeyboardButton(BTN_BACK)],
         ],
         resize_keyboard=True,
@@ -425,8 +427,8 @@ def sanitize_output(text: str) -> str:
         return text
     return (
         text
-        .replace("—", "-")
-        .replace("—", "-")
+        .replace("—", " - ")
+        .replace("—", " - ")
     )
 
 async def send_long(update: Update, text: str):
@@ -2187,6 +2189,13 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "For feedback on your activities list, click '✅ Extracurricular Evaluation' "
             "and then upload your EC descriptions as a PDF/DOCX or paste them."
+        )
+        return
+    
+    if q == BTN_EC_PROGRAMS:
+        await update.message.reply_text(
+            "🌍 Here is a list of top extracurricular programs and opportunities:\n\n"
+            "https://docs.google.com/spreadsheets/d/1D-UlJGrg32Ib-9Rvm9y7lKkE6jkx3EK-Kb_qJ6G3tos/edit?usp=sharing\n\n"
         )
         return
 
