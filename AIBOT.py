@@ -420,11 +420,23 @@ async def show_typing(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
+def sanitize_output(text: str) -> str:
+    if not text:
+        return text
+    return (
+        text
+        .replace("—", "-")
+        .replace("—", "-")
+    )
 
 async def send_long(update: Update, text: str):
     MAX_LEN = 4000
     if not text:
         return
+    
+    # ✅ normalize dashes here
+    text = sanitize_output(text)
+
     for i in range(0, len(text), MAX_LEN):
         chunk = text[i : i + MAX_LEN]
         await update.message.reply_text(chunk)
