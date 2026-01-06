@@ -587,33 +587,49 @@ async def teachrubric(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     title, content = [p.strip() for p in text.split("|", 1)]
 
-    # ✅ FIX: get topic here, not earlier
     topic = get_current_topic(context)
     record_event(user.id, topic, kind="teachrubric")
 
     col = get_collection(chat_id, topic)
 
-    existing = col.get(where={"title": title})
-    if existing and existing.get("ids"):
-        await update.message.reply_text(
-            f"'{title}' already exists in topic: {topic}. "
-            "Use /unlearn '<title>' first if you want to replace it."
+    # --- SAFETY: sanitize content for embedding ---
+    safe_content = safe_text_for_embedding(content)
+
+    before_count = col.count()
+
+    try:
+        col.add(
+            ids=[f"{topic}_{before_count + 1}"],
+            metadatas=[{
+                "title": title,
+                "topic": topic,
+                "type": "evaluation",
+                "source": "manual"
+            }],
+            documents=[safe_content],
         )
+    except Exception as e:
+        await update.message.reply_text(f"❌ Failed to save rubric: {e}")
         return
 
-    doc_id = f"{topic}_{col.count()+1}"
-    col.add(
-        ids=[doc_id],
-        metadatas=[
-            {"title": title, "topic": topic, "type": "evaluation", "source": "manual"}
-        ],
-        documents=[content],
-    )
+    # --- VERIFY WRITE ---
+    after_count = col.count()
+    if after_count <= before_count:
+        # retry once
+        col.add(
+            ids=[f"{topic}_{before_count + 2}"],
+            metadatas=[{
+                "title": title,
+                "topic": topic,
+                "type": "evaluation",
+                "source": "manual"
+            }],
+            documents=[safe_content],
+        )
 
     await update.message.reply_text(
         f"Learned evaluation rubric '{title}' ✅ (topic: {topic}, scope: GLOBAL)"
     )
-
 
 
 # ---------- TEACH FILE (Q&A sources) ----------
@@ -2054,6 +2070,12 @@ async def portfolioideas_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     description = parts[1].strip()
     await run_portfolioideas(update, context, description)
+
+def safe_text_for_embedding(text: str) -> str:
+    if not text:
+        return text
+    # normalize unicode to avoid silent embedding issues
+    return text.encode("utf-8", "ignore").decode("utf-8")
 
 
 # ---------- MAIN ANSWER ----------
