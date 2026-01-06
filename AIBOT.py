@@ -1035,31 +1035,46 @@ async def sources(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     topic = get_current_topic(context)
     col = get_collection(chat_id, topic)
+
     data = col.get(include=["metadatas"])
     metas = data.get("metadatas") or []
-    counts = Counter(m.get("title", "Untitled") for m in metas)
 
-    if not counts:
+    if not metas:
         msg = f"📌 Active topic: {topic}\nNo sources yet. (Global collection is empty.)"
         await update.message.reply_text(msg)
         return
 
-    type_map = {}
+    qa_titles = []
+    eval_titles = []
+
     for m in metas:
         title = m.get("title", "Untitled")
-        t = m.get("type", "qa")
-        type_map.setdefault(title, t)
+        source_type = m.get("type", "qa")
+
+        if source_type == "evaluation":
+            eval_titles.append(title)
+        else:
+            qa_titles.append(title)
+
+    # Remove duplicates while preserving order
+    qa_titles = list(dict.fromkeys(qa_titles))
+    eval_titles = list(dict.fromkeys(eval_titles))
 
     lines = []
-    for title, n in counts.items():
-        t = type_map.get(title, "qa")
-        label = "Q&A" if t == "qa" else ("Eval" if t == "evaluation" else t)
-        if n > 1:
-            lines.append(f"• {title} ({n} parts, {label})")
-        else:
-            lines.append(f"• {title} ({label})")
+    lines.append(f"📌 Active topic: {topic} (GLOBAL)\n")
 
-    msg = f"📌 Active topic: {topic} (GLOBAL)\n" + "\n".join(lines)
+    if eval_titles:
+        lines.append("📘 Evaluation Rubrics:")
+        for t in eval_titles:
+            lines.append(f"• {t}")
+        lines.append("")  # spacing
+
+    if qa_titles:
+        lines.append("📗 Q&A Sources:")
+        for t in qa_titles:
+            lines.append(f"• {t}")
+
+    msg = "\n".join(lines)
     await update.message.reply_text(msg)
 
 
