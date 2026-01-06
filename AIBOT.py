@@ -530,14 +530,19 @@ async def teach(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = extract_command_text(update)
 
+    # ✅ REMOVE COMMAND PREFIX
+    if text.startswith("/teach"):
+        text = text[len("/teach"):].strip()
+    
     if "|" not in text:
         await update.message.reply_text(
             "Use format:\n/teach <title> | <content>\n\n"
             f"Current topic: {topic}"
         )
         return
-
+    
     title, content = [p.strip() for p in text.split("|", 1)]
+
     col = get_collection(chat_id, topic)
 
     existing = col.get(where={"title": title})
@@ -573,6 +578,11 @@ async def teachrubric(update: Update, context: ContextTypes.DEFAULT_TYPE):
     record_event(user.id, topic, kind="teachrubric")
 
     text = extract_command_text(update)
+
+    # ✅ strip command prefix
+    if text.startswith("/teachrubric"):
+        text = text[len("/teachrubric"):].strip()
+    
     if "|" not in text:
         await update.message.reply_text(
             "Use format:\n/teachrubric <title> | <rubric / evaluation criteria>\n\n"
