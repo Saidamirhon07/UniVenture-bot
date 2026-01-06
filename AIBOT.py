@@ -566,7 +566,6 @@ async def teach(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ---------- TEACH RUBRIC (EVALUATION sources) ----------
 async def teachrubric(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Teach evaluation criteria / rubric as text, for evaluation mode."""
     if not require_admin(update):
         await update.message.reply_text("⛔ You are not allowed to teach global rubrics.")
         return
@@ -574,23 +573,24 @@ async def teachrubric(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_typing(update, context)
     chat_id = update.effective_chat.id
     user = update.effective_user
-    topic = get_current_topic(context)
-    record_event(user.id, topic, kind="teachrubric")
 
     text = extract_command_text(update)
 
-    # ✅ STRIP COMMAND PREFIX (CRITICAL)
     if text.startswith("/teachrubric"):
         text = text[len("/teachrubric"):].strip()
-    
+
     if "|" not in text:
         await update.message.reply_text(
-            "Use format:\n/teachrubric <title> | <rubric / evaluation criteria>\n\n"
-            f"Current topic: {topic}"
+            "Use format:\n/teachrubric <title> | <rubric / evaluation criteria>"
         )
         return
-    
+
     title, content = [p.strip() for p in text.split("|", 1)]
+
+    # ✅ FIX: get topic here, not earlier
+    topic = get_current_topic(context)
+    record_event(user.id, topic, kind="teachrubric")
+
     col = get_collection(chat_id, topic)
 
     existing = col.get(where={"title": title})
@@ -609,9 +609,11 @@ async def teachrubric(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ],
         documents=[content],
     )
+
     await update.message.reply_text(
         f"Learned evaluation rubric '{title}' ✅ (topic: {topic}, scope: GLOBAL)"
     )
+
 
 
 # ---------- TEACH FILE (Q&A sources) ----------
