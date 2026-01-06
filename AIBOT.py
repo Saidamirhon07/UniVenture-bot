@@ -579,7 +579,7 @@ async def teachrubric(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = extract_command_text(update)
 
-    # ✅ strip command prefix
+    # ✅ STRIP COMMAND PREFIX (CRITICAL)
     if text.startswith("/teachrubric"):
         text = text[len("/teachrubric"):].strip()
     
@@ -589,7 +589,7 @@ async def teachrubric(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Current topic: {topic}"
         )
         return
-
+    
     title, content = [p.strip() for p in text.split("|", 1)]
     col = get_collection(chat_id, topic)
 
