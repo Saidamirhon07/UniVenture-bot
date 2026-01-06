@@ -11,8 +11,7 @@ from dotenv import load_dotenv
 import openai
 import chromadb
 from chromadb.utils import embedding_functions
-import os, io, asyncio, nest_asyncio, logging, json, base64
-from collections import Counter
+import os, io, nest_asyncio, logging, json, base64
 
 # -------- File extraction deps --------
 from pdfminer.high_level import extract_text
@@ -185,7 +184,6 @@ def essay_main_keyboard():
 
 
 def essay_ps_keyboard():
-    # PS menu: Eval + Brainstorm + Rewrite + Back
     return ReplyKeyboardMarkup(
         [
             [KeyboardButton(BTN_PS_EVAL)],
@@ -199,7 +197,6 @@ def essay_ps_keyboard():
 
 
 def essay_supp_keyboard():
-    # Supp menu: Eval + Brainstorm + Rewrite + Back
     return ReplyKeyboardMarkup(
         [
             [KeyboardButton(BTN_SUPP_EVAL)],
@@ -260,7 +257,6 @@ def ielts_main_keyboard():
 
 
 def ielts_writing_keyboard():
-    # Inside IELTS Writing: ONLY eval + back (as you requested)
     return ReplyKeyboardMarkup(
         [
             [KeyboardButton(BTN_IW_EVAL)],
@@ -284,22 +280,16 @@ def portfolio_keyboard():
 
 
 def plan_keyboard():
-    # Inside Application Plan: only Back
     return ReplyKeyboardMarkup(
-        [
-            [KeyboardButton(BTN_BACK)],
-        ],
+        [[KeyboardButton(BTN_BACK)]],
         resize_keyboard=True,
         one_time_keyboard=False,
     )
 
 
 def schoolfinder_keyboard():
-    # Inside School Finder: only Back
     return ReplyKeyboardMarkup(
-        [
-            [KeyboardButton(BTN_BACK)],
-        ],
+        [[KeyboardButton(BTN_BACK)]],
         resize_keyboard=True,
         one_time_keyboard=False,
     )
@@ -325,7 +315,6 @@ TOPIC_KEYS = {
     BTN_IELTS_SPEAKING: "ielts_speaking",
 }
 
-# Topics where uploads are evaluated (not used as training)
 EVAL_TOPICS = {
     "essays_personal",
     "essays_supplemental",
@@ -352,7 +341,6 @@ FRIENDLY_TOPIC_NAMES = {
 }
 
 DEFAULT_TOPIC = "general"
-
 
 # -------- Image mapping --------
 IMAGE_FILES = {
@@ -381,10 +369,8 @@ def get_current_topic(context: ContextTypes.DEFAULT_TYPE) -> str:
 
 
 def get_collection(chat_id: int, topic: str):
-    """
-    GLOBAL per-topic collections shared by all users.
-    chat_id is kept in the signature for backwards compatibility but ignored.
-    """
+    # GLOBAL per-topic collections shared by all users.
+    # chat_id kept for backwards compatibility but ignored.
     return chroma.get_or_create_collection(
         name=f"{COLLECTION_PREFIX}_{topic}",
         embedding_function=emb_fn,
@@ -392,9 +378,8 @@ def get_collection(chat_id: int, topic: str):
 
 
 def _chunk(text: str, max_chars=1000, overlap=150):
-    """Simple char-based chunker."""
-    text = " ".join((text or "").split())
-    if not text:
+    text = text or ""
+    if not text.strip():
         return []
     chunks, i = [], 0
     while i < len(text):
@@ -407,7 +392,6 @@ def _chunk(text: str, max_chars=1000, overlap=150):
 
 
 def extract_command_text(update: Update) -> str:
-    """Get text for slash-commands from either message text or caption."""
     msg = update.message
     if not msg:
         return ""
@@ -422,26 +406,33 @@ async def show_typing(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
+
 def sanitize_output(text: str) -> str:
     if not text:
         return text
-    return (
-        text
-        .replace("—", " - ")
-        .replace("—", " - ")
-    )
+    return text.replace("—", " - ")
+
+
+def safe_text_for_embedding(text: str) -> str:
+    if not text:
+        return text
+    return text.encode("utf-8", "ignore").decode("utf-8")
+
+
+def _truncate_for_storage(text: str, max_chars: int = 12000) -> str:
+    if not text:
+        return ""
+    t = text.strip()
+    return t[:max_chars]
+
 
 async def send_long(update: Update, text: str):
     MAX_LEN = 4000
     if not text:
         return
-    
-    # ✅ normalize dashes here
     text = sanitize_output(text)
-
     for i in range(0, len(text), MAX_LEN):
-        chunk = text[i : i + MAX_LEN]
-        await update.message.reply_text(chunk)
+        await update.message.reply_text(text[i : i + MAX_LEN])
 
 
 async def send_with_image(
@@ -485,23 +476,124 @@ def extract_text_from_image_bytes(image_bytes: bytes) -> str:
                             "Return ONLY the plain text, no extra comments."
                         ),
                     },
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": data_url},
-                    },
+                    {"type": "image_url", "image_url": {"url": data_url}},
                 ],
             }
         ],
         temperature=0.0,
     )
-    content = resp["choices"][0]["message"]["content"]
-    return content or ""
+    return resp["choices"][0]["message"]["content"] or ""
 
 
-# -------- Handlers --------
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["topic"] = DEFAULT_TOPIC
+# ---------- EVAL FOLLOW-UP HELPERS ----------
+FOLLOWUP_TRIGGERS = [
+    "next step",
+    "do it",
+    "do this",
+    "apply",
+    "apply this",
+    "apply the feedback",
+    "rewrite",
+    "rewrite the ending",
+    "rewrite the conclusion",
+    "improve",
+    "fix",
+    "edit",
+    "revise",
+    "expand",
+    "continue",
+    "make it smoother",
+    "make transitions",
+    "stronger conclusion",
+    "deeper reflection",
+]
+
+
+def is_followup_intent(q: str) -> bool:
+    s = (q or "").lower()
+    return any(t in s for t in FOLLOWUP_TRIGGERS)
+
+
+def looks_like_submission(q: str) -> bool:
+    t = (q or "").strip()
+    if len(t) >= 600:
+        return True
+    if len(t) >= 250 and t.count("\n") >= 6:
+        return True
+    return False
+
+
+def clear_eval_context(context: ContextTypes.DEFAULT_TYPE):
+    for k in [
+        "last_eval_topic",
+        "last_eval_text",
+        "last_eval_text_original",
+        "last_eval_feedback",
+    ]:
+        context.user_data.pop(k, None)
     context.user_data["eval_active"] = False
+
+
+def set_eval_context(
+    context: ContextTypes.DEFAULT_TYPE,
+    topic: str,
+    student_text: str,
+    feedback: str,
+):
+    context.user_data["last_eval_topic"] = topic
+    context.user_data["last_eval_text_original"] = student_text
+    context.user_data["last_eval_text"] = student_text
+    context.user_data["last_eval_feedback"] = feedback
+    context.user_data["eval_active"] = True
+
+
+def _pretty_topic_for_eval(topic: str) -> str:
+    return {
+        "essays_personal": "Personal Statement essay",
+        "essays_supplemental": "Supplemental essay",
+        "recommendations": "Recommendation letter",
+        "portfolio": "Portfolio description",
+        "extracurriculars": "Extracurricular activities description",
+        "ielts_writing": "IELTS Writing answer",
+    }.get(topic, "document")
+
+
+def _sys_role_for_eval(topic: str) -> str:
+    if topic in {"essays_personal", "essays_supplemental"}:
+        return (
+            "You are an expert college admissions essay coach. "
+            "Improve the student's essay using the prior feedback. "
+            "Focus on clarity, structure, voice, authenticity, reflection, and impact."
+        )
+    if topic == "recommendations":
+        return (
+            "You are an expert on college recommendation letters. "
+            "Improve the letter using the prior feedback. "
+            "Focus on specificity, credibility, depth of insight, and support for the student."
+        )
+    if topic == "extracurriculars":
+        return (
+            "You are an expert on extracurricular strategy for college applications. "
+            "Improve the EC descriptions using the prior feedback. "
+            "Focus on impact, leadership, continuity, clarity, and strong phrasing."
+        )
+    if topic == "ielts_writing":
+        return (
+            "You are an experienced IELTS Writing examiner. "
+            "Improve the student's writing using the prior feedback. "
+            "Focus on Task Response, Coherence and Cohesion, Lexical Resource, and Grammar."
+        )
+    return (
+        "You are an expert college portfolio reviewer. "
+        "Improve the portfolio description using the prior feedback. "
+        "Focus on coherence, originality, technical quality, and fit for selective colleges."
+    )
+
+
+# ---------- Handlers ----------
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    clear_eval_context(context)
+    context.user_data["topic"] = DEFAULT_TOPIC
     context.user_data["pending_feature"] = None
     user = update.effective_user
     record_event(user.id, "start", kind="start")
@@ -530,19 +622,16 @@ async def teach(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = extract_command_text(update)
 
-    # ✅ REMOVE COMMAND PREFIX
     if text.startswith("/teach"):
-        text = text[len("/teach"):].strip()
-    
+        text = text[len("/teach") :].strip()
+
     if "|" not in text:
         await update.message.reply_text(
-            "Use format:\n/teach <title> | <content>\n\n"
-            f"Current topic: {topic}"
+            "Use format:\n/teach <title> | <content>\n\n" f"Current topic: {topic}"
         )
         return
-    
-    title, content = [p.strip() for p in text.split("|", 1)]
 
+    title, content = [p.strip() for p in text.split("|", 1)]
     col = get_collection(chat_id, topic)
 
     existing = col.get(where={"title": title})
@@ -553,7 +642,7 @@ async def teach(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    doc_id = f"{topic}_{col.count()+1}"
+    doc_id = f"{topic}_{col.count() + 1}"
     col.add(
         ids=[doc_id],
         metadatas=[{"title": title, "topic": topic, "type": "qa", "source": "manual"}],
@@ -575,9 +664,8 @@ async def teachrubric(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
 
     text = extract_command_text(update)
-
     if text.startswith("/teachrubric"):
-        text = text[len("/teachrubric"):].strip()
+        text = text[len("/teachrubric") :].strip()
 
     if "|" not in text:
         await update.message.reply_text(
@@ -586,46 +674,32 @@ async def teachrubric(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     title, content = [p.strip() for p in text.split("|", 1)]
-
     topic = get_current_topic(context)
     record_event(user.id, topic, kind="teachrubric")
 
     col = get_collection(chat_id, topic)
-
-    # --- SAFETY: sanitize content for embedding ---
     safe_content = safe_text_for_embedding(content)
 
-    before_count = col.count()
+    existing = col.get(where={"title": title})
+    if existing and existing.get("ids"):
+        await update.message.reply_text(
+            f"'{title}' already exists in topic: {topic}. "
+            "Use /unlearn '<title>' first if you want to replace it."
+        )
+        return
 
+    before_count = col.count()
     try:
         col.add(
             ids=[f"{topic}_{before_count + 1}"],
-            metadatas=[{
-                "title": title,
-                "topic": topic,
-                "type": "evaluation",
-                "source": "manual"
-            }],
+            metadatas=[
+                {"title": title, "topic": topic, "type": "evaluation", "source": "manual"}
+            ],
             documents=[safe_content],
         )
     except Exception as e:
         await update.message.reply_text(f"❌ Failed to save rubric: {e}")
         return
-
-    # --- VERIFY WRITE ---
-    after_count = col.count()
-    if after_count <= before_count:
-        # retry once
-        col.add(
-            ids=[f"{topic}_{before_count + 2}"],
-            metadatas=[{
-                "title": title,
-                "topic": topic,
-                "type": "evaluation",
-                "source": "manual"
-            }],
-            documents=[safe_content],
-        )
 
     await update.message.reply_text(
         f"Learned evaluation rubric '{title}' ✅ (topic: {topic}, scope: GLOBAL)"
@@ -634,7 +708,6 @@ async def teachrubric(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ---------- TEACH FILE (Q&A sources) ----------
 async def teachfile(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Teach by sending a PDF or DOCX, for Q&A use."""
     if not require_admin(update):
         await update.message.reply_text("⛔ You are not allowed to teach from files.")
         return
@@ -678,7 +751,6 @@ async def teachfile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     col = get_collection(chat_id, topic)
-
     existing = col.get(where={"title": name})
     if existing and existing.get("ids"):
         await update.message.reply_text(
@@ -687,16 +759,10 @@ async def teachfile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    base = f"{topic}_{col.count()+1}"
+    base = f"{topic}_{col.count() + 1}"
     ids = [f"{base}_{i}" for i in range(len(parts))]
     metas = [
-        {
-            "title": name,
-            "topic": topic,
-            "part": i,
-            "source": "file",
-            "type": "qa",
-        }
+        {"title": name, "topic": topic, "part": i, "source": "file", "type": "qa"}
         for i in range(len(parts))
     ]
     col.add(ids=ids, metadatas=metas, documents=parts)
@@ -708,9 +774,10 @@ async def teachfile(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ---------- TEACH FILE EVAL (EVALUATION sources) ----------
 async def teachfile_eval(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Teach evaluation rubric by sending a PDF or DOCX."""
     if not require_admin(update):
-        await update.message.reply_text("⛔ You are not allowed to teach evaluation rubrics from files.")
+        await update.message.reply_text(
+            "⛔ You are not allowed to teach evaluation rubrics from files."
+        )
         return
 
     await show_typing(update, context)
@@ -740,9 +807,7 @@ async def teachfile_eval(update: Update, context: ContextTypes.DEFAULT_TYPE):
             d = DocxDocument(io.BytesIO(file_bytes))
             text = "\n".join(p.text for p in d.paragraphs)
         else:
-            await update.message.reply_text(
-                "Only PDF or DOCX are supported for /teachfile_eval."
-            )
+            await update.message.reply_text("Only PDF or DOCX are supported for /teachfile_eval.")
             return
     except Exception as e:
         await update.message.reply_text(f"Could not read file: {e}")
@@ -754,7 +819,6 @@ async def teachfile_eval(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     col = get_collection(chat_id, topic)
-
     existing = col.get(where={"title": name})
     if existing and existing.get("ids"):
         await update.message.reply_text(
@@ -763,16 +827,10 @@ async def teachfile_eval(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    base = f"{topic}_{col.count()+1}"
+    base = f"{topic}_{col.count() + 1}"
     ids = [f"{base}_eval_{i}" for i in range(len(parts))]
     metas = [
-        {
-            "title": name,
-            "topic": topic,
-            "part": i,
-            "source": "file",
-            "type": "evaluation",
-        }
+        {"title": name, "topic": topic, "part": i, "source": "file", "type": "evaluation"}
         for i in range(len(parts))
     ]
     col.add(ids=ids, metadatas=metas, documents=parts)
@@ -801,9 +859,7 @@ async def teachlink(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     url = parts[1].strip()
-    await update.message.reply_text(
-        "Fetching content from link and learning from it (Q&A)…"
-    )
+    await update.message.reply_text("Fetching content from link and learning from it (Q&A)…")
 
     try:
         downloaded = trafilatura.fetch_url(url)
@@ -818,31 +874,21 @@ async def teachlink(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     chunks = _chunk(text)
     if not chunks:
-        await update.message.reply_text(
-            "The page did not contain enough text to learn from."
-        )
+        await update.message.reply_text("The page did not contain enough text to learn from.")
         return
 
     col = get_collection(chat_id, topic)
-
     existing = col.get(where={"title": url})
     if existing and existing.get("ids"):
         await update.message.reply_text(
-            f"This link is already learned in topic: {topic}.\n"
-            "Use /unlearn <url> to remove it first."
+            f"This link is already learned in topic: {topic}.\nUse /unlearn <url> to remove it first."
         )
         return
 
-    base = f"{topic}_{col.count()+1}"
+    base = f"{topic}_{col.count() + 1}"
     ids = [f"{base}_{i}" for i in range(len(chunks))]
     metas = [
-        {
-            "title": url,
-            "topic": topic,
-            "part": i,
-            "source": "link",
-            "type": "qa",
-        }
+        {"title": url, "topic": topic, "part": i, "source": "link", "type": "qa"}
         for i in range(len(chunks))
     ]
     col.add(ids=ids, metadatas=metas, documents=chunks)
@@ -890,31 +936,21 @@ async def teachlink_eval(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     chunks = _chunk(text)
     if not chunks:
-        await update.message.reply_text(
-            "The page did not contain enough text to learn from."
-        )
+        await update.message.reply_text("The page did not contain enough text to learn from.")
         return
 
     col = get_collection(chat_id, topic)
-
     existing = col.get(where={"title": url})
     if existing and existing.get("ids"):
         await update.message.reply_text(
-            f"This link is already learned in topic: {topic}.\n"
-            "Use /unlearn <url> to remove it first."
+            f"This link is already learned in topic: {topic}.\nUse /unlearn <url> to remove it first."
         )
         return
 
-    base = f"{topic}_{col.count()+1}"
+    base = f"{topic}_{col.count() + 1}"
     ids = [f"{base}_eval_{i}" for i in range(len(chunks))]
     metas = [
-        {
-            "title": url,
-            "topic": topic,
-            "part": i,
-            "source": "link",
-            "type": "evaluation",
-        }
+        {"title": url, "topic": topic, "part": i, "source": "link", "type": "evaluation"}
         for i in range(len(chunks))
     ]
     col.add(ids=ids, metadatas=metas, documents=chunks)
@@ -938,9 +974,7 @@ async def teachimage(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     photos = update.message.photo or []
     if not photos:
-        await update.message.reply_text(
-            "Please send a clear image with caption:\n/teachimage <title>"
-        )
+        await update.message.reply_text("Please send a clear image with caption:\n/teachimage <title>")
         return
 
     caption = (update.message.caption or "").strip()
@@ -977,25 +1011,17 @@ async def teachimage(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     col = get_collection(chat_id, topic)
-
     existing = col.get(where={"title": title})
     if existing and existing.get("ids"):
         await update.message.reply_text(
-            f"'{title}' is already learned in topic: {topic}.\n"
-            "Use /unlearn <title> to remove it first if needed."
+            f"'{title}' is already learned in topic: {topic}.\nUse /unlearn <title> to remove it first if needed."
         )
         return
 
-    base = f"{topic}_{col.count()+1}"
+    base = f"{topic}_{col.count() + 1}"
     ids = [f"{base}_img_{i}" for i in range(len(parts))]
     metas = [
-        {
-            "title": title,
-            "topic": topic,
-            "part": i,
-            "source": "image",
-            "type": "qa",
-        }
+        {"title": title, "topic": topic, "part": i, "source": "image", "type": "qa"}
         for i in range(len(parts))
     ]
     col.add(ids=ids, metadatas=metas, documents=parts)
@@ -1015,7 +1041,7 @@ async def sources_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("No sources stored yet.")
         return
 
-    source_stats = {}  # title -> {chunks, bytes}
+    source_stats = {}
     total_bytes = 0
     total_chunks = 0
 
@@ -1028,7 +1054,7 @@ async def sources_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         for doc, meta in zip(docs, metas):
             title = meta.get("title", "Untitled")
-            size_bytes = len(doc.encode("utf-8"))
+            size_bytes = len((doc or "").encode("utf-8"))
 
             if title not in source_stats:
                 source_stats[title] = {"chunks": 0, "bytes": 0}
@@ -1040,21 +1066,17 @@ async def sources_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
             total_bytes += size_bytes
 
     lines = []
-    for title, stats in sorted(
-        source_stats.items(), key=lambda x: x[1]["bytes"], reverse=True
-    ):
+    for title, stats in sorted(source_stats.items(), key=lambda x: x[1]["bytes"], reverse=True):
         mb = stats["bytes"] / (1024 * 1024)
         lines.append(f"• {title}: {stats['chunks']} chunks, {mb:.2f} MB")
 
     total_mb = total_bytes / (1024 * 1024)
-
     msg = (
         "📚 ALL BOT SOURCES (ALL TOPICS, GLOBAL)\n\n"
         f"Total chunks: {total_chunks}\n"
         f"Total text size: {total_mb:.2f} MB\n\n"
         + "\n".join(lines)
     )
-
     await send_long(update, msg)
 
 
@@ -1068,42 +1090,36 @@ async def sources(update: Update, context: ContextTypes.DEFAULT_TYPE):
     metas = data.get("metadatas") or []
 
     if not metas:
-        msg = f"📌 Active topic: {topic}\nNo sources yet. (Global collection is empty.)"
-        await update.message.reply_text(msg)
+        await update.message.reply_text(
+            f"📌 Active topic: {topic}\nNo sources yet. (Global collection is empty.)"
+        )
         return
 
     qa_titles = []
     eval_titles = []
-
     for m in metas:
         title = m.get("title", "Untitled")
         source_type = m.get("type", "qa")
-
         if source_type == "evaluation":
             eval_titles.append(title)
         else:
             qa_titles.append(title)
 
-    # Remove duplicates while preserving order
     qa_titles = list(dict.fromkeys(qa_titles))
     eval_titles = list(dict.fromkeys(eval_titles))
 
-    lines = []
-    lines.append(f"📌 Active topic: {topic} (GLOBAL)\n")
-
+    lines = [f"📌 Active topic: {topic} (GLOBAL)\n"]
     if eval_titles:
         lines.append("📘 Evaluation Rubrics:")
         for t in eval_titles:
             lines.append(f"• {t}")
-        lines.append("")  # spacing
-
+        lines.append("")
     if qa_titles:
         lines.append("📗 Q&A Sources:")
         for t in qa_titles:
             lines.append(f"• {t}")
 
-    msg = "\n".join(lines)
-    await update.message.reply_text(msg)
+    await update.message.reply_text("\n".join(lines))
 
 
 # ---------- UNLEARN ----------
@@ -1155,9 +1171,7 @@ async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
     collection_name = f"{COLLECTION_PREFIX}_{topic}"
     try:
         chroma.delete_collection(collection_name)
-        await update.message.reply_text(
-            f"Forgot everything 🧹 (topic: {topic}, scope: GLOBAL)"
-        )
+        await update.message.reply_text(f"Forgot everything 🧹 (topic: {topic}, scope: GLOBAL)")
     except Exception as e:
         logging.warning(f"Could not delete collection {collection_name}: {e}")
         await update.message.reply_text(
@@ -1167,7 +1181,6 @@ async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ---------- EVALUATION HELPERS ----------
 def _eval_context_from_collection(col, extra_query: str = ""):
-    """Get combined evaluation + QA snippets for evaluation prompts."""
     eval_docs = []
     qa_docs = []
     try:
@@ -1194,12 +1207,70 @@ def _eval_context_from_collection(col, extra_query: str = ""):
     return "\n\n---\n\n".join(docs) if docs else ""
 
 
+async def run_eval_followup(update: Update, context: ContextTypes.DEFAULT_TYPE, user_request: str):
+    await show_typing(update, context)
+    chat_id = update.effective_chat.id
+    user = update.effective_user
+
+    topic = context.user_data.get("last_eval_topic") or get_current_topic(context)
+    pretty_topic = _pretty_topic_for_eval(topic)
+
+    student_text = (context.user_data.get("last_eval_text") or "").strip()
+    prior_feedback = (context.user_data.get("last_eval_feedback") or "").strip()
+
+    if not student_text:
+        await update.message.reply_text(
+            "✅ Evaluation follow-up is ON, but I don’t have your last text saved.\n\n"
+            "Please paste the full text again (or upload PDF/DOCX), then I’ll apply feedback."
+        )
+        return
+
+    record_event(user.id, topic, kind="eval_followup")
+
+    col = get_collection(chat_id, topic)
+    context_block = _eval_context_from_collection(col, extra_query=pretty_topic)
+    sys_role = _sys_role_for_eval(topic)
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                sys_role
+                + "\n\nRules:\n"
+                "- Apply the prior feedback to revise the text.\n"
+                "- If the request is vague (e.g., 'do the next step'), default to: "
+                "smoother transitions + deeper reflection + stronger conclusion tied to the opening.\n"
+                "- Keep the student's voice.\n"
+                "- Output ONLY the revised text (no commentary)."
+            ),
+        },
+        {"role": "system", "content": f"Guidelines + examples (may be empty):\n{context_block}"},
+        {"role": "system", "content": f"Prior feedback to apply:\n{prior_feedback}"},
+        {"role": "system", "content": f"Text to revise:\n{student_text}"},
+        {"role": "user", "content": f"User request:\n{user_request}"},
+    ]
+
+    try:
+        r = openai.ChatCompletion.create(
+            model="gpt-4.1-mini",
+            messages=messages,
+            temperature=0.35,
+        )
+        revised = r["choices"][0]["message"]["content"] or ""
+    except Exception as e:
+        revised = f"Error during follow-up rewrite: {e}"
+
+    if revised and not revised.lower().startswith("error"):
+        context.user_data["last_eval_text"] = revised
+
+    await send_long(update, revised)
+
+
 async def evaluate_file_for_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_typing(update, context)
     chat_id = update.effective_chat.id
     user = update.effective_user
     topic = get_current_topic(context)
-
     record_event(user.id, topic, kind="eval")
 
     allowed = set(EVAL_TOPICS) | {"ielts_writing"}
@@ -1215,15 +1286,7 @@ async def evaluate_file_for_topic(update: Update, context: ContextTypes.DEFAULT_
         await update.message.reply_text("Please attach a PDF or DOCX file.")
         return
 
-    pretty_topic = {
-        "essays_personal": "Personal Statement essay",
-        "essays_supplemental": "Supplemental essay",
-        "recommendations": "Recommendation letter",
-        "portfolio": "Portfolio",
-        "extracurriculars": "Extracurricular activities description",
-        "ielts_writing": "IELTS Writing answer",
-    }.get(topic, "document")
-
+    pretty_topic = _pretty_topic_for_eval(topic)
     await update.message.reply_text(f"Reading your {pretty_topic} file…")
 
     tgfile = await doc.get_file()
@@ -1232,33 +1295,31 @@ async def evaluate_file_for_topic(update: Update, context: ContextTypes.DEFAULT_
 
     try:
         if name.endswith(".pdf"):
-            text = extract_text(io.BytesIO(file_bytes))
+            full_text = extract_text(io.BytesIO(file_bytes))
         elif name.endswith(".docx"):
             d = DocxDocument(io.BytesIO(file_bytes))
-            text = "\n".join(p.text for p in d.paragraphs)
+            full_text = "\n".join(p.text for p in d.paragraphs)
         else:
-            await update.message.reply_text(
-                "Only PDF or DOCX are supported for evaluation."
-            )
+            await update.message.reply_text("Only PDF or DOCX are supported for evaluation.")
             return
     except Exception as e:
         await update.message.reply_text(f"Could not read file: {e}")
         return
 
-    parts = _chunk(text, max_chars=1500)
-    if not parts:
-        await update.message.reply_text(
-            "I couldn't read enough text from that file to evaluate."
-        )
+    if not (full_text or "").strip():
+        await update.message.reply_text("I couldn't read enough text from that file to evaluate.")
         return
 
-    student_text = "\n\n---\n\n".join(parts[:5])
+    # For evaluation prompt (keep concise)
+    parts = _chunk(full_text, max_chars=1500)
+    student_text_for_eval = "\n\n---\n\n".join(parts[:5]) if parts else _truncate_for_storage(full_text, 4000)
 
-    await update.message.reply_text(
-        f"Analyzing your {pretty_topic} against my guidelines…"
-    )
+    # For follow-up rewrites (store more)
+    student_text_for_followup = _truncate_for_storage(full_text, 12000)
+
+    await update.message.reply_text(f"Analyzing your {pretty_topic} against my guidelines…")
+
     col = get_collection(chat_id, topic)
-
     context_block = _eval_context_from_collection(col, extra_query=pretty_topic)
 
     if topic in {"essays_personal", "essays_supplemental"}:
@@ -1294,22 +1355,9 @@ async def evaluate_file_for_topic(update: Update, context: ContextTypes.DEFAULT_
         )
 
     messages = [
-        {
-            "role": "system",
-            "content": (
-                sys_role
-                + " Use the guidelines and examples in the context when relevant. "
-                "If guidelines are missing or incomplete, use general best practices."
-            ),
-        },
-        {
-            "role": "system",
-            "content": f"Guidelines + examples (may be empty):\n{context_block}"
-        },
-        {
-            "role": "user",
-            "content": f"Here is the student's {pretty_topic}. Please evaluate it:\n\n{student_text}",
-        },
+        {"role": "system", "content": sys_role + " Use the guidelines and examples in the context when relevant."},
+        {"role": "system", "content": f"Guidelines + examples (may be empty):\n{context_block}"},
+        {"role": "user", "content": f"Here is the student's {pretty_topic}. Please evaluate it:\n\n{student_text_for_eval}"},
     ]
 
     try:
@@ -1322,6 +1370,7 @@ async def evaluate_file_for_topic(update: Update, context: ContextTypes.DEFAULT_
     except Exception as e:
         a = f"Error during evaluation: {e}"
 
+    set_eval_context(context, topic, student_text_for_followup, a)
     await send_long(update, a)
 
 
@@ -1330,14 +1379,11 @@ async def evaluate_ielts_writing_image(update: Update, context: ContextTypes.DEF
     chat_id = update.effective_chat.id
     user = update.effective_user
     topic = "ielts_writing"
-
     record_event(user.id, topic, kind="eval")
 
     photos = update.message.photo or []
     if not photos:
-        await update.message.reply_text(
-            "Please send a clear photo of your IELTS Writing answer."
-        )
+        await update.message.reply_text("Please send a clear photo of your IELTS Writing answer.")
         return
 
     largest = photos[-1]
@@ -1357,8 +1403,9 @@ async def evaluate_ielts_writing_image(update: Update, context: ContextTypes.DEF
         )
         return
 
+    student_text_for_followup = _truncate_for_storage(extracted, 12000)
     parts = _chunk(extracted, max_chars=1500)
-    student_text = "\n\n---\n\n".join(parts[:5])
+    student_text_for_eval = "\n\n---\n\n".join(parts[:5]) if parts else _truncate_for_storage(extracted, 4000)
 
     await update.message.reply_text("Analyzing your IELTS Writing answer…")
 
@@ -1373,22 +1420,9 @@ async def evaluate_ielts_writing_image(update: Update, context: ContextTypes.DEF
     )
 
     messages = [
-        {
-            "role": "system",
-            "content": (
-                sys_role
-                + " Use any rubric/context provided when available. "
-                "If the text seems incomplete or too short, mention that in your feedback."
-            ),
-        },
-        {
-            "role": "system",
-            "content": f"IELTS writing rubrics and notes (may be empty):\n{context_block}",
-        },
-        {
-            "role": "user",
-            "content": f"Here is the student's IELTS Writing answer (from an image):\n\n{student_text}",
-        },
+        {"role": "system", "content": sys_role},
+        {"role": "system", "content": f"IELTS writing rubrics and notes (may be empty):\n{context_block}"},
+        {"role": "user", "content": f"Here is the student's IELTS Writing answer (from an image):\n\n{student_text_for_eval}"},
     ]
 
     try:
@@ -1401,11 +1435,11 @@ async def evaluate_ielts_writing_image(update: Update, context: ContextTypes.DEF
     except Exception as e:
         a = f"Error during IELTS Writing evaluation: {e}"
 
+    set_eval_context(context, topic, student_text_for_followup, a)
     await send_long(update, a)
 
 
 async def evaluate_text_for_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Evaluate pasted text (essay, ECs, rec, portfolio, IELTS writing)."""
     await show_typing(update, context)
     chat_id = update.effective_chat.id
     user = update.effective_user
@@ -1422,14 +1456,7 @@ async def evaluate_text_for_topic(update: Update, context: ContextTypes.DEFAULT_
         return
 
     raw = (update.message.text or "").strip()
-    for marker in [
-        BTN_PS_EVAL,
-        BTN_SUPP_EVAL,
-        BTN_EC_EVAL,
-        BTN_REC_EVAL,
-        BTN_IW_EVAL,
-        BTN_PORT_EVAL,
-    ]:
+    for marker in [BTN_PS_EVAL, BTN_SUPP_EVAL, BTN_EC_EVAL, BTN_REC_EVAL, BTN_IW_EVAL, BTN_PORT_EVAL]:
         raw = raw.replace(marker, "").strip()
 
     if len(raw) < 100:
@@ -1438,17 +1465,11 @@ async def evaluate_text_for_topic(update: Update, context: ContextTypes.DEFAULT_
         )
         return
 
-    pretty_topic = {
-        "essays_personal": "Personal Statement essay",
-        "essays_supplemental": "Supplemental essay",
-        "recommendations": "Recommendation letter",
-        "portfolio": "Portfolio description",
-        "extracurriculars": "Extracurricular activities description",
-        "ielts_writing": "IELTS Writing answer",
-    }.get(topic, "document")
+    pretty_topic = _pretty_topic_for_eval(topic)
 
+    student_text_for_followup = _truncate_for_storage(raw, 12000)
     parts = _chunk(raw, max_chars=1500)
-    student_text = "\n\n---\n\n".join(parts[:5])
+    student_text_for_eval = "\n\n---\n\n".join(parts[:5])
 
     await update.message.reply_text(f"Evaluating your {pretty_topic}…")
 
@@ -1488,22 +1509,9 @@ async def evaluate_text_for_topic(update: Update, context: ContextTypes.DEFAULT_
         )
 
     messages = [
-        {
-            "role": "system",
-            "content": (
-                sys_role
-                + " Use the guidelines and examples in the context when available. "
-                "If guidelines are missing or incomplete, use general best practices."
-            ),
-        },
-        {
-            "role": "system",
-            "content": f"Guidelines + examples (may be empty):\n{context_block}"
-        },
-        {
-            "role": "user",
-            "content": f"Here is the student's {pretty_topic}. Please evaluate it:\n\n{student_text}",
-        },
+        {"role": "system", "content": sys_role + " Use the guidelines and examples in the context when available."},
+        {"role": "system", "content": f"Guidelines + examples (may be empty):\n{context_block}"},
+        {"role": "user", "content": f"Here is the student's {pretty_topic}. Please evaluate it:\n\n{student_text_for_eval}"},
     ]
 
     try:
@@ -1516,6 +1524,7 @@ async def evaluate_text_for_topic(update: Update, context: ContextTypes.DEFAULT_
     except Exception as e:
         a = f"Error during text evaluation: {e}"
 
+    set_eval_context(context, topic, student_text_for_followup, a)
     await send_long(update, a)
 
 
@@ -1524,28 +1533,22 @@ async def document_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     caption = (update.message.caption or "").strip()
     topic = get_current_topic(context)
 
-    # teach commands that are caption-based
     if caption.startswith("/teachfile_eval"):
         await teachfile_eval(update, context)
         return
-
     if caption.startswith("/teachfile"):
         await teachfile(update, context)
         return
-
     if caption.startswith("/teachlink_eval"):
         await teachlink_eval(update, context)
         return
-
     if caption.startswith("/teachlink"):
         await teachlink(update, context)
         return
-
     if caption.startswith("/teachrubric"):
         await teachrubric(update, context)
         return
 
-    # If we're in an evaluation topic, treat document as student work
     if topic in (set(EVAL_TOPICS) | {"ielts_writing"}):
         await evaluate_file_for_topic(update, context)
         return
@@ -1562,7 +1565,6 @@ async def photo_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     caption = (update.message.caption or "").strip()
     topic = get_current_topic(context)
     user = update.effective_user
-
     record_event(user.id, topic, kind="photo")
 
     if caption.startswith("/teachimage"):
@@ -1591,9 +1593,7 @@ async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     eval_counts = stats.get("eval_counts", {})
 
     if topic_counts:
-        top_topics = sorted(
-            topic_counts.items(), key=lambda kv: kv[1], reverse=True
-        )[:5]
+        top_topics = sorted(topic_counts.items(), key=lambda kv: kv[1], reverse=True)[:5]
         topics_str = "\n".join(f"- {t}: {c} msgs" for t, c in top_topics)
     else:
         topics_str = "No topic data yet."
@@ -1640,7 +1640,6 @@ async def backup_sources(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def health(update: Update, context: ContextTypes.DEFAULT_TYPE):
     checks = []
 
-    # 1) OpenAI check
     try:
         _ = openai.ChatCompletion.create(
             model="gpt-4.1-mini",
@@ -1651,20 +1650,14 @@ async def health(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         checks.append(f"❌ OpenAI: {e}")
 
-    # 2) Chroma write test
     try:
         test_col = chroma.get_or_create_collection("health_check")
-        test_col.add(
-            ids=["ping"],
-            documents=["pong"],
-            metadatas=[{"type": "health"}],
-        )
+        test_col.add(ids=["ping"], documents=["pong"], metadatas=[{"type": "health"}])
         test_col.delete(ids=["ping"])
         checks.append("✅ Chroma: writable")
     except Exception as e:
         checks.append(f"❌ Chroma: {e}")
 
-    # 3) Volume check
     try:
         test_path = os.path.join(DATA_DIR, "health.txt")
         with open(test_path, "w") as f:
@@ -1691,7 +1684,6 @@ async def run_brainstorm(update: Update, context: ContextTypes.DEFAULT_TYPE, des
 
     nice_topic = FRIENDLY_TOPIC_NAMES.get(topic, topic)
 
-    # Pull topic-specific context (Q&A + Eval) to guide brainstorming
     col = get_collection(chat_id, topic)
     try:
         res = col.query(query_texts=[description], n_results=6)
@@ -1710,21 +1702,8 @@ async def run_brainstorm(update: Update, context: ContextTypes.DEFAULT_TYPE, des
 
     messages = [{"role": "system", "content": sys}]
     if context_block:
-        messages.append(
-            {
-                "role": "system",
-                "content": f"Program-specific notes and examples (may be empty):\n{context_block}",
-            }
-        )
-    messages.append(
-        {
-            "role": "user",
-            "content": (
-                "Here is the student's situation and what they are thinking about:\n\n"
-                + description
-            ),
-        }
-    )
+        messages.append({"role": "system", "content": f"Program-specific notes and examples (may be empty):\n{context_block}"})
+    messages.append({"role": "user", "content": "Here is the student's situation:\n\n" + description})
 
     try:
         r = openai.ChatCompletion.create(
@@ -1745,13 +1724,10 @@ async def brainstorm_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(parts) < 2:
         set_pending_feature(context, "brainstorm")
         await update.message.reply_text(
-            "🧠 Brainstorm mode ON.\n\n"
-            "Briefly tell me about yourself, your target major, and what you want to write about."
+            "🧠 Brainstorm mode ON.\n\nBriefly tell me about yourself, your target major, and what you want to write about."
         )
         return
-
-    description = parts[1].strip()
-    await run_brainstorm(update, context, description)
+    await run_brainstorm(update, context, parts[1].strip())
 
 
 async def run_rewrite(update: Update, context: ContextTypes.DEFAULT_TYPE, text_to_fix: str):
@@ -1763,7 +1739,6 @@ async def run_rewrite(update: Update, context: ContextTypes.DEFAULT_TYPE, text_t
 
     nice_topic = FRIENDLY_TOPIC_NAMES.get(topic, topic)
 
-    # Pull topic-specific context
     col = get_collection(chat_id, topic)
     try:
         res = col.query(query_texts=[text_to_fix], n_results=6)
@@ -1783,12 +1758,7 @@ async def run_rewrite(update: Update, context: ContextTypes.DEFAULT_TYPE, text_t
 
     messages = [{"role": "system", "content": sys}]
     if context_block:
-        messages.append(
-            {
-                "role": "system",
-                "content": f"Program-specific notes and examples (may be empty):\n{context_block}",
-            }
-        )
+        messages.append({"role": "system", "content": f"Program-specific notes and examples (may be empty):\n{context_block}"})
     messages.append({"role": "user", "content": text_to_fix})
 
     try:
@@ -1809,14 +1779,9 @@ async def rewrite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     parts = text.split(maxsplit=1)
     if len(parts) < 2:
         set_pending_feature(context, "rewrite")
-        await update.message.reply_text(
-            "✍️ Rewrite mode ON.\n\n"
-            "Send me the paragraph or essay you want me to improve."
-        )
+        await update.message.reply_text("✍️ Rewrite mode ON.\n\nSend me the paragraph or essay you want me to improve.")
         return
-
-    to_fix = parts[1].strip()
-    await run_rewrite(update, context, to_fix)
+    await run_rewrite(update, context, parts[1].strip())
 
 
 async def run_plan(update: Update, context: ContextTypes.DEFAULT_TYPE, description: str):
@@ -1837,29 +1802,15 @@ async def run_plan(update: Update, context: ContextTypes.DEFAULT_TYPE, descripti
     sys = (
         "You are an admissions strategy mentor.\n"
         "- Based on the student's situation, create a concise application plan.\n"
-        "- Organize it into short bullet points under 3 headings: "
-        "Academics & Testing, Essays & Recs, Activities & Extras.\n"
+        "- Organize it into short bullet points under 3 headings: Academics & Testing, Essays & Recs, Activities & Extras.\n"
         "- Keep total response around 120-200 words.\n"
         "- Focus on practical next steps, not theory."
     )
 
     messages = [{"role": "system", "content": sys}]
     if context_block:
-        messages.append(
-            {
-                "role": "system",
-                "content": f"Program-specific planning notes (may be empty):\n{context_block}",
-            }
-        )
-    messages.append(
-        {
-            "role": "user",
-            "content": (
-                "Here is my situation (grade, target countries, majors, timeline, current profile):\n\n"
-                + description
-            ),
-        }
-    )
+        messages.append({"role": "system", "content": f"Program-specific planning notes (may be empty):\n{context_block}"})
+    messages.append({"role": "user", "content": "Here is my situation:\n\n" + description})
 
     try:
         r = openai.ChatCompletion.create(
@@ -1881,14 +1832,11 @@ async def plan_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(parts) < 2:
         set_pending_feature(context, "plan")
         await update.message.reply_text(
-            "📅 Application Plan mode ON.\n\n"
-            "Tell me your grade, target countries, intended major, test scores (if any), and your rough deadlines.",
+            "📅 Application Plan mode ON.\n\nTell me your grade, target countries, intended major, test scores (if any), and your rough deadlines.",
             reply_markup=plan_keyboard(),
         )
         return
-
-    description = parts[1].strip()
-    await run_plan(update, context, description)
+    await run_plan(update, context, parts[1].strip())
 
 
 async def run_recpacket(update: Update, context: ContextTypes.DEFAULT_TYPE, description: str):
@@ -1906,16 +1854,7 @@ async def run_recpacket(update: Update, context: ContextTypes.DEFAULT_TYPE, desc
         "- Keep it concise and realistic for competitive admissions."
     )
 
-    messages = [
-        {"role": "system", "content": sys},
-        {
-            "role": "user",
-            "content": (
-                "Here is information about me, my relationship with the recommender, and what I hope they mention:\n\n"
-                + description
-            ),
-        },
-    ]
+    messages = [{"role": "system", "content": sys}, {"role": "user", "content": description}]
 
     try:
         r = openai.ChatCompletion.create(
@@ -1936,14 +1875,10 @@ async def recpacket_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(parts) < 2:
         set_pending_feature(context, "recpacket")
         await update.message.reply_text(
-            "✉️ Rec Letter Packet mode ON.\n\n"
-            "Tell me which teacher will write your rec, what classes you took with them, "
-            "your main achievements, and what you want them to highlight."
+            "✉️ Rec Letter Packet mode ON.\n\nTell me which teacher will write your rec, what classes you took with them, your achievements, and what you want them to highlight."
         )
         return
-
-    description = parts[1].strip()
-    await run_recpacket(update, context, description)
+    await run_recpacket(update, context, parts[1].strip())
 
 
 async def run_schoolfinder(update: Update, context: ContextTypes.DEFAULT_TYPE, description: str):
@@ -1963,8 +1898,7 @@ async def run_schoolfinder(update: Update, context: ContextTypes.DEFAULT_TYPE, d
 
     sys = (
         "You are a university match advisor.\n"
-        "- Based on the student's stats and preferences, suggest Reach, Match, and Safety school *types* "
-        "and a few example universities.\n"
+        "- Based on the student's stats and preferences, suggest Reach, Match, and Safety school types and a few example universities.\n"
         "- For each category, give 2-4 example schools and 1-2 bullets about why they fit.\n"
         "- Keep total response concise (around 150-220 words).\n"
         "- Make it clear this is an approximate starting point and they must research details themselves."
@@ -1972,21 +1906,8 @@ async def run_schoolfinder(update: Update, context: ContextTypes.DEFAULT_TYPE, d
 
     messages = [{"role": "system", "content": sys}]
     if context_block:
-        messages.append(
-            {
-                "role": "system",
-                "content": f"Program-specific school lists/notes (may be empty):\n{context_block}",
-            }
-        )
-    messages.append(
-        {
-            "role": "user",
-            "content": (
-                "Here are my stats and preferences (GPA, tests, budget, countries, major, special interests):\n\n"
-                + description
-            ),
-        }
-    )
+        messages.append({"role": "system", "content": f"Program-specific school lists/notes (may be empty):\n{context_block}"})
+    messages.append({"role": "user", "content": description})
 
     try:
         r = openai.ChatCompletion.create(
@@ -2008,15 +1929,11 @@ async def schoolfinder_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(parts) < 2:
         set_pending_feature(context, "schoolfinder")
         await update.message.reply_text(
-            "🏫 School Finder mode ON.\n\n"
-            "Send me your GPA (or approximate), test scores (if any), budget, target countries, "
-            "intended major, and any constraints (e.g. need scholarship).",
+            "🏫 School Finder mode ON.\n\nSend me your GPA, tests, budget, target countries, intended major, and constraints (e.g. need scholarship).",
             reply_markup=schoolfinder_keyboard(),
         )
         return
-
-    description = parts[1].strip()
-    await run_schoolfinder(update, context, description)
+    await run_schoolfinder(update, context, parts[1].strip())
 
 
 async def run_portfolioideas(update: Update, context: ContextTypes.DEFAULT_TYPE, description: str):
@@ -2027,22 +1944,12 @@ async def run_portfolioideas(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
     sys = (
         "You are a portfolio mentor for university applications.\n"
-        "- Based on the student's field (e.g. CS, design, art, film, business) and interests, "
-        "suggest 3-6 concrete project ideas.\n"
+        "- Based on the student's field (e.g. CS, design, art, film, business) and interests, suggest 3-6 concrete project ideas.\n"
         "- Each idea should be 1-2 sentences, focused on impact and what it shows about the student.\n"
         "- Make ideas realistic for a high school student, but impressive."
     )
 
-    messages = [
-        {"role": "system", "content": sys},
-        {
-            "role": "user",
-            "content": (
-                "Here is my background, target major/program, and what I might include in a portfolio:\n\n"
-                + description
-            ),
-        },
-    ]
+    messages = [{"role": "system", "content": sys}, {"role": "user", "content": description}]
 
     try:
         r = openai.ChatCompletion.create(
@@ -2063,26 +1970,15 @@ async def portfolioideas_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if len(parts) < 2:
         set_pending_feature(context, "portfolioideas")
         await update.message.reply_text(
-            "🖼️ Portfolio Ideas mode ON.\n\n"
-            "Tell me your field (CS, design, art, film, etc.), your skills, and the kind of programs you are targeting."
+            "🖼️ Portfolio Ideas mode ON.\n\nTell me your field (CS, design, art, film, etc.), your skills, and the kind of programs you are targeting."
         )
         return
-
-    description = parts[1].strip()
-    await run_portfolioideas(update, context, description)
-
-def safe_text_for_embedding(text: str) -> str:
-    if not text:
-        return text
-    # normalize unicode to avoid silent embedding issues
-    return text.encode("utf-8", "ignore").decode("utf-8")
+    await run_portfolioideas(update, context, parts[1].strip())
 
 
 # ---------- MAIN ANSWER ----------
 async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (update.message.text or "").strip()
-
-    # extra guard: never handle slash commands here
     if text.startswith("/"):
         return
 
@@ -2095,9 +1991,9 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     topic_before = get_current_topic(context)
     record_event(user.id, topic_before, kind="message")
 
-    # ---- HANDLE BACK FIRST (fixes back-as-question bug) ----
+    # ---- BACK ----
     if is_back_message(q):
-        context.user_data["eval_active"] = False
+        clear_eval_context(context)
         context.user_data["pending_feature"] = None
         context.user_data["topic"] = DEFAULT_TOPIC
         await update.message.reply_text(
@@ -2106,7 +2002,13 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # --- Handle pending feature input (only if not Back) ---
+    # quick cancel (optional)
+    if q.lower() in {"cancel", "stop", "exit"} and context.user_data.get("eval_active", False):
+        clear_eval_context(context)
+        await update.message.reply_text("✅ Stopped evaluation follow-up mode.")
+        return
+
+    # --- pending feature input ---
     pending = context.user_data.get("pending_feature")
     if pending:
         context.user_data["pending_feature"] = None
@@ -2131,6 +2033,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ---- MAIN MENUS ----
     if q == BTN_ESSAY:
+        clear_eval_context(context)
         await send_with_image(
             update,
             "Essays selected.\nChoose Personal Statement or Supplemental Essays.",
@@ -2140,6 +2043,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if q == BTN_SAT:
+        clear_eval_context(context)
         await send_with_image(
             update,
             "SAT selected. Choose a section:",
@@ -2149,6 +2053,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if q == BTN_IELTS:
+        clear_eval_context(context)
         await send_with_image(
             update,
             "IELTS selected. Choose a section.",
@@ -2158,27 +2063,24 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if q == BTN_PLAN_MAIN:
+        clear_eval_context(context)
         context.user_data["topic"] = "application_plan"
-        context.user_data["eval_active"] = False
         set_pending_feature(context, "plan")
         await send_with_image(
             update,
-            "📅 Application Plan mode ON.\n\n"
-            "Tell me your grade, target countries, intended major, test scores (if any), and your rough deadlines.",
+            "📅 Application Plan mode ON.\n\nTell me your grade, target countries, intended major, test scores (if any), and your rough deadlines.",
             reply_markup=plan_keyboard(),
             image_key="plan_main",
         )
         return
 
     if q == BTN_SF_MAIN:
+        clear_eval_context(context)
         context.user_data["topic"] = "school_finder"
-        context.user_data["eval_active"] = False
         set_pending_feature(context, "schoolfinder")
         await send_with_image(
             update,
-            "🏫 School Finder mode ON.\n\n"
-            "Send me your GPA (or approximate), test scores (if any), budget, target countries, "
-            "intended major, and any constraints (e.g. need scholarship).",
+            "🏫 School Finder mode ON.\n\nSend me your GPA (or approximate), test scores (if any), budget, target countries, intended major, and constraints (e.g. need scholarship).",
             reply_markup=schoolfinder_keyboard(),
             image_key="schoolfinder_main",
         )
@@ -2186,92 +2088,75 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ---- TOPIC BUTTONS ----
     if q == BTN_ESSAY_PS:
+        clear_eval_context(context)
         topic = TOPIC_KEYS[q]
         context.user_data["topic"] = topic
-        context.user_data["eval_active"] = False
-
         await send_with_image(
             update,
-            "Great, let's work on your Personal Statement.\n"
-            "Ask about structure, voice, and storytelling.",
+            "Great, let's work on your Personal Statement.\nAsk about structure, voice, and storytelling.",
             reply_markup=essay_ps_keyboard(),
             image_key="essays_personal",
         )
         await update.message.reply_text(
-            "If you want detailed feedback, tap '✅ Personal Statement Evaluation' "
-            "and then upload your essay as a PDF/DOCX or paste the text.\n\n"
-            "You can also use '🧠 Brainstorm ideas' to find topics, or '✍️ Rewrite my text' to polish a draft."
+            "For detailed feedback, tap '✅ Personal Statement Evaluation' and then upload PDF/DOCX or paste the text.\n\n"
+            "After I evaluate, you can say: 'apply this feedback', 'rewrite the conclusion', or 'do the next step'."
         )
         return
 
     if q == BTN_ESSAY_SUPP:
+        clear_eval_context(context)
         topic = TOPIC_KEYS[q]
         context.user_data["topic"] = topic
-        context.user_data["eval_active"] = False
-
         await send_with_image(
             update,
-            "Great, let's work on your Supplemental Essays.\n"
-            "Ask about 'Why us', community essays, and short prompts.",
+            "Great, let's work on your Supplemental Essays.\nAsk about 'Why us', community essays, and short prompts.",
             reply_markup=essay_supp_keyboard(),
             image_key="essays_supplemental",
         )
         await update.message.reply_text(
-            "If you want detailed feedback, tap '✅ Supplemental Essay Evaluation' "
-            "and then upload your essay as a PDF/DOCX or paste the text.\n\n"
-            "You can also use '🧠 Brainstorm ideas' to explore angles, or '✍️ Rewrite my text' to refine your answer."
+            "For detailed feedback, tap '✅ Supplemental Essay Evaluation' and then upload PDF/DOCX or paste the text.\n\n"
+            "After I evaluate, you can say: 'apply this feedback', 'rewrite the ending', or 'do the next step'."
         )
         return
 
     if q == BTN_EC:
-        topic = "extracurriculars"
-        context.user_data["topic"] = topic
-        context.user_data["eval_active"] = False
-
+        clear_eval_context(context)
+        context.user_data["topic"] = "extracurriculars"
         await send_with_image(
             update,
-            "Great, let's talk about your Extracurricular activities.\n"
-            "Ask how to present impact, leadership, and long-term involvement.",
+            "Great, let's talk about your Extracurricular activities.\nAsk how to present impact, leadership, and long-term involvement.",
             reply_markup=ec_keyboard(),
             image_key="extracurriculars",
         )
         await update.message.reply_text(
-            "For feedback on your activities list, click '✅ Extracurricular Evaluation' "
-            "and then upload your EC descriptions as a PDF/DOCX or paste them."
+            "For feedback, click '✅ Extracurricular Evaluation' and then upload PDF/DOCX or paste your EC descriptions."
         )
         return
-    
+
     if q == BTN_EC_PROGRAMS:
         await update.message.reply_text(
             "🌍 Here is a list of top extracurricular programs and opportunities:\n\n"
-            "https://docs.google.com/spreadsheets/d/1D-UlJGrg32Ib-9Rvm9y7lKkE6jkx3EK-Kb_qJ6G3tos/edit?usp=sharing\n\n"
+            "https://docs.google.com/spreadsheets/d/1D-UlJGrg32Ib-9Rvm9y7lKkE6jkx3EK-Kb_qJ6G3tos/edit?usp=sharing\n"
         )
         return
 
     if q == BTN_REC:
-        topic = "recommendations"
-        context.user_data["topic"] = topic
-        context.user_data["eval_active"] = False
-
+        clear_eval_context(context)
+        context.user_data["topic"] = "recommendations"
         await send_with_image(
             update,
-            "Great, let's work on Recommendation Letters.\n"
-            "Ask how to request them, what to share with recommenders, and what makes a strong letter.",
+            "Great, let's work on Recommendation Letters.\nAsk how to request them and what makes a strong letter.",
             reply_markup=rec_keyboard(),
             image_key="recommendations",
         )
         await update.message.reply_text(
-            "You can:\n"
-            "- Tap '✅ Rec Letter Evaluation' to get feedback on a draft letter.\n"
-            "- Tap '📄 Rec Letter Packet' to build a brag sheet for your teacher."
+            "You can:\n- Tap '✅ Rec Letter Evaluation' to get feedback on a draft.\n- Tap '📄 Rec Letter Packet' to build a brag sheet."
         )
         return
 
     if q == BTN_PORT:
-        topic = "portfolio"
-        context.user_data["topic"] = topic
-        context.user_data["eval_active"] = False
-
+        clear_eval_context(context)
+        context.user_data["topic"] = "portfolio"
         await send_with_image(
             update,
             "You're now in Portfolio Check.\nAsk about structure and how to present your work.",
@@ -2279,176 +2164,163 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             image_key="portfolio",
         )
         await update.message.reply_text(
-            "You can upload your portfolio as a PDF/DOCX for detailed feedback (✅ Portfolio Evaluation), "
-            "or tap '💡 Portfolio Ideas' to get new project ideas."
+            "You can upload PDF/DOCX for detailed feedback (✅ Portfolio Evaluation), or tap '💡 Portfolio Ideas'."
         )
         return
 
     if q in {BTN_SAT_MATH, BTN_SAT_ENGLISH}:
+        clear_eval_context(context)
         topic = TOPIC_KEYS[q]
         context.user_data["topic"] = topic
-        context.user_data["eval_active"] = False
-
         nice_name = "SAT Math" if topic == "sat_math" else "SAT English"
-        prompts = {
-            "sat_math": "Ask about SAT Math topics, strategies, and practice plans.",
-            "sat_english": "Ask about SAT Reading/Writing strategies and question types.",
-        }
         image_key = "sat_math" if topic == "sat_math" else "sat_english"
-
         await send_with_image(
             update,
-            f"You're now in {nice_name}.\n{prompts.get(topic, '')}",
+            f"You're now in {nice_name}. Ask anything.",
             reply_markup=sat_menu_keyboard(),
             image_key=image_key,
         )
         return
 
     if q in {BTN_IELTS_READING, BTN_IELTS_LISTENING, BTN_IELTS_SPEAKING}:
+        clear_eval_context(context)
         topic = TOPIC_KEYS[q]
         context.user_data["topic"] = topic
-        context.user_data["eval_active"] = False
-
-        pretty = {
-            "ielts_reading": "IELTS Reading",
-            "ielts_listening": "IELTS Listening",
-            "ielts_speaking": "IELTS Speaking",
-        }
-        prompts = {
-            "ielts_reading": "Ask about IELTS Reading strategies and question types.",
-            "ielts_listening": "Ask about IELTS Listening tips and common traps.",
-            "ielts_speaking": "Ask about IELTS Speaking parts, fluency, and idea generation.",
-        }
-
         await send_with_image(
             update,
-            f"You're now in {pretty.get(topic, topic)}.\n{prompts.get(topic, '')}",
+            f"You're now in {FRIENDLY_TOPIC_NAMES.get(topic, topic)}. Ask anything.",
             reply_markup=ielts_main_keyboard(),
             image_key=topic,
         )
         return
 
     if q == BTN_IELTS_WRITING:
-        topic = "ielts_writing"
-        context.user_data["topic"] = topic
-        context.user_data["eval_active"] = False
-
+        clear_eval_context(context)
+        context.user_data["topic"] = "ielts_writing"
         await send_with_image(
             update,
-            "You're now in IELTS Writing.\nAsk about Task 1 & 2, band 7+ strategies, or send your answer for feedback.",
+            "You're now in IELTS Writing.\nAsk about Task 1/2, band 7+ strategies, or send your answer for feedback.",
             reply_markup=ielts_writing_keyboard(),
             image_key="ielts_writing",
         )
         await update.message.reply_text(
-            "For a full band-style evaluation, click '✅ Writing Evaluation' "
-            "and then send your answer as text, PDF/DOCX, or a clear photo."
+            "For evaluation, click '✅ Writing Evaluation' then send your answer as text, PDF/DOCX, or a clear photo."
         )
         return
 
-    # ---- FEATURE BUTTONS INSIDE MENUS ----
+    # ---- FEATURE BUTTONS ----
     if q == BTN_BRAINSTORM:
         set_pending_feature(context, "brainstorm")
         await update.message.reply_text(
-            "🧠 Brainstorm mode ON.\n\n"
-            "Briefly tell me about yourself, your target major, and what you want to write about."
+            "🧠 Brainstorm mode ON.\n\nBriefly tell me about yourself, your target major, and what you want to write about."
         )
         return
 
     if q == BTN_REWRITE:
         set_pending_feature(context, "rewrite")
-        await update.message.reply_text(
-            "✍️ Rewrite mode ON.\n\n"
-            "Send me the paragraph or essay you want me to improve."
-        )
+        await update.message.reply_text("✍️ Rewrite mode ON.\n\nSend me the paragraph or essay you want me to improve.")
         return
 
     if q == BTN_REC_PACKET:
         set_pending_feature(context, "recpacket")
         await update.message.reply_text(
-            "✉️ Rec Letter Packet mode ON.\n\n"
-            "Tell me which teacher will write your rec, what classes you took with them, "
-            "your main achievements, and what you want them to highlight."
+            "✉️ Rec Letter Packet mode ON.\n\nTell me which teacher will write your rec, what classes you took, your achievements, and what you want highlighted."
         )
         return
 
     if q == BTN_PORTFOLIO_IDEAS:
         set_pending_feature(context, "portfolioideas")
         await update.message.reply_text(
-            "💡 Portfolio Ideas mode ON.\n\n"
-            "Tell me your field (CS, design, art, film, etc.), your skills, and the kind of programs you are targeting."
+            "💡 Portfolio Ideas mode ON.\n\nTell me your field (CS, design, art, film, etc.), your skills, and target programs."
         )
         return
 
     # ---- EVALUATION BUTTONS ----
     if q == BTN_PS_EVAL:
+        clear_eval_context(context)
         context.user_data["topic"] = "essays_personal"
         context.user_data["eval_active"] = True
+        context.user_data["last_eval_topic"] = "essays_personal"
         await update.message.reply_text(
-            "Personal Statement Evaluation mode ON ✅\n\n"
-            "Now send your Personal Statement as text in the chat, "
-            "or upload it as a PDF/DOCX file.\n"
-            "I'll evaluate it using your program's guidelines and give structured feedback."
+            "Personal Statement Evaluation mode ON ✅\n\nNow paste your Personal Statement (100+ words) or upload PDF/DOCX.\n"
+            "After I evaluate, you can say: 'apply this feedback', 'rewrite the conclusion', or 'do the next step'."
         )
         return
 
     if q == BTN_SUPP_EVAL:
+        clear_eval_context(context)
         context.user_data["topic"] = "essays_supplemental"
         context.user_data["eval_active"] = True
+        context.user_data["last_eval_topic"] = "essays_supplemental"
         await update.message.reply_text(
-            "Supplemental Essay Evaluation mode ON ✅\n\n"
-            "Now send your supplemental essay as text, "
-            "or upload it as a PDF/DOCX file.\n"
-            "I'll evaluate it using your program's guidelines and give structured feedback."
+            "Supplemental Essay Evaluation mode ON ✅\n\nNow paste your essay (100+ words) or upload PDF/DOCX.\n"
+            "After I evaluate, you can say: 'apply this feedback' or 'rewrite the ending'."
         )
         return
 
     if q == BTN_EC_EVAL:
+        clear_eval_context(context)
         context.user_data["topic"] = "extracurriculars"
         context.user_data["eval_active"] = True
+        context.user_data["last_eval_topic"] = "extracurriculars"
         await update.message.reply_text(
-            "Extracurricular Evaluation mode ON ✅\n\n"
-            "Now send your EC descriptions as text, "
-            "or upload them as a PDF/DOCX file.\n"
-            "I'll review them for impact, leadership, and clarity."
+            "Extracurricular Evaluation mode ON ✅\n\nNow paste your EC descriptions or upload PDF/DOCX."
         )
         return
 
     if q == BTN_REC_EVAL:
+        clear_eval_context(context)
         context.user_data["topic"] = "recommendations"
         context.user_data["eval_active"] = True
+        context.user_data["last_eval_topic"] = "recommendations"
         await update.message.reply_text(
-            "Rec Letter Evaluation mode ON ✅\n\n"
-            "Now send your draft recommendation letter as text, "
-            "or upload it as a PDF/DOCX file.\n"
-            "I'll review it for specificity, credibility, and strength."
+            "Rec Letter Evaluation mode ON ✅\n\nNow paste the draft letter or upload PDF/DOCX."
         )
         return
 
     if q == BTN_IW_EVAL:
+        clear_eval_context(context)
         context.user_data["topic"] = "ielts_writing"
         context.user_data["eval_active"] = True
+        context.user_data["last_eval_topic"] = "ielts_writing"
         await update.message.reply_text(
-            "IELTS Writing Evaluation mode ON ✅\n\n"
-            "Now send your IELTS Writing answer as text, as a PDF/DOCX, or as a clear photo.\n"
-            "I'll estimate your band and give detailed feedback."
+            "IELTS Writing Evaluation mode ON ✅\n\nSend your answer as text, PDF/DOCX, or a clear photo."
         )
         return
 
     if q == BTN_PORT_EVAL:
+        clear_eval_context(context)
         context.user_data["topic"] = "portfolio"
         context.user_data["eval_active"] = True
+        context.user_data["last_eval_topic"] = "portfolio"
         await update.message.reply_text(
-            "Portfolio Evaluation mode ON ✅\n\n"
-            "Now send your portfolio description as text, or upload it as a PDF/DOCX.\n"
-            "I'll review it for coherence, originality, and strength for selective colleges."
+            "Portfolio Evaluation mode ON ✅\n\nNow paste your portfolio description or upload PDF/DOCX."
         )
         return
 
-    # ---- EVALUATION FROM TEXT ----
+    # ---- EVALUATION FLOW (supports follow-ups) ----
     if context.user_data.get("eval_active", False):
-        context.user_data["eval_active"] = False
-        await evaluate_text_for_topic(update, context)
-        return
+        last_text = (context.user_data.get("last_eval_text") or "").strip()
+
+        # follow-up request after an evaluation
+        if last_text and is_followup_intent(q):
+            await run_eval_followup(update, context, q)
+            return
+
+        # pasted a new submission while eval mode is ON
+        if looks_like_submission(q):
+            await evaluate_text_for_topic(update, context)
+            return
+
+        # eval mode ON but no submission yet
+        if not last_text:
+            await update.message.reply_text(
+                "✅ Evaluation mode is ON.\n\n"
+                "Paste your full text here (100+ words) or upload a PDF/DOCX.\n"
+                "After I evaluate, you can say: 'apply this feedback', 'rewrite the conclusion', or 'do the next step'."
+            )
+            return
+        # otherwise: fall through to normal Q&A (eval follow-up stays available)
 
     # ---- NORMAL Q&A WITH RAG ----
     await show_typing(update, context)
@@ -2457,13 +2329,8 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     topic = get_current_topic(context)
     col = get_collection(chat_id, topic)
 
-    # Try to use QA docs only; if none, fall back to all
     try:
-        results = col.query(
-            query_texts=[q],
-            where={"type": "qa"},
-            n_results=4,
-        )
+        results = col.query(query_texts=[q], where={"type": "qa"}, n_results=4)
         docs = results.get("documents", [[]])[0]
     except Exception:
         docs = []
@@ -2475,11 +2342,11 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             docs = []
 
-    context_block = "\n\n---\n\n".join(docs)
-
+    context_block = "\n\n---\n\n".join(docs or [])
     nice_topic = FRIENDLY_TOPIC_NAMES.get(topic, topic)
+
     sys = (
-        f"You are UniVenture, a focused university admissions mentor.\n"
+        "You are UniVenture, a focused university admissions mentor.\n"
         f"Current topic: {nice_topic}.\n"
         "- Give short, clear, high-value answers (3-7 sentences max).\n"
         "- Speak in a natural, human tone, like a friendly but direct older student mentor.\n"
@@ -2506,7 +2373,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_long(update, a)
 
 
-# -------- Dummy HTTP server for Render/Railway (to satisfy port check) --------
+# -------- Dummy HTTP server for Render/Railway --------
 def start_dummy_server():
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -2516,10 +2383,8 @@ def start_dummy_server():
             self.wfile.write(b"OK")
 
         def log_message(self, format, *args):
-            # Silence HTTP request logs
             return
 
-    # Railway/Render usually set PORT; fallback to 10000 if not set
     port = int(os.environ.get("PORT", 10000))
     server = HTTPServer(("0.0.0.0", port), Handler)
     server.serve_forever()
@@ -2535,6 +2400,7 @@ app.add_handler(CommandHandler("teachfile", teachfile), group=0)
 app.add_handler(CommandHandler("teachfile_eval", teachfile_eval), group=0)
 app.add_handler(CommandHandler("teachlink", teachlink), group=0)
 app.add_handler(CommandHandler("teachlink_eval", teachlink_eval), group=0)
+app.add_handler(CommandHandler("teachimage", teachimage), group=0)
 app.add_handler(CommandHandler("sources", sources), group=0)
 app.add_handler(CommandHandler("sources_all", sources_all), group=0)
 app.add_handler(CommandHandler("unlearn", unlearn), group=0)
@@ -2558,12 +2424,10 @@ app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, answer), group=1
 
 print(
     "Bot is running with GLOBAL per-topic RAG + metadata separation (qa/evaluation) + submenus "
-    "+ per-topic evaluation + embedded tools (brainstorm, rewrite, plan, recpacket, schoolfinder, portfolioideas) "
-    "+ Application Plan & School Finder topics + analytics + admin locks + backup + health…"
+    "+ eval follow-ups (apply feedback) + embedded tools + Application Plan & School Finder "
+    "+ analytics + admin locks + backup + health…"
 )
 
 if __name__ == "__main__":
-    # Start a tiny HTTP server in the background so Railway/Render see an open port
     threading.Thread(target=start_dummy_server, daemon=True).start()
-    # Main Telegram long-polling loop
     app.run_polling()
