@@ -2073,11 +2073,23 @@ async def run_rewrite(update: Update, context: ContextTypes.DEFAULT_TYPE, text_t
 
     sys = (
         f"You are an admissions writing coach helping improve a student's {nice_topic} text.\n"
-        "- Rewrite the text to be clearer, more natural, and slightly more mature.\n"
-        "- Preserve the student's original meaning and main ideas.\n"
-        "- Keep roughly similar length (do not double it).\n"
-        "- Use a human, conversational but polished tone.\n"
-        "- Reply ONLY with the revised text, no explanations."
+        "TASK: Rewrite the student's text to be clearer, more natural, and more impactful for admissions.\n\n"
+        "REQUIREMENTS:\n"
+        "1. Preserve the student's original meaning and main ideas.\n"
+        "2. Keep roughly similar length (within ±20% of original).\n"
+        "3. Use a human, conversational but polished tone.\n"
+        "4. Make it sound like a strong high-school or early university student, not a professor.\n"
+        "5. Avoid overly fancy vocabulary or adding new stories.\n\n"
+        "OUTPUT FORMAT:\n"
+        "1. First, show the IMPROVED VERSION with this heading: '📝 IMPROVED VERSION:'\n"
+        "2. Then show CHANGES EXPLAINED with this heading: '🔄 CHANGES EXPLAINED:'\n"
+        "3. In the 'CHANGES EXPLAINED' section, list 3-5 key improvements you made, each with:\n"
+        "   - What was changed (e.g., 'Sentence structure', 'Word choice', 'Flow')\n"
+        "   - Original excerpt (brief, 10-15 words if possible)\n"
+        "   - Improved excerpt\n"
+        "   - Why this change helps (brief reason)\n"
+        "4. Use bullet points for clarity.\n"
+        "5. Keep explanations concise but informative."
     )
 
     messages = [{"role": "system", "content": sys}]
@@ -2085,7 +2097,7 @@ async def run_rewrite(update: Update, context: ContextTypes.DEFAULT_TYPE, text_t
         messages.append(
             {"role": "system", "content": f"Program-specific notes and examples (may be empty):\n{context_block}"}
         )
-    messages.append({"role": "user", "content": text_to_fix})
+    messages.append({"role": "user", "content": f"Here is the text to improve:\n\n{text_to_fix}"})
 
     a = openai_chat(model="gpt-4.1-mini", messages=messages, temperature=0.4)
     await send_long(update, a)
