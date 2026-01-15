@@ -2047,12 +2047,21 @@ async def portfolioideas_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return
     await run_portfolioideas(update, context, parts[1].strip())
+    
+def clear_pending_feature(context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.pop("pending_feature", None)
 
 
 # ---------- MAIN ANSWER ----------
 async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (update.message.text or "").strip()
     if text.startswith("/"):
+    # User sent a command while in a pending mode (rewrite/brainstorm/etc.)
+        if context.user_data.get("pending_feature"):
+            clear_pending_feature(context)
+            await update.message.reply_text(
+                "ℹ️ Switched out of the previous mode to process your command."
+            )
         return
 
     logging.info(f"💬 TEXT RECEIVED: {update.message.text}")
