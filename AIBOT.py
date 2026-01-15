@@ -3,12 +3,9 @@
 # + eval follow-ups (apply feedback) + eval Q&A (any follow-up question about the evaluated text)
 # + embedded tools + Application Plan & School Finder
 # + analytics + admin locks + backup + health + robust command parsing + UUID doc IDs (no reteach bugs)
-#
-# KEY FIXES INCLUDED:
-# 1) /teach and /teachrubric now work even if the user puts them in a FILE/PHOTO caption (common Telegram behavior).
-# 2) In evaluation mode, ANY follow-up question is answered with access to the saved essay + feedback
-#    (not only trigger-phrases). Trigger-phrases still work for rewrite/apply-feedback.
-# 3) Restored UX message: "Got it! Thinking about your question…"
+
+import os
+os.environ['TZ'] = 'UTC'  # Set timezone to UTC
 
 from telegram import Update, KeyboardButton, ReplyKeyboardMarkup
 from telegram.constants import ChatAction
@@ -34,7 +31,7 @@ import trafilatura
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 load_dotenv()
 nest_asyncio.apply()
 
@@ -57,13 +54,14 @@ try:
 
     _client = OpenAI(api_key=OPENAI_API_KEY)
     USE_NEW_OPENAI = True
-except Exception:
+    logging.info("Using OpenAI SDK v1.x+")
+except Exception as e:
     # openai<=0.28.x
     import openai  # type: ignore
 
     openai.api_key = OPENAI_API_KEY
     USE_NEW_OPENAI = False
-
+    logging.info("Using OpenAI SDK v0.28.x or earlier")
 
 def openai_chat(
     model: str,
@@ -92,20 +90,17 @@ def openai_chat(
             )
             return (resp["choices"][0]["message"]["content"] or "").strip()
     except Exception as e:
-        logging.exception("OpenAI error")
-        return f"Error: {e}"
-
+        logging.exception(f"OpenAI error in model {model}")
+        return f"Error: {str(e)[:200]}"
 
 # -------- Admin config --------
 ADMIN_IDS = {
     886181760,  # TODO: replace with YOUR Telegram user ID (from @userinfobot)
 }
 
-
 def require_admin(update: Update) -> bool:
     user = update.effective_user
     return bool(user and user.id in ADMIN_IDS)
-
 
 # -------- Data / storage config (for Railway/Render volume etc.) --------
 DATA_DIR = os.getenv("DATA_DIR", "./data")
@@ -115,7 +110,13 @@ CHROMA_PATH = os.getenv("CHROMA_PATH", os.path.join(DATA_DIR, "chroma_store"))
 COLLECTION_PREFIX = os.getenv("CHROMA_COLLECTION_PREFIX", "global")
 
 # -------- Persistent Chroma (GLOBAL per-topic collections) --------
-chroma = chromadb.PersistentClient(path=CHROMA_PATH)
+try:
+    chroma = chromadb.PersistentClient(path=CHROMA_PATH)
+    logging.info(f"ChromaDB initialized at {CHROMA_PATH}")
+except Exception as e:
+    logging.error(f"Failed to initialize ChromaDB: {e}")
+    raise
+
 emb_fn = embedding_functions.OpenAIEmbeddingFunction(
     api_key=OPENAI_API_KEY,
     model_name="text-embedding-3-small",
@@ -123,7 +124,6 @@ emb_fn = embedding_functions.OpenAIEmbeddingFunction(
 
 # -------- Analytics storage --------
 STATS_FILE = os.path.join(DATA_DIR, "analytics.json")
-
 
 def _default_stats():
     return {
@@ -134,20 +134,19 @@ def _default_stats():
         "eval_counts": {},
     }
 
-
 def load_stats():
     if not os.path.exists(STATS_FILE):
         return _default_stats()
     try:
         with open(STATS_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
-    except Exception:
+    except Exception as e:
+        logging.warning(f"Could not load analytics: {e}")
         return _default_stats()
 
     base = _default_stats()
     base.update({k: data.get(k, v) for k, v in base.items()})
     return base
-
 
 def save_stats(stats):
     try:
@@ -155,7 +154,6 @@ def save_stats(stats):
             json.dump(stats, f, indent=2, ensure_ascii=False)
     except Exception as e:
         logging.warning(f"Could not save analytics: {e}")
-
 
 def record_event(user_id, topic: str, kind: str = "message"):
     stats = load_stats()
@@ -178,7 +176,6 @@ def record_event(user_id, topic: str, kind: str = "message"):
         ec[topic] = ec.get(topic, 0) + 1
 
     save_stats(stats)
-
 
 # -------- Main menu buttons --------
 BTN_ESSAY = "📝 Essays"
@@ -222,7 +219,6 @@ BTN_IELTS_SPEAKING = "🗣️ IELTS Speaking"
 # Back button
 BTN_BACK = "⬅️ Back"
 
-
 # -------- Keyboards --------
 def main_menu_keyboard():
     return ReplyKeyboardMarkup(
@@ -236,7 +232,6 @@ def main_menu_keyboard():
         one_time_keyboard=False,
     )
 
-
 def essay_main_keyboard():
     return ReplyKeyboardMarkup(
         [
@@ -246,7 +241,6 @@ def essay_main_keyboard():
         resize_keyboard=True,
         one_time_keyboard=False,
     )
-
 
 def essay_ps_keyboard():
     return ReplyKeyboardMarkup(
@@ -260,7 +254,6 @@ def essay_ps_keyboard():
         one_time_keyboard=False,
     )
 
-
 def essay_supp_keyboard():
     return ReplyKeyboardMarkup(
         [
@@ -273,7 +266,6 @@ def essay_supp_keyboard():
         one_time_keyboard=False,
     )
 
-
 def ec_keyboard():
     return ReplyKeyboardMarkup(
         [
@@ -284,7 +276,6 @@ def ec_keyboard():
         resize_keyboard=True,
         one_time_keyboard=False,
     )
-
 
 def rec_keyboard():
     return ReplyKeyboardMarkup(
@@ -297,7 +288,6 @@ def rec_keyboard():
         one_time_keyboard=False,
     )
 
-
 def sat_menu_keyboard():
     return ReplyKeyboardMarkup(
         [
@@ -307,7 +297,6 @@ def sat_menu_keyboard():
         resize_keyboard=True,
         one_time_keyboard=False,
     )
-
 
 def ielts_main_keyboard():
     return ReplyKeyboardMarkup(
@@ -320,7 +309,6 @@ def ielts_main_keyboard():
         one_time_keyboard=False,
     )
 
-
 def ielts_writing_keyboard():
     return ReplyKeyboardMarkup(
         [
@@ -330,7 +318,6 @@ def ielts_writing_keyboard():
         resize_keyboard=True,
         one_time_keyboard=False,
     )
-
 
 def portfolio_keyboard():
     return ReplyKeyboardMarkup(
@@ -343,14 +330,12 @@ def portfolio_keyboard():
         one_time_keyboard=False,
     )
 
-
 def plan_keyboard():
     return ReplyKeyboardMarkup(
         [[KeyboardButton(BTN_BACK)]],
         resize_keyboard=True,
         one_time_keyboard=False,
     )
-
 
 def schoolfinder_keyboard():
     return ReplyKeyboardMarkup(
@@ -359,11 +344,9 @@ def schoolfinder_keyboard():
         one_time_keyboard=False,
     )
 
-
 def is_back_message(text: str) -> bool:
     t = (text or "").strip()
     return t == BTN_BACK or t.lower() == "back"
-
 
 # -------- Topic mapping & helpers --------
 TOPIC_KEYS = {
@@ -428,25 +411,26 @@ IMAGE_FILES = {
     "schoolfinder_main": "images/schoolfinder_main.png",
 }
 
-
 def get_current_topic(context: ContextTypes.DEFAULT_TYPE) -> str:
     return context.user_data.get("topic", DEFAULT_TOPIC)
-
 
 def get_collection(chat_id: int, topic: str):
     # GLOBAL per-topic collections shared by all users.
     # chat_id kept for backwards compatibility but ignored.
-    return chroma.get_or_create_collection(
-        name=f"{COLLECTION_PREFIX}_{topic}",
-        embedding_function=emb_fn,
-    )
-
+    collection_name = f"{COLLECTION_PREFIX}_{topic}"
+    try:
+        return chroma.get_or_create_collection(
+            name=collection_name,
+            embedding_function=emb_fn,
+        )
+    except Exception as e:
+        logging.error(f"Error getting collection {collection_name}: {e}")
+        raise
 
 def new_doc_id(topic: str, tag: str = "") -> str:
     """Always-generate unique IDs for Chroma (prevents unlearn→reteach collisions)."""
     u = uuid.uuid4().hex
     return f"{topic}_{tag}_{u}" if tag else f"{topic}_{u}"
-
 
 def _chunk(text: str, max_chars=1000, overlap=150):
     text = text or ""
@@ -461,7 +445,6 @@ def _chunk(text: str, max_chars=1000, overlap=150):
         i = max(0, end - overlap)
     return chunks
 
-
 def extract_command_text(update: Update) -> str:
     msg = update.message
     if not msg:
@@ -472,7 +455,6 @@ def extract_command_text(update: Update) -> str:
         return msg.caption.strip()
     return ""
 
-
 def strip_command(text: str, command: str) -> str:
     """
     Remove the first token (/command or /command@BotName) and return the rest.
@@ -481,11 +463,19 @@ def strip_command(text: str, command: str) -> str:
     t = (text or "").strip()
     if not t:
         return ""
-    first, *rest = t.split(maxsplit=1)
+    parts = t.split(maxsplit=1)
+    if len(parts) < 1:
+        return ""
+    
+    first = parts[0]
+    rest = parts[1] if len(parts) > 1 else ""
+    
+    # Check if first part is the command (with or without bot username)
     if first.startswith(f"/{command}"):
-        return rest[0].strip() if rest else ""
+        return rest.strip()
+    
+    # If not, return original text (in case user typed something else)
     return t
-
 
 def is_caption_command(caption: str, cmd: str) -> bool:
     cap = (caption or "").strip()
@@ -494,23 +484,22 @@ def is_caption_command(caption: str, cmd: str) -> bool:
     first = cap.split(maxsplit=1)[0]
     return first.startswith(f"/{cmd}")
 
-
 async def show_typing(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
-
+    try:
+        await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+    except Exception as e:
+        logging.warning(f"Could not send typing action: {e}")
 
 def sanitize_output(text: str) -> str:
     if not text:
         return text
     return text.replace("—", " - ")
 
-
 def safe_text_for_embedding(text: str) -> str:
     if not text:
         return text
     return text.encode("utf-8", "ignore").decode("utf-8")
-
 
 def _truncate_for_storage(text: str, max_chars: int = 12000) -> str:
     if not text:
@@ -518,15 +507,16 @@ def _truncate_for_storage(text: str, max_chars: int = 12000) -> str:
     t = text.strip()
     return t[:max_chars]
 
-
 async def send_long(update: Update, text: str):
     MAX_LEN = 4000
     if not text:
         return
     text = sanitize_output(text)
     for i in range(0, len(text), MAX_LEN):
-        await update.message.reply_text(text[i : i + MAX_LEN])
-
+        try:
+            await update.message.reply_text(text[i : i + MAX_LEN])
+        except Exception as e:
+            logging.error(f"Failed to send message part: {e}")
 
 async def send_with_image(
     update: Update,
@@ -547,34 +537,38 @@ async def send_with_image(
                 return
             except Exception as e:
                 logging.warning(f"Failed to send image {path}: {e}")
+        else:
+            logging.warning(f"Image file not found: {path}")
 
     await update.message.reply_text(caption, reply_markup=reply_markup)
 
-
 # -------- Vision helper --------
 def extract_text_from_image_bytes(image_bytes: bytes) -> str:
-    b64 = base64.b64encode(image_bytes).decode("utf-8")
-    data_url = f"data:image/jpeg;base64,{b64}"
+    try:
+        b64 = base64.b64encode(image_bytes).decode("utf-8")
+        data_url = f"data:image/jpeg;base64,{b64}"
 
-    messages = [
-        {
-            "role": "user",
-            "content": [
-                {
-                    "type": "text",
-                    "text": (
-                        "Extract all readable text from this image. "
-                        "Return ONLY the plain text, no extra comments."
-                    ),
-                },
-                {"type": "image_url", "image_url": {"url": data_url}},
-            ],
-        }
-    ]
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            "Extract all readable text from this image. "
+                            "Return ONLY the plain text, no extra comments."
+                        ),
+                    },
+                    {"type": "image_url", "image_url": {"url": data_url}},
+                ],
+            }
+        ]
 
-    out = openai_chat(model="gpt-4o-mini", messages=messages, temperature=0.0)
-    return out or ""
-
+        out = openai_chat(model="gpt-4o-mini", messages=messages, temperature=0.0)
+        return out or ""
+    except Exception as e:
+        logging.error(f"Error extracting text from image: {e}")
+        return ""
 
 # ---------- EVAL FOLLOW-UP HELPERS ----------
 FOLLOWUP_TRIGGERS = [
@@ -599,11 +593,9 @@ FOLLOWUP_TRIGGERS = [
     "deeper reflection",
 ]
 
-
 def is_followup_intent(q: str) -> bool:
     s = (q or "").lower()
     return any(t in s for t in FOLLOWUP_TRIGGERS)
-
 
 def looks_like_submission(q: str) -> bool:
     t = (q or "").strip()
@@ -613,7 +605,6 @@ def looks_like_submission(q: str) -> bool:
         return True
     return False
 
-
 def clear_eval_context(context: ContextTypes.DEFAULT_TYPE):
     for k in [
         "last_eval_topic",
@@ -622,8 +613,7 @@ def clear_eval_context(context: ContextTypes.DEFAULT_TYPE):
         "last_eval_feedback",
     ]:
         context.user_data.pop(k, None)
-    context.user_data["eval_active"] = False
-
+    context.user_data.pop("eval_active", None)
 
 def set_eval_context(
     context: ContextTypes.DEFAULT_TYPE,
@@ -637,7 +627,6 @@ def set_eval_context(
     context.user_data["last_eval_feedback"] = feedback
     context.user_data["eval_active"] = True
 
-
 def _pretty_topic_for_eval(topic: str) -> str:
     return {
         "essays_personal": "Personal Statement essay",
@@ -647,7 +636,6 @@ def _pretty_topic_for_eval(topic: str) -> str:
         "extracurriculars": "Extracurricular activities description",
         "ielts_writing": "IELTS Writing answer",
     }.get(topic, "document")
-
 
 def _sys_role_for_eval(topic: str) -> str:
     if topic in {"essays_personal", "essays_supplemental"}:
@@ -680,7 +668,6 @@ def _sys_role_for_eval(topic: str) -> str:
         "Focus on coherence, originality, technical quality, and fit for selective colleges."
     )
 
-
 # ---------- Handlers ----------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     clear_eval_context(context)
@@ -695,7 +682,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=main_menu_keyboard(),
         image_key="welcome",
     )
-
 
 # ---------- TEACH (Q&A sources) ----------
 async def teach(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -712,37 +698,64 @@ async def teach(update: Update, context: ContextTypes.DEFAULT_TYPE):
     record_event(user.id, topic, kind="teach")
 
     raw = strip_command(extract_command_text(update), "teach")
+    logging.info(f"Raw teach input: '{raw}'")
+    
+    if not raw:
+        await update.message.reply_text(
+            "Use format:\n/teach <title> | <content>\n\n" f"Current topic: {topic}"
+        )
+        return
+        
     if "|" not in raw:
         await update.message.reply_text(
             "Use format:\n/teach <title> | <content>\n\n" f"Current topic: {topic}"
         )
         return
 
-    title, content = [p.strip() for p in raw.split("|", 1)]
+    try:
+        title, content = [p.strip() for p in raw.split("|", 1)]
+    except ValueError:
+        await update.message.reply_text("❌ Invalid format. Use: /teach <title> | <content>")
+        return
+        
     if not title or not content:
         await update.message.reply_text("❌ Title or content is empty. Use: /teach <title> | <content>")
         return
 
-    col = get_collection(chat_id, topic)
+    try:
+        col = get_collection(chat_id, topic)
+    except Exception as e:
+        logging.error(f"Failed to get collection: {e}")
+        await update.message.reply_text(f"❌ Failed to access database: {e}")
+        return
 
-    existing = col.get(where={"title": title, "type": "qa"})
+    try:
+        existing = col.get(where={"title": title, "type": "qa"})
+    except Exception as e:
+        logging.error(f"Error checking existing: {e}")
+        existing = {"ids": []}
+
     if existing and existing.get("ids"):
         await update.message.reply_text(
             f"'{title}' already exists in topic: {topic}. "
-            "Use /unlearn '<title>' first if you want to replace it."
+            "Use /unlearn '{title}' first if you want to replace it."
         )
         return
 
     doc_id = new_doc_id(topic, "qa")
-    col.add(
-        ids=[doc_id],
-        metadatas=[{"title": title, "topic": topic, "type": "qa", "source": "manual"}],
-        documents=[safe_text_for_embedding(content)],
-    )
-    await update.message.reply_text(
-        f"Learned '{title}' ✅ (topic: {topic}, mode: Q&A, scope: GLOBAL)"
-    )
-
+    try:
+        col.add(
+            ids=[doc_id],
+            metadatas=[{"title": title, "topic": topic, "type": "qa", "source": "manual"}],
+            documents=[safe_text_for_embedding(content)],
+        )
+        logging.info(f"Successfully added document '{title}' to topic '{topic}'")
+        await update.message.reply_text(
+            f"Learned '{title}' ✅ (topic: {topic}, mode: Q&A, scope: GLOBAL)"
+        )
+    except Exception as e:
+        logging.error(f"Failed to add document to Chroma: {e}")
+        await update.message.reply_text(f"❌ Failed to save: {str(e)[:200]}")
 
 # ---------- TEACH RUBRIC (EVALUATION sources) ----------
 async def teachrubric(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -755,13 +768,26 @@ async def teachrubric(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
 
     raw = strip_command(extract_command_text(update), "teachrubric")
+    logging.info(f"Raw teachrubric input: '{raw}'")
+    
+    if not raw:
+        await update.message.reply_text(
+            "Use format:\n/teachrubric <title> | <rubric / evaluation criteria>"
+        )
+        return
+        
     if "|" not in raw:
         await update.message.reply_text(
             "Use format:\n/teachrubric <title> | <rubric / evaluation criteria>"
         )
         return
 
-    title, content = [p.strip() for p in raw.split("|", 1)]
+    try:
+        title, content = [p.strip() for p in raw.split("|", 1)]
+    except ValueError:
+        await update.message.reply_text("❌ Invalid format. Use: /teachrubric <title> | <rubric>")
+        return
+        
     if not title or not content:
         await update.message.reply_text("❌ Title or rubric content is empty.")
         return
@@ -769,13 +795,23 @@ async def teachrubric(update: Update, context: ContextTypes.DEFAULT_TYPE):
     topic = get_current_topic(context)
     record_event(user.id, topic, kind="teachrubric")
 
-    col = get_collection(chat_id, topic)
+    try:
+        col = get_collection(chat_id, topic)
+    except Exception as e:
+        logging.error(f"Failed to get collection: {e}")
+        await update.message.reply_text(f"❌ Failed to access database: {e}")
+        return
 
-    existing = col.get(where={"title": title, "type": "evaluation"})
+    try:
+        existing = col.get(where={"title": title, "type": "evaluation"})
+    except Exception as e:
+        logging.error(f"Error checking existing: {e}")
+        existing = {"ids": []}
+
     if existing and existing.get("ids"):
         await update.message.reply_text(
             f"'{title}' already exists in topic: {topic}. "
-            "Use /unlearn '<title>' first if you want to replace it."
+            "Use /unlearn '{title}' first if you want to replace it."
         )
         return
 
@@ -787,14 +823,13 @@ async def teachrubric(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ],
             documents=[safe_text_for_embedding(content)],
         )
+        logging.info(f"Successfully added rubric '{title}' to topic '{topic}'")
+        await update.message.reply_text(
+            f"Learned evaluation rubric '{title}' ✅ (topic: {topic}, scope: GLOBAL)"
+        )
     except Exception as e:
-        await update.message.reply_text(f"❌ Failed to save rubric: {e}")
-        return
-
-    await update.message.reply_text(
-        f"Learned evaluation rubric '{title}' ✅ (topic: {topic}, scope: GLOBAL)"
-    )
-
+        logging.error(f"Failed to add rubric to Chroma: {e}")
+        await update.message.reply_text(f"❌ Failed to save rubric: {str(e)[:200]}")
 
 # ---------- TEACH FILE (Q&A sources) ----------
 async def teachfile(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -808,9 +843,6 @@ async def teachfile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     topic = get_current_topic(context)
     record_event(user.id, topic, kind="teachfile")
 
-    await update.message.reply_text(
-        "Reading your file and extracting text to learn from it (Q&A)…"
-    )
     doc = update.message.document
     if not doc:
         await update.message.reply_text(
@@ -818,9 +850,17 @@ async def teachfile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    tgfile = await doc.get_file()
-    file_bytes = await tgfile.download_as_bytearray()
-    name = (doc.file_name or "upload").lower()
+    await update.message.reply_text(
+        "Reading your file and extracting text to learn from it (Q&A)…"
+    )
+
+    try:
+        tgfile = await doc.get_file()
+        file_bytes = await tgfile.download_as_bytearray()
+        name = (doc.file_name or "upload").lower()
+    except Exception as e:
+        await update.message.reply_text(f"Failed to download file: {e}")
+        return
 
     try:
         if name.endswith(".pdf"):
@@ -835,13 +875,28 @@ async def teachfile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Could not read file: {e}")
         return
 
-    parts = _chunk(text)
-    if not parts:
-        await update.message.reply_text("I couldn’t find any readable text in that file.")
+    if not text or not text.strip():
+        await update.message.reply_text("I couldn't find any readable text in that file.")
         return
 
-    col = get_collection(chat_id, topic)
-    existing = col.get(where={"title": name, "type": "qa"})
+    parts = _chunk(text)
+    if not parts:
+        await update.message.reply_text("Text was too short or could not be chunked.")
+        return
+
+    try:
+        col = get_collection(chat_id, topic)
+    except Exception as e:
+        logging.error(f"Failed to get collection: {e}")
+        await update.message.reply_text(f"❌ Failed to access database: {e}")
+        return
+
+    try:
+        existing = col.get(where={"title": name, "type": "qa"})
+    except Exception as e:
+        logging.error(f"Error checking existing: {e}")
+        existing = {"ids": []}
+
     if existing and existing.get("ids"):
         await update.message.reply_text(
             f"'{name}' is already learned in topic: {topic}.\n"
@@ -849,17 +904,20 @@ async def teachfile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    ids = [new_doc_id(topic, "qa") for _ in range(len(parts))]
-    metas = [
-        {"title": name, "topic": topic, "part": i, "source": "file", "type": "qa"}
-        for i in range(len(parts))
-    ]
-    col.add(ids=ids, metadatas=metas, documents=[safe_text_for_embedding(p) for p in parts])
-
-    await update.message.reply_text(
-        f"Learned from file ✅ ({len(parts)} parts) in topic: {topic} (Q&A, scope: GLOBAL)"
-    )
-
+    try:
+        ids = [new_doc_id(topic, "qa") for _ in range(len(parts))]
+        metas = [
+            {"title": name, "topic": topic, "part": i, "source": "file", "type": "qa"}
+            for i in range(len(parts))
+        ]
+        col.add(ids=ids, metadatas=metas, documents=[safe_text_for_embedding(p) for p in parts])
+        logging.info(f"Successfully added file '{name}' with {len(parts)} parts to topic '{topic}'")
+        await update.message.reply_text(
+            f"Learned from file ✅ ({len(parts)} parts) in topic: {topic} (Q&A, scope: GLOBAL)"
+        )
+    except Exception as e:
+        logging.error(f"Failed to add file to Chroma: {e}")
+        await update.message.reply_text(f"❌ Failed to save file content: {str(e)[:200]}")
 
 # ---------- TEACH FILE EVAL (EVALUATION sources) ----------
 async def teachfile_eval(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -875,9 +933,6 @@ async def teachfile_eval(update: Update, context: ContextTypes.DEFAULT_TYPE):
     topic = get_current_topic(context)
     record_event(user.id, topic, kind="teachfile_eval")
 
-    await update.message.reply_text(
-        "Reading your rubric file and extracting evaluation criteria…"
-    )
     doc = update.message.document
     if not doc:
         await update.message.reply_text(
@@ -885,9 +940,17 @@ async def teachfile_eval(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    tgfile = await doc.get_file()
-    file_bytes = await tgfile.download_as_bytearray()
-    name = (doc.file_name or "upload").lower()
+    await update.message.reply_text(
+        "Reading your rubric file and extracting evaluation criteria…"
+    )
+
+    try:
+        tgfile = await doc.get_file()
+        file_bytes = await tgfile.download_as_bytearray()
+        name = (doc.file_name or "upload").lower()
+    except Exception as e:
+        await update.message.reply_text(f"Failed to download file: {e}")
+        return
 
     try:
         if name.endswith(".pdf"):
@@ -902,13 +965,28 @@ async def teachfile_eval(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Could not read file: {e}")
         return
 
-    parts = _chunk(text)
-    if not parts:
-        await update.message.reply_text("I couldn’t find any readable text in that file.")
+    if not text or not text.strip():
+        await update.message.reply_text("I couldn't find any readable text in that file.")
         return
 
-    col = get_collection(chat_id, topic)
-    existing = col.get(where={"title": name, "type": "evaluation"})
+    parts = _chunk(text)
+    if not parts:
+        await update.message.reply_text("Text was too short or could not be chunked.")
+        return
+
+    try:
+        col = get_collection(chat_id, topic)
+    except Exception as e:
+        logging.error(f"Failed to get collection: {e}")
+        await update.message.reply_text(f"❌ Failed to access database: {e}")
+        return
+
+    try:
+        existing = col.get(where={"title": name, "type": "evaluation"})
+    except Exception as e:
+        logging.error(f"Error checking existing: {e}")
+        existing = {"ids": []}
+
     if existing and existing.get("ids"):
         await update.message.reply_text(
             f"'{name}' is already learned in topic: {topic}.\n"
@@ -916,17 +994,20 @@ async def teachfile_eval(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    ids = [new_doc_id(topic, "eval") for _ in range(len(parts))]
-    metas = [
-        {"title": name, "topic": topic, "part": i, "source": "file", "type": "evaluation"}
-        for i in range(len(parts))
-    ]
-    col.add(ids=ids, metadatas=metas, documents=[safe_text_for_embedding(p) for p in parts])
-
-    await update.message.reply_text(
-        f"Learned evaluation rubric from file ✅ ({len(parts)} parts) in topic: {topic} (scope: GLOBAL)"
-    )
-
+    try:
+        ids = [new_doc_id(topic, "eval") for _ in range(len(parts))]
+        metas = [
+            {"title": name, "topic": topic, "part": i, "source": "file", "type": "evaluation"}
+            for i in range(len(parts))
+        ]
+        col.add(ids=ids, metadatas=metas, documents=[safe_text_for_embedding(p) for p in parts])
+        logging.info(f"Successfully added eval file '{name}' with {len(parts)} parts to topic '{topic}'")
+        await update.message.reply_text(
+            f"Learned evaluation rubric from file ✅ ({len(parts)} parts) in topic: {topic} (scope: GLOBAL)"
+        )
+    except Exception as e:
+        logging.error(f"Failed to add eval file to Chroma: {e}")
+        await update.message.reply_text(f"❌ Failed to save rubric content: {str(e)[:200]}")
 
 # ---------- TEACH LINK (Q&A) ----------
 async def teachlink(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -951,6 +1032,9 @@ async def teachlink(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         downloaded = trafilatura.fetch_url(url)
+        if not downloaded:
+            await update.message.reply_text("Could not fetch the URL. Please check the link.")
+            return
         text = trafilatura.extract(downloaded)
     except Exception as e:
         await update.message.reply_text(f"Error while fetching the URL: {e}")
@@ -965,25 +1049,39 @@ async def teachlink(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("The page did not contain enough text to learn from.")
         return
 
-    col = get_collection(chat_id, topic)
-    existing = col.get(where={"title": url, "type": "qa"})
+    try:
+        col = get_collection(chat_id, topic)
+    except Exception as e:
+        logging.error(f"Failed to get collection: {e}")
+        await update.message.reply_text(f"❌ Failed to access database: {e}")
+        return
+
+    try:
+        existing = col.get(where={"title": url, "type": "qa"})
+    except Exception as e:
+        logging.error(f"Error checking existing: {e}")
+        existing = {"ids": []}
+
     if existing and existing.get("ids"):
         await update.message.reply_text(
             f"This link is already learned in topic: {topic}.\nUse /unlearn <url> to remove it first."
         )
         return
 
-    ids = [new_doc_id(topic, "qa") for _ in range(len(chunks))]
-    metas = [
-        {"title": url, "topic": topic, "part": i, "source": "link", "type": "qa"}
-        for i in range(len(chunks))
-    ]
-    col.add(ids=ids, metadatas=metas, documents=[safe_text_for_embedding(c) for c in chunks])
-
-    await update.message.reply_text(
-        f"Learned from link ✅ ({len(chunks)} parts) in topic: {topic} (Q&A, scope: GLOBAL)"
-    )
-
+    try:
+        ids = [new_doc_id(topic, "qa") for _ in range(len(chunks))]
+        metas = [
+            {"title": url, "topic": topic, "part": i, "source": "link", "type": "qa"}
+            for i in range(len(chunks))
+        ]
+        col.add(ids=ids, metadatas=metas, documents=[safe_text_for_embedding(c) for c in chunks])
+        logging.info(f"Successfully added link '{url}' with {len(chunks)} parts to topic '{topic}'")
+        await update.message.reply_text(
+            f"Learned from link ✅ ({len(chunks)} parts) in topic: {topic} (Q&A, scope: GLOBAL)"
+        )
+    except Exception as e:
+        logging.error(f"Failed to add link to Chroma: {e}")
+        await update.message.reply_text(f"❌ Failed to save link content: {str(e)[:200]}")
 
 # ---------- TEACH LINK EVAL (EVALUATION sources) ----------
 async def teachlink_eval(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1012,6 +1110,9 @@ async def teachlink_eval(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         downloaded = trafilatura.fetch_url(url)
+        if not downloaded:
+            await update.message.reply_text("Could not fetch the URL. Please check the link.")
+            return
         text = trafilatura.extract(downloaded)
     except Exception as e:
         await update.message.reply_text(f"Error while fetching the URL: {e}")
@@ -1026,25 +1127,39 @@ async def teachlink_eval(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("The page did not contain enough text to learn from.")
         return
 
-    col = get_collection(chat_id, topic)
-    existing = col.get(where={"title": url, "type": "evaluation"})
+    try:
+        col = get_collection(chat_id, topic)
+    except Exception as e:
+        logging.error(f"Failed to get collection: {e}")
+        await update.message.reply_text(f"❌ Failed to access database: {e}")
+        return
+
+    try:
+        existing = col.get(where={"title": url, "type": "evaluation"})
+    except Exception as e:
+        logging.error(f"Error checking existing: {e}")
+        existing = {"ids": []}
+
     if existing and existing.get("ids"):
         await update.message.reply_text(
             f"This link is already learned in topic: {topic}.\nUse /unlearn <url> to remove it first."
         )
         return
 
-    ids = [new_doc_id(topic, "eval") for _ in range(len(chunks))]
-    metas = [
-        {"title": url, "topic": topic, "part": i, "source": "link", "type": "evaluation"}
-        for i in range(len(chunks))
-    ]
-    col.add(ids=ids, metadatas=metas, documents=[safe_text_for_embedding(c) for c in chunks])
-
-    await update.message.reply_text(
-        f"Learned evaluation material from link ✅ ({len(chunks)} parts) in topic: {topic} (scope: GLOBAL)"
-    )
-
+    try:
+        ids = [new_doc_id(topic, "eval") for _ in range(len(chunks))]
+        metas = [
+            {"title": url, "topic": topic, "part": i, "source": "link", "type": "evaluation"}
+            for i in range(len(chunks))
+        ]
+        col.add(ids=ids, metadatas=metas, documents=[safe_text_for_embedding(c) for c in chunks])
+        logging.info(f"Successfully added eval link '{url}' with {len(chunks)} parts to topic '{topic}'")
+        await update.message.reply_text(
+            f"Learned evaluation material from link ✅ ({len(chunks)} parts) in topic: {topic} (scope: GLOBAL)"
+        )
+    except Exception as e:
+        logging.error(f"Failed to add eval link to Chroma: {e}")
+        await update.message.reply_text(f"❌ Failed to save evaluation content: {str(e)[:200]}")
 
 # ---------- TEACH IMAGE (Q&A) ----------
 async def teachimage(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1070,15 +1185,23 @@ async def teachimage(update: Update, context: ContextTypes.DEFAULT_TYPE):
         title = rest.strip() if rest.strip() else None
 
     largest = photos[-1]
-    tgfile = await largest.get_file()
-    if not title:
-        title = f"image_{tgfile.file_unique_id}"
+    try:
+        tgfile = await largest.get_file()
+        if not title:
+            title = f"image_{tgfile.file_unique_id}"
+    except Exception as e:
+        await update.message.reply_text(f"Failed to get image file: {e}")
+        return
 
     await update.message.reply_text(
         f"Reading your image for topic '{topic}' and extracting text to learn from it…"
     )
 
-    img_bytes = await tgfile.download_as_bytearray()
+    try:
+        img_bytes = await tgfile.download_as_bytearray()
+    except Exception as e:
+        await update.message.reply_text(f"Failed to download image: {e}")
+        return
 
     try:
         extracted = extract_text_from_image_bytes(img_bytes)
@@ -1095,31 +1218,48 @@ async def teachimage(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("The extracted text was too short to learn from.")
         return
 
-    col = get_collection(chat_id, topic)
-    existing = col.get(where={"title": title, "type": "qa"})
+    try:
+        col = get_collection(chat_id, topic)
+    except Exception as e:
+        logging.error(f"Failed to get collection: {e}")
+        await update.message.reply_text(f"❌ Failed to access database: {e}")
+        return
+
+    try:
+        existing = col.get(where={"title": title, "type": "qa"})
+    except Exception as e:
+        logging.error(f"Error checking existing: {e}")
+        existing = {"ids": []}
+
     if existing and existing.get("ids"):
         await update.message.reply_text(
             f"'{title}' is already learned in topic: {topic}.\nUse /unlearn <title> to remove it first if needed."
         )
         return
 
-    ids = [new_doc_id(topic, "qa") for _ in range(len(parts))]
-    metas = [
-        {"title": title, "topic": topic, "part": i, "source": "image", "type": "qa"}
-        for i in range(len(parts))
-    ]
-    col.add(ids=ids, metadatas=metas, documents=[safe_text_for_embedding(p) for p in parts])
-
-    await update.message.reply_text(
-        f"Learned from image '{title}' ✅ ({len(parts)} parts) in topic: {topic} (Q&A, scope: GLOBAL)"
-    )
-
+    try:
+        ids = [new_doc_id(topic, "qa") for _ in range(len(parts))]
+        metas = [
+            {"title": title, "topic": topic, "part": i, "source": "image", "type": "qa"}
+            for i in range(len(parts))
+        ]
+        col.add(ids=ids, metadatas=metas, documents=[safe_text_for_embedding(p) for p in parts])
+        logging.info(f"Successfully added image '{title}' with {len(parts)} parts to topic '{topic}'")
+        await update.message.reply_text(
+            f"Learned from image '{title}' ✅ ({len(parts)} parts) in topic: {topic} (Q&A, scope: GLOBAL)"
+        )
+    except Exception as e:
+        logging.error(f"Failed to add image to Chroma: {e}")
+        await update.message.reply_text(f"❌ Failed to save image content: {str(e)[:200]}")
 
 # ---------- SOURCES ----------
 async def sources_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logging.info("🔥 /sources_all handler hit")
-    client = chroma
-    collections = client.list_collections()
+    try:
+        collections = chroma.list_collections()
+    except Exception as e:
+        await update.message.reply_text(f"Error accessing database: {e}")
+        return
 
     if not collections:
         await update.message.reply_text("No sources stored yet.")
@@ -1130,11 +1270,16 @@ async def sources_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
     total_chunks = 0
 
     for col_info in collections:
-        col_name = col_info.name if hasattr(col_info, "name") else col_info.get("name")
+        col_name = col_info.name if hasattr(col_info, "name") else str(col_info)
         if not col_name:
             continue
-        col = client.get_collection(col_name)
-        data = col.get(include=["documents", "metadatas"])
+            
+        try:
+            col = chroma.get_collection(col_name)
+            data = col.get(include=["documents", "metadatas"])
+        except Exception as e:
+            logging.error(f"Error getting collection {col_name}: {e}")
+            continue
 
         docs = data.get("documents", [])
         metas = data.get("metadatas", [])
@@ -1152,6 +1297,10 @@ async def sources_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
             total_chunks += 1
             total_bytes += size_bytes
 
+    if not source_stats:
+        await update.message.reply_text("No sources found in any collections.")
+        return
+
     lines = []
     for title, stats in sorted(source_stats.items(), key=lambda x: x[1]["bytes"], reverse=True):
         mb = stats["bytes"] / (1024 * 1024)
@@ -1166,14 +1315,19 @@ async def sources_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await send_long(update, msg)
 
-
 async def sources(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logging.info("🔥 /sources handler hit")
     chat_id = update.effective_chat.id
     topic = get_current_topic(context)
-    col = get_collection(chat_id, topic)
-
-    data = col.get(include=["metadatas"])
+    
+    try:
+        col = get_collection(chat_id, topic)
+        data = col.get(include=["metadatas"])
+    except Exception as e:
+        logging.error(f"Error getting collection: {e}")
+        await update.message.reply_text(f"Error accessing database: {e}")
+        return
+        
     metas = data.get("metadatas") or []
 
     if not metas:
@@ -1208,7 +1362,6 @@ async def sources(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("\n".join(lines))
 
-
 # ---------- UNLEARN ----------
 async def unlearn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not require_admin(update):
@@ -1228,8 +1381,21 @@ async def unlearn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     title = rest.strip()
-    col = get_collection(chat_id, topic)
-    to_delete = col.get(where={"title": title})
+    
+    try:
+        col = get_collection(chat_id, topic)
+    except Exception as e:
+        logging.error(f"Failed to get collection: {e}")
+        await update.message.reply_text(f"❌ Failed to access database: {e}")
+        return
+        
+    try:
+        to_delete = col.get(where={"title": title})
+    except Exception as e:
+        logging.error(f"Error checking for documents to delete: {e}")
+        await update.message.reply_text(f"❌ Error checking for documents: {e}")
+        return
+        
     removed = len((to_delete or {}).get("ids") or [])
 
     if removed == 0:
@@ -1238,11 +1404,14 @@ async def unlearn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    col.delete(where={"title": title})
-    await update.message.reply_text(
-        f"Removed '{title}' ✅ ({removed} parts) from topic: {topic} (GLOBAL)"
-    )
-
+    try:
+        col.delete(where={"title": title})
+        await update.message.reply_text(
+            f"Removed '{title}' ✅ ({removed} parts) from topic: {topic} (GLOBAL)"
+        )
+    except Exception as e:
+        logging.error(f"Error deleting documents: {e}")
+        await update.message.reply_text(f"❌ Failed to remove '{title}': {e}")
 
 # ---------- CLEAR ----------
 async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1265,7 +1434,6 @@ async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Didn't find any stored sources to clear for topic: {topic} (GLOBAL)."
         )
 
-
 # ---------- EVALUATION HELPERS ----------
 def _eval_context_from_collection(col, extra_query: str = ""):
     eval_docs = []
@@ -1277,7 +1445,8 @@ def _eval_context_from_collection(col, extra_query: str = ""):
             n_results=6,
         )
         eval_docs = res_eval.get("documents", [[]])[0]
-    except Exception:
+    except Exception as e:
+        logging.error(f"Error querying evaluation docs: {e}")
         eval_docs = []
 
     try:
@@ -1287,12 +1456,12 @@ def _eval_context_from_collection(col, extra_query: str = ""):
             n_results=6,
         )
         qa_docs = res_qa.get("documents", [[]])[0]
-    except Exception:
+    except Exception as e:
+        logging.error(f"Error querying QA docs: {e}")
         qa_docs = []
 
     docs = (eval_docs or []) + (qa_docs or [])
     return "\n\n---\n\n".join(docs) if docs else ""
-
 
 async def run_eval_followup(update: Update, context: ContextTypes.DEFAULT_TYPE, user_request: str):
     await show_typing(update, context)
@@ -1307,15 +1476,20 @@ async def run_eval_followup(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
     if not student_text:
         await update.message.reply_text(
-            "✅ Evaluation follow-up is ON, but I don’t have your last text saved.\n\n"
-            "Please paste the full text again (or upload PDF/DOCX), then I’ll apply feedback."
+            "✅ Evaluation follow-up is ON, but I don't have your last text saved.\n\n"
+            "Please paste the full text again (or upload PDF/DOCX), then I'll apply feedback."
         )
         return
 
     record_event(user.id, topic, kind="eval_followup")
 
-    col = get_collection(chat_id, topic)
-    context_block = _eval_context_from_collection(col, extra_query=pretty_topic)
+    try:
+        col = get_collection(chat_id, topic)
+        context_block = _eval_context_from_collection(col, extra_query=pretty_topic)
+    except Exception as e:
+        logging.error(f"Error getting collection for eval followup: {e}")
+        context_block = ""
+
     sys_role = _sys_role_for_eval(topic)
 
     messages = [
@@ -1341,9 +1515,9 @@ async def run_eval_followup(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
     if revised and not revised.lower().startswith("error"):
         context.user_data["last_eval_text"] = revised
-
-    await send_long(update, revised)
-
+        await send_long(update, revised)
+    else:
+        await update.message.reply_text("❌ Failed to generate revision. Please try again.")
 
 async def run_eval_qa(update: Update, context: ContextTypes.DEFAULT_TYPE, user_question: str):
     """
@@ -1362,15 +1536,19 @@ async def run_eval_qa(update: Update, context: ContextTypes.DEFAULT_TYPE, user_q
 
     if not student_text:
         await update.message.reply_text(
-            "✅ Evaluation mode is ON, but I don’t have your last submission saved.\n\n"
+            "✅ Evaluation mode is ON, but I don't have your last submission saved.\n\n"
             "Please paste the full text again (or upload PDF/DOCX)."
         )
         return
 
     record_event(user.id, topic, kind="eval_qa")
 
-    col = get_collection(chat_id, topic)
-    context_block = _eval_context_from_collection(col, extra_query=pretty_topic)
+    try:
+        col = get_collection(chat_id, topic)
+        context_block = _eval_context_from_collection(col, extra_query=pretty_topic)
+    except Exception as e:
+        logging.error(f"Error getting collection for eval QA: {e}")
+        context_block = ""
 
     sys = (
         "You are an experienced admissions mentor.\n"
@@ -1395,7 +1573,6 @@ async def run_eval_qa(update: Update, context: ContextTypes.DEFAULT_TYPE, user_q
     a = openai_chat(model="gpt-4.1-mini", messages=messages, temperature=0.35)
     await send_long(update, a)
 
-
 async def evaluate_file_for_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_typing(update, context)
     chat_id = update.effective_chat.id
@@ -1419,9 +1596,13 @@ async def evaluate_file_for_topic(update: Update, context: ContextTypes.DEFAULT_
     pretty_topic = _pretty_topic_for_eval(topic)
     await update.message.reply_text(f"Reading your {pretty_topic} file…")
 
-    tgfile = await doc.get_file()
-    file_bytes = await tgfile.download_as_bytearray()
-    name = (doc.file_name or "document").lower()
+    try:
+        tgfile = await doc.get_file()
+        file_bytes = await tgfile.download_as_bytearray()
+        name = (doc.file_name or "document").lower()
+    except Exception as e:
+        await update.message.reply_text(f"Failed to download file: {e}")
+        return
 
     try:
         if name.endswith(".pdf"):
@@ -1446,8 +1627,12 @@ async def evaluate_file_for_topic(update: Update, context: ContextTypes.DEFAULT_
 
     await update.message.reply_text(f"Analyzing your {pretty_topic} against my guidelines…")
 
-    col = get_collection(chat_id, topic)
-    context_block = _eval_context_from_collection(col, extra_query=pretty_topic)
+    try:
+        col = get_collection(chat_id, topic)
+        context_block = _eval_context_from_collection(col, extra_query=pretty_topic)
+    except Exception as e:
+        logging.error(f"Error getting collection for evaluation: {e}")
+        context_block = ""
 
     if topic in {"essays_personal", "essays_supplemental"}:
         sys_role = (
@@ -1491,7 +1676,6 @@ async def evaluate_file_for_topic(update: Update, context: ContextTypes.DEFAULT_
     set_eval_context(context, topic, student_text_for_followup, a)
     await send_long(update, a)
 
-
 async def evaluate_ielts_writing_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_typing(update, context)
     chat_id = update.effective_chat.id
@@ -1505,9 +1689,19 @@ async def evaluate_ielts_writing_image(update: Update, context: ContextTypes.DEF
         return
 
     largest = photos[-1]
-    tgfile = await largest.get_file()
+    try:
+        tgfile = await largest.get_file()
+    except Exception as e:
+        await update.message.reply_text(f"Failed to get image file: {e}")
+        return
+        
     await update.message.reply_text("Reading your IELTS Writing answer from the image…")
-    img_bytes = await tgfile.download_as_bytearray()
+    
+    try:
+        img_bytes = await tgfile.download_as_bytearray()
+    except Exception as e:
+        await update.message.reply_text(f"Failed to download image: {e}")
+        return
 
     try:
         extracted = extract_text_from_image_bytes(img_bytes)
@@ -1527,8 +1721,12 @@ async def evaluate_ielts_writing_image(update: Update, context: ContextTypes.DEF
 
     await update.message.reply_text("Analyzing your IELTS Writing answer…")
 
-    col = get_collection(chat_id, topic)
-    context_block = _eval_context_from_collection(col, extra_query="IELTS Writing")
+    try:
+        col = get_collection(chat_id, topic)
+        context_block = _eval_context_from_collection(col, extra_query="IELTS Writing")
+    except Exception as e:
+        logging.error(f"Error getting collection for IELTS evaluation: {e}")
+        context_block = ""
 
     sys_role = (
         "You are an experienced IELTS Writing examiner. "
@@ -1546,7 +1744,6 @@ async def evaluate_ielts_writing_image(update: Update, context: ContextTypes.DEF
     a = openai_chat(model="gpt-4.1-mini", messages=messages, temperature=0.3)
     set_eval_context(context, topic, student_text_for_followup, a)
     await send_long(update, a)
-
 
 async def evaluate_text_for_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_typing(update, context)
@@ -1581,8 +1778,12 @@ async def evaluate_text_for_topic(update: Update, context: ContextTypes.DEFAULT_
 
     await update.message.reply_text(f"Evaluating your {pretty_topic}…")
 
-    col = get_collection(chat_id, topic)
-    context_block = _eval_context_from_collection(col, extra_query=pretty_topic)
+    try:
+        col = get_collection(chat_id, topic)
+        context_block = _eval_context_from_collection(col, extra_query=pretty_topic)
+    except Exception as e:
+        logging.error(f"Error getting collection for evaluation: {e}")
+        context_block = ""
 
     if topic in {"essays_personal", "essays_supplemental"}:
         sys_role = (
@@ -1626,36 +1827,33 @@ async def evaluate_text_for_topic(update: Update, context: ContextTypes.DEFAULT_
     set_eval_context(context, topic, student_text_for_followup, a)
     await send_long(update, a)
 
-
 # ---------- DOCUMENT & PHOTO ROUTERS ----------
 async def document_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     caption = (update.message.caption or "").strip()
+    
+    # Check for commands in caption FIRST
+    if caption:
+        if is_caption_command(caption, "teach"):
+            await teach(update, context)
+            return
+        if is_caption_command(caption, "teachrubric"):
+            await teachrubric(update, context)
+            return
+        if is_caption_command(caption, "teachfile_eval"):
+            await teachfile_eval(update, context)
+            return
+        if is_caption_command(caption, "teachfile"):
+            await teachfile(update, context)
+            return
+        if is_caption_command(caption, "teachlink_eval"):
+            await teachlink_eval(update, context)
+            return
+        if is_caption_command(caption, "teachlink"):
+            await teachlink(update, context)
+            return
+
+    # If no command in caption, check if we're in evaluation mode
     topic = get_current_topic(context)
-
-    # ✅ NEW: allow /teach and /teachrubric from captions (people often try this)
-    if is_caption_command(caption, "teach"):
-        await teach(update, context)
-        return
-    if is_caption_command(caption, "teachrubric"):
-        await teachrubric(update, context)
-        return
-
-    if is_caption_command(caption, "teachfile_eval"):
-        await teachfile_eval(update, context)
-        return
-    if is_caption_command(caption, "teachfile"):
-        await teachfile(update, context)
-        return
-    if is_caption_command(caption, "teachlink_eval"):
-        await teachlink_eval(update, context)
-        return
-    if is_caption_command(caption, "teachlink"):
-        await teachlink(update, context)
-        return
-    if is_caption_command(caption, "teachrubric"):
-        await teachrubric(update, context)
-        return
-
     if topic in (set(EVAL_TOPICS) | {"ielts_writing"}):
         await evaluate_file_for_topic(update, context)
         return
@@ -1667,24 +1865,23 @@ async def document_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "choose the correct topic and tap its Evaluation button."
     )
 
-
 async def photo_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     caption = (update.message.caption or "").strip()
     topic = get_current_topic(context)
     user = update.effective_user
     record_event(user.id, topic, kind="photo")
 
-    # ✅ NEW: allow /teach and /teachrubric from captions
-    if is_caption_command(caption, "teach"):
-        await teach(update, context)
-        return
-    if is_caption_command(caption, "teachrubric"):
-        await teachrubric(update, context)
-        return
-
-    if is_caption_command(caption, "teachimage"):
-        await teachimage(update, context)
-        return
+    # Check for commands in caption FIRST
+    if caption:
+        if is_caption_command(caption, "teach"):
+            await teach(update, context)
+            return
+        if is_caption_command(caption, "teachrubric"):
+            await teachrubric(update, context)
+            return
+        if is_caption_command(caption, "teachimage"):
+            await teachimage(update, context)
+            return
 
     if topic == "ielts_writing":
         await evaluate_ielts_writing_image(update, context)
@@ -1697,7 +1894,6 @@ async def photo_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/teachimage <title>\n\n"
         "For IELTS Writing evaluation from an image, switch to IELTS Writing first."
     )
-
 
 # ---------- STATS ----------
 async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1724,7 +1920,6 @@ async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(msg)
 
-
 # ---------- BACKUP SOURCES ----------
 async def backup_sources(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not require_admin(update):
@@ -1734,25 +1929,35 @@ async def backup_sources(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("📦 Backing up all sources…")
 
     data = {}
-    client = chroma
-    collections = client.list_collections()
+    try:
+        collections = chroma.list_collections()
+    except Exception as e:
+        await update.message.reply_text(f"Error accessing database: {e}")
+        return
 
     for col_info in collections:
-        col_name = col_info.name if hasattr(col_info, "name") else col_info.get("name")
+        col_name = col_info.name if hasattr(col_info, "name") else str(col_info)
         if not col_name:
             continue
-        col = client.get_collection(col_name)
-        payload = col.get(include=["documents", "metadatas", "ids"])
-        data[col_name] = payload
+            
+        try:
+            col = chroma.get_collection(col_name)
+            payload = col.get(include=["documents", "metadatas", "ids"])
+            data[col_name] = payload
+        except Exception as e:
+            logging.error(f"Error backing up collection {col_name}: {e}")
+            continue
 
     path = os.path.join(DATA_DIR, "backup_sources.json")
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-
-    await update.message.reply_text(
-        f"✅ Backup completed.\nSaved to:\n{path}\n\nYou can download it from your server volume."
-    )
-
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        await update.message.reply_text(
+            f"✅ Backup completed.\nSaved to:\n{path}\n\nYou can download it from your server volume."
+        )
+    except Exception as e:
+        logging.error(f"Error saving backup: {e}")
+        await update.message.reply_text(f"❌ Failed to save backup: {e}")
 
 # ---------- HEALTH CHECK ----------
 async def health(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1767,10 +1972,10 @@ async def health(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         checks.append("✅ OpenAI: OK")
     except Exception as e:
-        checks.append(f"❌ OpenAI: {e}")
+        checks.append(f"❌ OpenAI: {str(e)[:100]}")
 
     try:
-        test_col = chroma.get_or_create_collection("health_check")
+        test_col = chroma.get_or_create_collection("health_check", embedding_function=emb_fn)
         _id = uuid.uuid4().hex
         test_col.add(ids=[_id], documents=["pong"], metadatas=[{"type": "health"}])
         try:
@@ -1779,7 +1984,7 @@ async def health(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
         checks.append("✅ Chroma: writable")
     except Exception as e:
-        checks.append(f"❌ Chroma: {e}")
+        checks.append(f"❌ Chroma: {str(e)[:100]}")
 
     try:
         test_path = os.path.join(DATA_DIR, "health.txt")
@@ -1788,15 +1993,16 @@ async def health(update: Update, context: ContextTypes.DEFAULT_TYPE):
         os.remove(test_path)
         checks.append(f"✅ Volume: writable ({DATA_DIR})")
     except Exception as e:
-        checks.append(f"❌ Volume: {e}")
+        checks.append(f"❌ Volume: {str(e)[:100]}")
 
     await update.message.reply_text("🧪 Health Check\n\n" + "\n".join(checks))
-
 
 # ---------- NEW FEATURE HELPERS ----------
 def set_pending_feature(context: ContextTypes.DEFAULT_TYPE, feature: str | None):
     context.user_data["pending_feature"] = feature
 
+def clear_pending_feature(context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.pop("pending_feature", None)
 
 async def run_brainstorm(update: Update, context: ContextTypes.DEFAULT_TYPE, description: str):
     await show_typing(update, context)
@@ -1807,12 +2013,14 @@ async def run_brainstorm(update: Update, context: ContextTypes.DEFAULT_TYPE, des
 
     nice_topic = FRIENDLY_TOPIC_NAMES.get(topic, topic)
 
-    col = get_collection(chat_id, topic)
     try:
+        col = get_collection(chat_id, topic)
         res = col.query(query_texts=[description], n_results=6)
         docs = res.get("documents", [[]])[0]
-    except Exception:
+    except Exception as e:
+        logging.error(f"Error querying for brainstorm: {e}")
         docs = []
+        
     context_block = "\n\n---\n\n".join(docs) if docs else ""
 
     sys = (
@@ -1833,7 +2041,6 @@ async def run_brainstorm(update: Update, context: ContextTypes.DEFAULT_TYPE, des
     a = openai_chat(model="gpt-4.1-mini", messages=messages, temperature=0.5)
     await send_long(update, a)
 
-
 async def brainstorm_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (update.message.text or "").strip()
     parts = text.split(maxsplit=1)
@@ -1845,7 +2052,6 @@ async def brainstorm_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await run_brainstorm(update, context, parts[1].strip())
 
-
 async def run_rewrite(update: Update, context: ContextTypes.DEFAULT_TYPE, text_to_fix: str):
     await show_typing(update, context)
     topic = get_current_topic(context)
@@ -1855,12 +2061,14 @@ async def run_rewrite(update: Update, context: ContextTypes.DEFAULT_TYPE, text_t
 
     nice_topic = FRIENDLY_TOPIC_NAMES.get(topic, topic)
 
-    col = get_collection(chat_id, topic)
     try:
+        col = get_collection(chat_id, topic)
         res = col.query(query_texts=[text_to_fix], n_results=6)
         docs = res.get("documents", [[]])[0]
-    except Exception:
+    except Exception as e:
+        logging.error(f"Error querying for rewrite: {e}")
         docs = []
+        
     context_block = "\n\n---\n\n".join(docs) if docs else ""
 
     sys = (
@@ -1882,7 +2090,6 @@ async def run_rewrite(update: Update, context: ContextTypes.DEFAULT_TYPE, text_t
     a = openai_chat(model="gpt-4.1-mini", messages=messages, temperature=0.4)
     await send_long(update, a)
 
-
 async def rewrite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (update.message.text or "").strip()
     parts = text.split(maxsplit=1)
@@ -1892,7 +2099,6 @@ async def rewrite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await run_rewrite(update, context, parts[1].strip())
 
-
 async def run_plan(update: Update, context: ContextTypes.DEFAULT_TYPE, description: str):
     await show_typing(update, context)
     user = update.effective_user
@@ -1900,12 +2106,14 @@ async def run_plan(update: Update, context: ContextTypes.DEFAULT_TYPE, descripti
     chat_id = update.effective_chat.id
     record_event(user.id, topic, kind="plan")
 
-    col = get_collection(chat_id, topic)
     try:
+        col = get_collection(chat_id, topic)
         res = col.query(query_texts=[description], n_results=6)
         docs = res.get("documents", [[]])[0]
-    except Exception:
+    except Exception as e:
+        logging.error(f"Error querying for plan: {e}")
         docs = []
+        
     context_block = "\n\n---\n\n".join(docs) if docs else ""
 
     sys = (
@@ -1924,7 +2132,6 @@ async def run_plan(update: Update, context: ContextTypes.DEFAULT_TYPE, descripti
     a = openai_chat(model="gpt-4.1-mini", messages=messages, temperature=0.5)
     await send_long(update, a)
 
-
 async def plan_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["topic"] = "application_plan"
     text = (update.message.text or "").strip()
@@ -1937,7 +2144,6 @@ async def plan_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     await run_plan(update, context, parts[1].strip())
-
 
 async def run_recpacket(update: Update, context: ContextTypes.DEFAULT_TYPE, description: str):
     await show_typing(update, context)
@@ -1958,7 +2164,6 @@ async def run_recpacket(update: Update, context: ContextTypes.DEFAULT_TYPE, desc
     a = openai_chat(model="gpt-4.1-mini", messages=messages, temperature=0.5)
     await send_long(update, a)
 
-
 async def recpacket_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (update.message.text or "").strip()
     parts = text.split(maxsplit=1)
@@ -1970,7 +2175,6 @@ async def recpacket_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await run_recpacket(update, context, parts[1].strip())
 
-
 async def run_schoolfinder(update: Update, context: ContextTypes.DEFAULT_TYPE, description: str):
     await show_typing(update, context)
     user = update.effective_user
@@ -1978,12 +2182,14 @@ async def run_schoolfinder(update: Update, context: ContextTypes.DEFAULT_TYPE, d
     chat_id = update.effective_chat.id
     record_event(user.id, topic, kind="schoolfinder")
 
-    col = get_collection(chat_id, topic)
     try:
+        col = get_collection(chat_id, topic)
         res = col.query(query_texts=[description], n_results=6)
         docs = res.get("documents", [[]])[0]
-    except Exception:
+    except Exception as e:
+        logging.error(f"Error querying for schoolfinder: {e}")
         docs = []
+        
     context_block = "\n\n---\n\n".join(docs) if docs else ""
 
     sys = (
@@ -2004,7 +2210,6 @@ async def run_schoolfinder(update: Update, context: ContextTypes.DEFAULT_TYPE, d
     a = openai_chat(model="gpt-4.1-mini", messages=messages, temperature=0.6)
     await send_long(update, a)
 
-
 async def schoolfinder_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["topic"] = "school_finder"
     text = (update.message.text or "").strip()
@@ -2017,7 +2222,6 @@ async def schoolfinder_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     await run_schoolfinder(update, context, parts[1].strip())
-
 
 async def run_portfolioideas(update: Update, context: ContextTypes.DEFAULT_TYPE, description: str):
     await show_typing(update, context)
@@ -2036,7 +2240,6 @@ async def run_portfolioideas(update: Update, context: ContextTypes.DEFAULT_TYPE,
     a = openai_chat(model="gpt-4.1-mini", messages=messages, temperature=0.6)
     await send_long(update, a)
 
-
 async def portfolioideas_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (update.message.text or "").strip()
     parts = text.split(maxsplit=1)
@@ -2047,16 +2250,12 @@ async def portfolioideas_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return
     await run_portfolioideas(update, context, parts[1].strip())
-    
-def clear_pending_feature(context: ContextTypes.DEFAULT_TYPE):
-    context.user_data.pop("pending_feature", None)
-
 
 # ---------- MAIN ANSWER ----------
 async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (update.message.text or "").strip()
     if text.startswith("/"):
-    # User sent a command while in a pending mode (rewrite/brainstorm/etc.)
+        # User sent a command while in a pending mode (rewrite/brainstorm/etc.)
         if context.user_data.get("pending_feature"):
             clear_pending_feature(context)
             await update.message.reply_text(
@@ -2064,7 +2263,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         return
 
-    logging.info(f"💬 TEXT RECEIVED: {update.message.text}")
+    logging.info(f"💬 TEXT RECEIVED: {text}")
 
     chat_id = update.effective_chat.id
     user = update.effective_user
@@ -2076,7 +2275,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ---- BACK ----
     if is_back_message(q):
         clear_eval_context(context)
-        context.user_data["pending_feature"] = None
+        clear_pending_feature(context)
         context.user_data["topic"] = DEFAULT_TOPIC
         await update.message.reply_text(
             "Back to main menu. You're now in general mode - you can just ask questions or choose a section again.",
@@ -2093,7 +2292,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # --- pending feature input ---
     pending = context.user_data.get("pending_feature")
     if pending:
-        context.user_data["pending_feature"] = None
+        clear_pending_feature(context)
         if pending == "brainstorm":
             await run_brainstorm(update, context, q)
             return
@@ -2420,19 +2619,21 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Got it! Thinking about your question…")
 
     topic = get_current_topic(context)
-    col = get_collection(chat_id, topic)
-
+    
     try:
+        col = get_collection(chat_id, topic)
         results = col.query(query_texts=[q], where={"type": "qa"}, n_results=4)
         docs = results.get("documents", [[]])[0]
-    except Exception:
+    except Exception as e:
+        logging.error(f"Error querying collection: {e}")
         docs = []
 
     if not docs:
         try:
             results = col.query(query_texts=[q], n_results=4)
             docs = results.get("documents", [[]])[0]
-        except Exception:
+        except Exception as e:
+            logging.error(f"Error querying collection (fallback): {e}")
             docs = []
 
     context_block = "\n\n---\n\n".join(docs or [])
@@ -2456,7 +2657,6 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     a = openai_chat(model="gpt-4.1-mini", messages=messages, temperature=0.4)
     await send_long(update, a)
 
-
 # -------- Dummy HTTP server for Render/Railway --------
 def start_dummy_server():
     class Handler(BaseHTTPRequestHandler):
@@ -2471,9 +2671,10 @@ def start_dummy_server():
 
     port = int(os.environ.get("PORT", 10000))
     server = HTTPServer(("0.0.0.0", port), Handler)
+    print(f"✅ Health check server running on port {port}")
     server.serve_forever()
 
-
+# ===== Setup Application =====
 app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
 # ===== GROUP 0: COMMANDS ONLY =====
@@ -2507,12 +2708,15 @@ app.add_handler(MessageHandler(filters.PHOTO, photo_router), group=1)
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, answer), group=2)
 
 print(
+    "\n" + "="*80 + "\n"
     "Bot is running with GLOBAL per-topic RAG + metadata separation (qa/evaluation) + submenus "
     "+ eval follow-ups (apply feedback) + eval Q&A (any follow-up question) + embedded tools "
     "+ Application Plan & School Finder + analytics + admin locks + backup + health "
-    "+ UUID IDs + robust command parsing (incl captions)…"
+    "+ UUID IDs + robust command parsing (incl captions)…\n"
+    "="*80 + "\n"
 )
 
 if __name__ == "__main__":
     threading.Thread(target=start_dummy_server, daemon=True).start()
+    print("✅ Bot starting...")
     app.run_polling()
