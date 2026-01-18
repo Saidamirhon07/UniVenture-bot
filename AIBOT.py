@@ -2444,29 +2444,59 @@ def clear_pending_feature(context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop("pending_feature", None)
 
 async def run_brainstorm(update: Update, context: ContextTypes.DEFAULT_TYPE, description: str):
+    """Brainstorm helper usable from both /brainstorm and button-based flows.
+
+    IMPORTANT: This function must be self-contained (no free vars like q/context_block).
+    """
     await show_typing(update, context)
+
     topic = get_current_topic(context)
     user = update.effective_user
     chat_id = update.effective_chat.id
     record_event(user.id, topic, kind="brainstorm")
-    nice_topic = FRIENDLY_TOPIC_NAMES.get(topic, topic)
+
+    # Treat the provided description as the user's "question" for prompt + profile extraction.
+    q_local = (description or "").strip()
+
+    # Retrieve a small amount of relevant guidance context (non-fatal if empty/unavailable)
+    context_block = ""
+    try:
+        col = get_collection(chat_id, topic)
+        try:
+            res = col.query(query_texts=[q_local], where={"type": "qa"}, n_results=4)
+            docs = res.get("documents", [[]])[0]
+        except Exception:
+            # fallback without filter
+            res = col.query(query_texts=[q_local], n_results=4)
+            docs = res.get("documents", [[]])[0]
+        context_block = "\n\n---\n\n".join(docs or [])
+    except Exception as e:
+        logging.error(f"Error querying collection for brainstorm: {e}")
+
     mem = get_user_memory_cached(update, context)
     merge_usage_into_memory(context, mem)
-    # update profile signals from the question too (cheap heuristic)
-    mem["profile"] = extract_profile_signals(q, mem.get("profile", {}) or {})
-    decision_notes = coach_decision_notes(topic, q, mem)
 
-    sys = coach_qa_system_prompt(topic, mem, decision_notes)
+    # Update profile signals from the brainstorm description (cheap heuristic)
+    try:
+        mem["profile"] = extract_profile_signals(q_local, mem.get("profile", {}) or {})
+        persist_user_memory(update, context)
+    except Exception as e:
+        logging.exception("Brainstorm memory update failed (non-fatal): %s", e)
 
-    messages = [{"role": "system", "content": sys}]
+    decision_notes = coach_decision_notes(topic, q_local, mem)
+    system_prompt = coach_qa_system_prompt(topic, mem, decision_notes)
+
+    messages = [{"role": "system", "content": system_prompt}]
     if context_block:
-        messages.append(
-            {"role": "system", "content": f"Program-specific notes and examples (may be empty):\n{context_block}"}
-        )
-    messages.append({"role": "user", "content": "Here is the student's situation:\n\n" + description})
+        messages.append({
+            "role": "system",
+            "content": f"Program-specific notes and examples (may be empty):\n{context_block}",
+        })
+    messages.append({"role": "user", "content": "Here is the student's situation:\n\n" + q_local})
 
     a = openai_chat(model="gpt-4.1-mini", messages=messages, temperature=0.5)
     await send_long(update, a)
+
 
 async def brainstorm_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (update.message.text or "").strip()
