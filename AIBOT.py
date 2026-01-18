@@ -3089,8 +3089,8 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ---- BOOST TOOLS MENU ----
     if q == BTN_TOOLS:
         # HARD reset of any interactive modes
-        clear_eval_context(context)
         clear_pending_feature(context)
+        stop_eval_mode(context)  # or clear_eval_mode_only(context)
     
         # Exit any previous tool state
         context.user_data.pop("in_tools", None)
