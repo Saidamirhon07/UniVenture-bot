@@ -187,6 +187,14 @@ BTN_PORT = "🖼️ Portfolio Check"
 BTN_PLAN_MAIN = "📅 Application Plan"
 BTN_SF_MAIN = "🏫 School Finder"
 
+# Boost tools (cross-topic)
+BTN_TOOLS = "🚀 Boost Tools"
+BTN_PROGRESS = "📊 My Progress"
+BTN_INSIDER = "🤫 Insider Tips"
+BTN_POWERWORDS = "⚡ Power Words"
+BTN_PREDICT = "🎯 Predict My Chances"
+BTN_WOWFACTOR = "🔍 Find Wow Factor"
+
 # Evaluation sub-buttons
 BTN_PS_EVAL = "✅ Personal Statement Evaluation"
 BTN_SUPP_EVAL = "✅ Supplemental Essay Evaluation"
@@ -223,10 +231,20 @@ BTN_BACK = "⬅️ Back"
 def main_menu_keyboard():
     return ReplyKeyboardMarkup(
         [
-            [KeyboardButton(BTN_ESSAY), KeyboardButton(BTN_EC)],
-            [KeyboardButton(BTN_REC), KeyboardButton(BTN_SAT)],
-            [KeyboardButton(BTN_IELTS), KeyboardButton(BTN_PORT)],
-            [KeyboardButton(BTN_PLAN_MAIN), KeyboardButton(BTN_SF_MAIN)],
+            [KeyboardButton(BTN_ESSAY), KeyboardButton(BTN_EC), KeyboardButton(BTN_REC)],
+            [KeyboardButton(BTN_SAT), KeyboardButton(BTN_IELTS), KeyboardButton(BTN_PORT)],
+            [KeyboardButton(BTN_PLAN_MAIN), KeyboardButton(BTN_SF_MAIN), KeyboardButton(BTN_TOOLS)],
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=False,
+    )
+
+def tools_menu_keyboard():
+    return ReplyKeyboardMarkup(
+        [
+            [KeyboardButton(BTN_PROGRESS), KeyboardButton(BTN_INSIDER), KeyboardButton(BTN_POWERWORDS)],
+            [KeyboardButton(BTN_PREDICT), KeyboardButton(BTN_WOWFACTOR)],
+            [KeyboardButton(BTN_BACK)],
         ],
         resize_keyboard=True,
         one_time_keyboard=False,
@@ -413,6 +431,21 @@ IMAGE_FILES = {
 
 def get_current_topic(context: ContextTypes.DEFAULT_TYPE) -> str:
     return context.user_data.get("topic", DEFAULT_TOPIC)
+
+def track_topic(context: ContextTypes.DEFAULT_TYPE, topic: str):
+    """Track which topic menus the user has opened (per-user, stored in user_data)."""
+    if not topic:
+        return
+    seen = set(context.user_data.get("topics_seen", []))
+    seen.add(topic)
+    context.user_data["topics_seen"] = sorted(seen)
+
+def track_tool_use(context: ContextTypes.DEFAULT_TYPE, tool: str):
+    if not tool:
+        return
+    used = set(context.user_data.get("tools_used", []))
+    used.add(tool)
+    context.user_data["tools_used"] = sorted(used)
 
 def get_collection(chat_id: int, topic: str):
     # GLOBAL per-topic collections shared by all users.
@@ -673,6 +706,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     clear_eval_context(context)
     context.user_data["topic"] = DEFAULT_TOPIC
     context.user_data["pending_feature"] = None
+    context.user_data.pop("in_tools", None)
     user = update.effective_user
     record_event(user.id, "start", kind="start")
 
@@ -1674,6 +1708,7 @@ async def evaluate_file_for_topic(update: Update, context: ContextTypes.DEFAULT_
 
     a = openai_chat(model="gpt-4.1-mini", messages=messages, temperature=0.3)
     set_eval_context(context, topic, student_text_for_followup, a)
+    context.user_data["my_eval_count"] = int(context.user_data.get("my_eval_count", 0) or 0) + 1
     await send_long(update, a)
 
 async def evaluate_ielts_writing_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2143,6 +2178,7 @@ async def run_plan(update: Update, context: ContextTypes.DEFAULT_TYPE, descripti
 
 async def plan_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["topic"] = "application_plan"
+    track_topic(context, "application_plan")
     text = (update.message.text or "").strip()
     parts = text.split(maxsplit=1)
     if len(parts) < 2:
@@ -2221,6 +2257,7 @@ async def run_schoolfinder(update: Update, context: ContextTypes.DEFAULT_TYPE, d
 
 async def schoolfinder_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["topic"] = "school_finder"
+    track_topic(context, "school_finder")
     text = (update.message.text or "").strip()
     parts = text.split(maxsplit=1)
     if len(parts) < 2:
@@ -2260,6 +2297,219 @@ async def portfolioideas_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
     await run_portfolioideas(update, context, parts[1].strip())
 
+# ---------- BOOST TOOLS (CROSS-TOPIC) ----------
+def _progress_bar(pct: int) -> str:
+    pct = max(0, min(100, int(pct)))
+    filled = int(round(pct / 10))
+    return "█" * filled + "░" * (10 - filled) + f" {pct}%"
+
+async def tool_my_progress(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Lightweight progress dashboard based on on-bot usage."""
+    user = update.effective_user
+    stats = load_stats()
+    uid = str(user.id)
+
+    msg_count = int(stats.get("messages_per_user", {}).get(uid, 0) or 0)
+    evals_done = int(context.user_data.get("my_eval_count", 0) or 0)
+    topics_seen = context.user_data.get("topics_seen", []) or []
+    tools_used = context.user_data.get("tools_used", []) or []
+
+    engagement = min(100, msg_count * 4)              # 25 messages -> 100
+    drafting = min(100, evals_done * 25)              # 4 evals -> 100
+    exploration = min(100, len(topics_seen) * 12)     # ~8 topics -> 96
+    toolkit = min(100, len(tools_used) * 25)          # 4 tools -> 100
+
+    current = FRIENDLY_TOPIC_NAMES.get(get_current_topic(context), "General")
+
+    out = (
+        "📊 MY PROGRESS\n\n"
+        f"Engagement:  {_progress_bar(engagement)}\n"
+        f"Drafting:    {_progress_bar(drafting)}\n"
+        f"Exploration: {_progress_bar(exploration)}\n"
+        f"Boost Tools: {_progress_bar(toolkit)}\n\n"
+        f"Stats:\n"
+        f"• Messages with me: {msg_count}\n"
+        f"• Evaluations done: {evals_done}\n"
+        f"• Topics explored: {len(topics_seen)}\n"
+        f"• Boost tools used: {len(tools_used)}\n"
+        f"• Current focus: {current}\n\n"
+        "Next step idea: Run 🔍 Find Wow Factor on your latest draft, then apply the suggestions in a rewrite."
+    )
+
+    track_tool_use(context, "progress")
+    await update.message.reply_text(out, reply_markup=tools_menu_keyboard())
+
+async def tool_insider_tips(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    topic = get_current_topic(context)
+
+    tips_by_topic = {
+        "essays_personal": (
+            "🤫 INSIDER TIPS — PERSONAL STATEMENT\n\n"
+            "• Your first 2 lines are everything: start with a moment, not an intro.\n"
+            "• One specific scene > 10 generic achievements.\n"
+            "• Show reflection: what changed in you, not just what happened.\n"
+            "• AOs trust proof: add tiny details (time, place, sensory).\n"
+            "• End with forward motion: what you’ll do next in college."
+        ),
+        "essays_supplemental": (
+            "🤫 INSIDER TIPS — SUPPLEMENTALS\n\n"
+            "• 'Why us' works best as: YOU → THEIR SPECIFICS → YOU AGAIN.\n"
+            "• Mention 2 ultra-specific fit points (lab, prof, program, initiative).\n"
+            "• Avoid resume repetition—add new angles and values.\n"
+            "• Short prompts: one strong claim + one mini-story + one insight.\n"
+            "• Make it sound like a real student, not marketing copy."
+        ),
+        "extracurriculars": (
+            "🤫 INSIDER TIPS — EXTRACURRICULARS\n\n"
+            "• Impact beats title. Numbers help (people reached, hours, funds).\n"
+            "• Show progression: member → builder → leader/mentor.\n"
+            "• Use action verbs + outcomes (what changed because of you).\n"
+            "• One 'spike' (a theme) is stronger than 15 random clubs.\n"
+            "• Always answer: Why you? Why it matters?"
+        ),
+        "recommendations": (
+            "🤫 INSIDER TIPS — RECOMMENDATIONS\n\n"
+            "• Best letters include 2–3 stories that only that teacher could tell.\n"
+            "• Ask teachers who saw you struggle AND grow (not just easy A's).\n"
+            "• Give them a brag sheet with facts, projects, and specific moments.\n"
+            "• Strong recs compare you to peers (“top 5% I’ve taught”).\n"
+            "• Remind early: 3 gentle reminders > 1 last-minute panic."
+        ),
+        "portfolio": (
+            "🤫 INSIDER TIPS — PORTFOLIO\n\n"
+            "• Curate: 6 great pieces beats 20 average ones.\n"
+            "• Add process: drafts, iterations, what you learned.\n"
+            "• Label your role clearly (solo vs team, what you owned).\n"
+            "• Make it scannable: titles, 1-line context, 1-line takeaway.\n"
+            "• Tie to future: what you want to build next."
+        ),
+        "ielts_writing": (
+            "🤫 INSIDER TIPS — IELTS WRITING\n\n"
+            "• Task 2: clear position in the intro + topic sentences every paragraph.\n"
+            "• Aim for: example → explanation → link back.\n"
+            "• Don’t chase fancy words—accuracy > complexity.\n"
+            "• Use cohesive devices naturally (however, therefore, moreover).\n"
+            "• Save 3 minutes to check grammar + articles + verb tenses."
+        ),
+    }
+
+    out = tips_by_topic.get(
+        topic,
+        "🤫 INSIDER TIPS\n\n• Pick a menu topic first for more tailored tips.\n• If you want the fastest improvement: run an evaluation, then ask follow-up questions on the feedback."
+    )
+
+    track_tool_use(context, "insider")
+    await update.message.reply_text(out, reply_markup=tools_menu_keyboard())
+
+async def tool_power_words(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    topic = get_current_topic(context)
+
+    packs = {
+        "essays_personal": {
+            "Action": ["spearheaded", "orchestrated", "built", "revived", "initiated"],
+            "Reflection": ["realized", "reframed", "questioned", "unlearned", "grew into"],
+            "Impact": ["shifted", "amplified", "shaped", "opened", "strengthened"],
+        },
+        "essays_supplemental": {
+            "Fit": ["aligned", "intersected", "clicked", "connected", "matched"],
+            "Academics": ["inquiry", "research", "seminar", "lab", "capstone"],
+            "Community": ["collaborate", "mentor", "contribute", "co-create", "engage"],
+        },
+        "extracurriculars": {
+            "Leadership": ["led", "mobilized", "trained", "scaled", "launched"],
+            "Results": ["increased", "reduced", "raised", "delivered", "reached"],
+            "Innovation": ["engineered", "prototyped", "automated", "designed", "iterated"],
+        },
+        "ielts_writing": {
+            "Argument": ["therefore", "however", "moreover", "consequently", "nevertheless"],
+            "Precision": ["notably", "primarily", "increasingly", "specifically", "ultimately"],
+            "Neutral tone": ["suggests", "indicates", "tends to", "is likely to", "can be"],
+        },
+    }
+
+    pack = packs.get(topic, packs["essays_personal"])
+    label = FRIENDLY_TOPIC_NAMES.get(topic, "Your writing")
+
+    lines = [f"⚡ POWER WORDS — {label.upper()}\n"]
+    for k, words in pack.items():
+        lines.append(f"{k}: " + ", ".join(words))
+    lines.append("\nTip: Replace weak verbs (did/helped) with one stronger verb + a result (what changed?).")
+
+    track_tool_use(context, "powerwords")
+    await update.message.reply_text("\n".join(lines), reply_markup=tools_menu_keyboard())
+
+async def tool_predict_chances(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """A 'readiness indicator' (NOT a real acceptance probability)."""
+    user = update.effective_user
+    stats = load_stats()
+    uid = str(user.id)
+
+    msg_count = int(stats.get("messages_per_user", {}).get(uid, 0) or 0)
+    evals_done = int(context.user_data.get("my_eval_count", 0) or 0)
+    topics_seen = context.user_data.get("topics_seen", []) or []
+    tools_used = context.user_data.get("tools_used", []) or []
+
+    score = 0
+    score += min(35, msg_count)                # up to 35
+    score += min(25, evals_done * 8)           # up to 25
+    score += min(20, len(topics_seen) * 3)     # up to 20
+    score += min(20, len(tools_used) * 4)      # up to 20
+    score = max(0, min(100, int(score)))
+
+    if score < 35:
+        level = "Early-stage"
+        next_steps = "Run 1 evaluation (PS or Supplementals) and use ⚡ Power Words on the revision."
+    elif score < 70:
+        level = "Building"
+        next_steps = "Do 2 evaluations + one rewrite pass focused on clarity + reflection."
+    else:
+        level = "Strong momentum"
+        next_steps = "Polish: tighten openings, add specificity, and align your EC story to your major theme."
+
+    out = (
+        "🎯 PREDICT MY CHANCES (READINESS INDICATOR)\n\n"
+        f"Readiness score: {_progress_bar(score)}\n"
+        f"Status: {level}\n\n"
+        "What this is: a rough indicator of how complete/strong your materials are based on your usage here.\n"
+        "What this is NOT: a real admissions probability (schools use many factors + external context).\n\n"
+        f"Recommended next step: {next_steps}"
+    )
+
+    track_tool_use(context, "predict")
+    await update.message.reply_text(out, reply_markup=tools_menu_keyboard())
+
+async def run_wowfactor(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
+    """Analyze a text and highlight the most memorable 'wow factor'."""
+    await show_typing(update, context)
+
+    sys = (
+        "You are a top college admissions essay coach. "
+        "Find the ONE most unique, compelling, memorable element in the student's text — the 'wow factor'.\n\n"
+        "Output format (exact headings):\n"
+        "🎯 WOW FACTOR: <2-6 word label>\n"
+        "✨ Why it stands out: <1-2 sentences>\n"
+        "💪 How to amplify it:\n"
+        "- <actionable step 1>\n"
+        "- <actionable step 2>\n"
+        "- <actionable step 3>\n"
+        "⚠️ Biggest risk to fix: <1 sentence>\n\n"
+        "Be specific. Do not mention AI." 
+    )
+
+    content = (text or "").strip()
+    content = content[:2500]
+
+    a = openai_chat(
+        model="gpt-4.1-mini",
+        messages=[{"role": "system", "content": sys}, {"role": "user", "content": content}],
+        temperature=0.4,
+    )
+
+    track_tool_use(context, "wowfactor")
+    await send_long(update, "🔍 FIND WOW FACTOR\n\n" + (a or ""))
+    # Keep the tools keyboard visible for the next click.
+    await update.message.reply_text("Pick another tool (or tap ⬅️ Back).", reply_markup=tools_menu_keyboard())
+
 # ---------- MAIN ANSWER ----------
 async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (update.message.text or "").strip()
@@ -2283,6 +2533,18 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ---- BACK ----
     if is_back_message(q):
+        # Back inside Boost Tools should just exit the tools menu.
+        if context.user_data.get("in_tools"):
+            context.user_data.pop("in_tools", None)
+            clear_pending_feature(context)
+            clear_eval_context(context)
+            context.user_data["topic"] = DEFAULT_TOPIC
+            await update.message.reply_text(
+                "Back to main menu.",
+                reply_markup=main_menu_keyboard(),
+            )
+            return
+
         clear_eval_context(context)
         clear_pending_feature(context)
         context.user_data["topic"] = DEFAULT_TOPIC
@@ -2297,6 +2559,48 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         clear_eval_context(context)
         await update.message.reply_text("✅ Stopped evaluation follow-up mode.")
         return
+
+    # ---- BOOST TOOLS MENU ----
+    if q == BTN_TOOLS:
+        clear_eval_context(context)
+        clear_pending_feature(context)
+        context.user_data["in_tools"] = True
+        await update.message.reply_text(
+            "🚀 Boost Tools\n\nPick a tool:",
+            reply_markup=tools_menu_keyboard(),
+        )
+        return
+
+    if q in {BTN_PROGRESS, BTN_INSIDER, BTN_POWERWORDS, BTN_PREDICT, BTN_WOWFACTOR}:
+        # If the user was in another pending mode, clicking a tool should override it.
+        clear_pending_feature(context)
+        context.user_data["in_tools"] = True
+
+        if q == BTN_PROGRESS:
+            await tool_my_progress(update, context)
+            return
+        if q == BTN_INSIDER:
+            await tool_insider_tips(update, context)
+            return
+        if q == BTN_POWERWORDS:
+            await tool_power_words(update, context)
+            return
+        if q == BTN_PREDICT:
+            await tool_predict_chances(update, context)
+            return
+        if q == BTN_WOWFACTOR:
+            last = (context.user_data.get("last_eval_text") or "").strip()
+            if len(last) >= 120:
+                await run_wowfactor(update, context, last)
+                return
+
+            set_pending_feature(context, "wowfactor")
+            await update.message.reply_text(
+                "🔍 Find Wow Factor\n\nPaste your essay/paragraph (120+ words).\n"
+                "Tip: If you ran an evaluation, I can use your last evaluated text automatically.",
+                reply_markup=tools_menu_keyboard(),
+            )
+            return
 
     # --- pending feature input ---
     pending = context.user_data.get("pending_feature")
@@ -2319,6 +2623,16 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         if pending == "portfolioideas":
             await run_portfolioideas(update, context, q)
+            return
+        if pending == "wowfactor":
+            if len((q or "").strip()) < 120:
+                await update.message.reply_text(
+                    "Please paste a bit more text (120+ words) so I can detect a real wow factor.",
+                    reply_markup=tools_menu_keyboard(),
+                )
+                set_pending_feature(context, "wowfactor")
+                return
+            await run_wowfactor(update, context, q)
             return
 
     # ---- MAIN MENUS ----
@@ -2355,6 +2669,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if q == BTN_PLAN_MAIN:
         clear_eval_context(context)
         context.user_data["topic"] = "application_plan"
+        track_topic(context, "application_plan")
         set_pending_feature(context, "plan")
         await send_with_image(
             update,
@@ -2367,6 +2682,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if q == BTN_SF_MAIN:
         clear_eval_context(context)
         context.user_data["topic"] = "school_finder"
+        track_topic(context, "school_finder")
         set_pending_feature(context, "schoolfinder")
         await send_with_image(
             update,
@@ -2381,6 +2697,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         clear_eval_context(context)
         topic = TOPIC_KEYS[q]
         context.user_data["topic"] = topic
+        track_topic(context, topic)
         await send_with_image(
             update,
             "Great, let's work on your Personal Statement.\nAsk about structure, voice, and storytelling.",
@@ -2397,6 +2714,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         clear_eval_context(context)
         topic = TOPIC_KEYS[q]
         context.user_data["topic"] = topic
+        track_topic(context, topic)
         await send_with_image(
             update,
             "Great, let's work on your Supplemental Essays.\nAsk about 'Why us', community essays, and short prompts.",
@@ -2412,6 +2730,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if q == BTN_EC:
         clear_eval_context(context)
         context.user_data["topic"] = "extracurriculars"
+        track_topic(context, "extracurriculars")
         await send_with_image(
             update,
             "Great, let's talk about your Extracurricular activities.\nAsk how to present impact, leadership, and long-term involvement.",
@@ -2433,6 +2752,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if q == BTN_REC:
         clear_eval_context(context)
         context.user_data["topic"] = "recommendations"
+        track_topic(context, "recommendations")
         await send_with_image(
             update,
             "Great, let's work on Recommendation Letters.\nAsk how to request them and what makes a strong letter.",
@@ -2447,6 +2767,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if q == BTN_PORT:
         clear_eval_context(context)
         context.user_data["topic"] = "portfolio"
+        track_topic(context, "portfolio")
         await send_with_image(
             update,
             "You're now in Portfolio Check.\nAsk about structure and how to present your work.",
@@ -2462,6 +2783,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         clear_eval_context(context)
         topic = TOPIC_KEYS[q]
         context.user_data["topic"] = topic
+        track_topic(context, topic)
         nice_name = "SAT Math" if topic == "sat_math" else "SAT English"
         image_key = "sat_math" if topic == "sat_math" else "sat_english"
         await send_with_image(
@@ -2476,6 +2798,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         clear_eval_context(context)
         topic = TOPIC_KEYS[q]
         context.user_data["topic"] = topic
+        track_topic(context, topic)
         await send_with_image(
             update,
             f"You're now in {FRIENDLY_TOPIC_NAMES.get(topic, topic)}. Ask anything.",
@@ -2487,6 +2810,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if q == BTN_IELTS_WRITING:
         clear_eval_context(context)
         context.user_data["topic"] = "ielts_writing"
+        track_topic(context, "ielts_writing")
         await send_with_image(
             update,
             "You're now in IELTS Writing.\nAsk about Task 1/2, band 7+ strategies, or send your answer for feedback.",
