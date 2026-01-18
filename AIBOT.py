@@ -19,7 +19,7 @@ from telegram.ext import (
 from dotenv import load_dotenv
 import chromadb
 from chromadb.utils import embedding_functions
-import os, io, nest_asyncio, logging, json, base64, uuid
+import os, io, nest_asyncio, logging, json, base64, uuid, re
 
 # -------- File extraction deps --------
 from pdfminer.high_level import extract_text
@@ -1099,23 +1099,29 @@ def _sys_role_for_eval(topic: str) -> str:
 # ---------- Handlers ----------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     clear_eval_context(context)
-    context.user_data["topic"] = DEFAULT_TOPIC
-    context.user_data["pending_feature"] = None
-    context.user_data.pop("in_tools", None)
+    context.user_data['topic'] = DEFAULT_TOPIC
+    context.user_data['pending_feature'] = None
+    context.user_data.pop('in_tools', None)
     user = update.effective_user
-    record_event(user.id, "start", kind="start")
-    mem = get_user_memory_cached(update, context)
-    merge_usage_into_memory(context, mem)
-    mem['history']['last_active'] = int(__import__('time').time())
-    mem['history']['last_topic'] = DEFAULT_TOPIC
-    persist_user_memory(update, context)
+    if user:
+        record_event(user.id, 'start', kind='start')
+    # Non-fatal memory init
+    try:
+        mem = get_user_memory_cached(update, context)
+        merge_usage_into_memory(context, mem)
+        mem['history']['last_active'] = int(__import__('time').time())
+        mem['history']['last_topic'] = DEFAULT_TOPIC
+        persist_user_memory(update, context)
+    except Exception as e:
+        logging.exception('Memory init failed (non-fatal): %s', e)
 
     await send_with_image(
         update,
         "Hi! I'm your coached AI 🤖\nChoose a topic or ask a question.",
         reply_markup=main_menu_keyboard(),
-        image_key="welcome",
+        image_key='welcome',
     )
+
 
 # ---------- TEACH (Q&A sources) ----------
 async def teach(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1754,6 +1760,8 @@ async def sources(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     topic = get_current_topic(context)
     
+    col = None
+
     try:
         col = get_collection(chat_id, topic)
         data = col.get(include=["metadatas"])
@@ -2946,14 +2954,19 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     topic_before = get_current_topic(context)
     record_event(user.id, topic_before, kind="message")
 
-    mem = get_user_memory_cached(update, context)
-    merge_usage_into_memory(context, mem)
-    mem['history']['message_count'] = int(mem['history'].get('message_count', 0) or 0) + 1
-    mem['history']['last_active'] = int(__import__('time').time())
-    mem['history']['last_topic'] = topic_before
-    # cheap profile extraction from user message
-    mem['profile'] = extract_profile_signals(q, mem.get('profile', {}) or {})
-    persist_user_memory(update, context)
+    try:
+        mem = get_user_memory_cached(update, context)
+        merge_usage_into_memory(context, mem)
+        mem["history"]["message_count"] = int(mem["history"].get("message_count", 0) or 0) + 1
+        mem["history"]["last_active"] = int(__import__("time").time())
+        mem["history"]["last_topic"] = topic_before
+        # cheap profile extraction from user message
+        mem["profile"] = extract_profile_signals(q, mem.get("profile", {}) or {})
+        persist_user_memory(update, context)
+    except Exception as e:
+        logging.exception("Memory update failed (non-fatal): %s", e)
+
+
 
     # ---- BACK ----
     if is_back_message(q):
@@ -3377,6 +3390,8 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     topic = get_current_topic(context)
     
+    col = None
+
     try:
         col = get_collection(chat_id, topic)
         results = col.query(query_texts=[q], where={"type": "qa"}, n_results=4)
@@ -3385,7 +3400,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logging.error(f"Error querying collection: {e}")
         docs = []
 
-    if not docs:
+    if not docs and col is not None:
         try:
             results = col.query(query_texts=[q], n_results=4)
             docs = results.get("documents", [[]])[0]
@@ -3429,8 +3444,19 @@ def start_dummy_server():
     print(f"✅ Health check server running on port {port}")
     server.serve_forever()
 
+
+
+# -------- Global error handler (prevents silent no-reply bugs) --------
+async def error_handler(update, context):
+    logging.exception("Unhandled exception while handling an update: %s", getattr(context, 'error', None))
+    try:
+        if update is not None and getattr(update, 'effective_message', None):
+            await update.effective_message.reply_text("⚠️ I hit an internal error while processing that. Please try again.")
+    except Exception:
+        pass
 # ===== Setup Application =====
 app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+app.add_error_handler(error_handler)
 
 # ===== GROUP 0: COMMANDS ONLY =====
 app.add_handler(CommandHandler("start", start), group=0)
