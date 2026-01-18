@@ -2578,6 +2578,44 @@ async def run_rewrite(update: Update, context: ContextTypes.DEFAULT_TYPE, text_t
     a = openai_chat(model="gpt-4.1-mini", messages=messages, temperature=0.4)
     await send_long(update, a)
 
+async def run_powerwords_apply(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
+    await show_typing(update, context)
+    topic = get_current_topic(context)
+    label = FRIENDLY_TOPIC_NAMES.get(topic, "your writing")
+
+    sys = (
+        f"You are an admissions writing coach.\n"
+        f"Rewrite the sentence or paragraph below using strong but natural power words "
+        f"appropriate for {label}.\n\n"
+        "Rules:\n"
+        "- Preserve the student’s original meaning and tone.\n"
+        "- Do NOT exaggerate or invent achievements.\n"
+        "- Improve verbs, clarity, and impact.\n"
+        "- Keep it concise.\n\n"
+        "Output format:\n"
+        "📝 Improved version:\n"
+        "<rewritten text>\n\n"
+        "🔍 What changed:\n"
+        "- <brief explanation>"
+    )
+
+    messages = [
+        {"role": "system", "content": sys},
+        {"role": "user", "content": text},
+    ]
+
+    out = openai_chat(
+        model="gpt-4.1-mini",
+        messages=messages,
+        temperature=0.3,
+    )
+
+    await send_long(update, out)
+    await update.message.reply_text(
+        "Want to try another sentence or use a different tool?",
+        reply_markup=tools_menu_keyboard(),
+    )
+
 async def rewrite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (update.message.text or "").strip()
     parts = text.split(maxsplit=1)
@@ -2789,7 +2827,7 @@ async def tool_insider_tips(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     tips_by_topic = {
         "essays_personal": (
-            "🤫 INSIDER TIPS — PERSONAL STATEMENT\n\n"
+            "🤫 INSIDER TIPS - PERSONAL STATEMENT\n\n"
             "• Your first 2 lines are everything: start with a moment, not an intro.\n"
             "• One specific scene > 10 generic achievements.\n"
             "• Show reflection: what changed in you, not just what happened.\n"
@@ -2797,15 +2835,15 @@ async def tool_insider_tips(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• End with forward motion: what you’ll do next in college."
         ),
         "essays_supplemental": (
-            "🤫 INSIDER TIPS — SUPPLEMENTALS\n\n"
+            "🤫 INSIDER TIPS - SUPPLEMENTALS\n\n"
             "• 'Why us' works best as: YOU → THEIR SPECIFICS → YOU AGAIN.\n"
-            "• Mention 2 ultra-specific fit points (lab, prof, program, initiative).\n"
-            "• Avoid resume repetition—add new angles and values.\n"
+            "• Mention 2 ultr-specific fit points (lab, prof, program, initiative).\n"
+            "• Avoid resume repetition-add new angles and values.\n"
             "• Short prompts: one strong claim + one mini-story + one insight.\n"
             "• Make it sound like a real student, not marketing copy."
         ),
         "extracurriculars": (
-            "🤫 INSIDER TIPS — EXTRACURRICULARS\n\n"
+            "🤫 INSIDER TIPS - EXTRACURRICULARS\n\n"
             "• Impact beats title. Numbers help (people reached, hours, funds).\n"
             "• Show progression: member → builder → leader/mentor.\n"
             "• Use action verbs + outcomes (what changed because of you).\n"
@@ -2813,15 +2851,15 @@ async def tool_insider_tips(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• Always answer: Why you? Why it matters?"
         ),
         "recommendations": (
-            "🤫 INSIDER TIPS — RECOMMENDATIONS\n\n"
-            "• Best letters include 2–3 stories that only that teacher could tell.\n"
+            "🤫 INSIDER TIPS - RECOMMENDATIONS\n\n"
+            "• Best letters include 2-3 stories that only that teacher could tell.\n"
             "• Ask teachers who saw you struggle AND grow (not just easy A's).\n"
             "• Give them a brag sheet with facts, projects, and specific moments.\n"
             "• Strong recs compare you to peers (“top 5% I’ve taught”).\n"
             "• Remind early: 3 gentle reminders > 1 last-minute panic."
         ),
         "portfolio": (
-            "🤫 INSIDER TIPS — PORTFOLIO\n\n"
+            "🤫 INSIDER TIPS - PORTFOLIO\n\n"
             "• Curate: 6 great pieces beats 20 average ones.\n"
             "• Add process: drafts, iterations, what you learned.\n"
             "• Label your role clearly (solo vs team, what you owned).\n"
@@ -2829,10 +2867,10 @@ async def tool_insider_tips(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• Tie to future: what you want to build next."
         ),
         "ielts_writing": (
-            "🤫 INSIDER TIPS — IELTS WRITING\n\n"
+            "🤫 INSIDER TIPS - IELTS WRITING\n\n"
             "• Task 2: clear position in the intro + topic sentences every paragraph.\n"
             "• Aim for: example → explanation → link back.\n"
-            "• Don’t chase fancy words—accuracy > complexity.\n"
+            "• Don’t chase fancy words accuracy > complexity.\n"
             "• Use cohesive devices naturally (however, therefore, moreover).\n"
             "• Save 3 minutes to check grammar + articles + verb tenses."
         ),
@@ -2876,14 +2914,23 @@ async def tool_power_words(update: Update, context: ContextTypes.DEFAULT_TYPE):
     pack = packs.get(topic, packs["essays_personal"])
     label = FRIENDLY_TOPIC_NAMES.get(topic, "Your writing")
 
-    lines = [f"⚡ POWER WORDS — {label.upper()}\n"]
+    lines = [f"⚡ POWER WORDS - {label.upper()}\n"]
     for k, words in pack.items():
         lines.append(f"{k}: " + ", ".join(words))
+    lines.append("\nReplace weak verbs (did/helped) with one stronger verb + a result (what changed?).")
     lines.append("\nTip: Replace weak verbs (did/helped) with one stronger verb + a result (what changed?).")
 
     track_tool_use(context, "powerwords")
     persist_user_memory(update, context)
-    await update.message.reply_text("\n".join(lines), reply_markup=tools_menu_keyboard())
+    await update.message.reply_text(
+    "\n".join(lines)
+    + "\n\n✍️ **Try it now:**\n"
+      "Send one sentence or short paragraph, and I’ll rewrite it using these power words "
+      "while keeping your original meaning and voice.",
+    reply_markup=tools_menu_keyboard(),
+    )
+    set_pending_feature(context, "powerwords_apply")
+
 
 async def tool_predict_chances(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """A 'readiness indicator' (NOT a real acceptance probability)."""
@@ -2958,7 +3005,7 @@ async def run_wowfactor(update: Update, context: ContextTypes.DEFAULT_TYPE, text
 
     sys = (
         "You are a top college admissions essay coach. "
-        "Find the ONE most unique, compelling, memorable element in the student's text — the 'wow factor'.\n\n"
+        "Find the ONE most unique, compelling, memorable element in the student's text - the 'wow factor'.\n\n"
         "Output format (exact headings):\n"
         "🎯 WOW FACTOR: <2-6 word label>\n"
         "✨ Why it stands out: <1-2 sentences>\n"
@@ -3118,6 +3165,10 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     pending = context.user_data.get("pending_feature")
     if pending:
         clear_pending_feature(context)
+        if pending == "powerwords_apply":
+            clear_pending_feature(context)
+            await run_powerwords_apply(update, context, q)
+            return
         if pending == "brainstorm":
             await run_brainstorm(update, context, q)
             return
