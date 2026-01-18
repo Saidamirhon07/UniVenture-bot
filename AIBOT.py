@@ -3090,14 +3090,34 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ---- BOOST TOOLS MENU ----
     if q == BTN_TOOLS:
-        stop_eval_mode(context)
+        clear_eval_context(context)
         clear_pending_feature(context)
         context.user_data["in_tools"] = True
+    
+        current_topic = FRIENDLY_TOPIC_NAMES.get(
+            get_current_topic(context),
+            "General"
+        )
+    
+        first_time = not context.user_data.get("saw_boost_explainer", False)
+        context.user_data["saw_boost_explainer"] = True
+
+        extra = ""
+        if first_time:
+            extra = (
+                "\nℹ️ Boost Tools always use the section you last opened "
+                "(Essays, ECs, IELTS, etc.).\n"
+                "Switch sections first if you want different tips.\n"
+            )
+
         await update.message.reply_text(
-            "🚀 Boost Tools\n\nPick a tool:",
+            "🚀 Boost Tools\n\n"
+            "These tools adapt to your current section:\n"
+            f"👉 {current_topic}\n"
+            f"{extra}\n"
+            "Pick a tool:",
             reply_markup=tools_menu_keyboard(),
         )
-        return
 
     if q in {BTN_PROGRESS, BTN_INSIDER, BTN_POWERWORDS, BTN_PREDICT, BTN_WOWFACTOR, BTN_WOW_USE_LAST, BTN_WOW_PASTE_NEW}:
         # If the user was in another pending mode, clicking a tool should override it.
