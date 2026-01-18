@@ -1043,6 +1043,10 @@ def clear_eval_context(context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop(k, None)
     context.user_data.pop("eval_active", None)
 
+def clear_eval_mode_only(context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.pop("eval_active", None)
+    context.user_data.pop("last_eval_topic", None)
+
 def set_eval_context(
     context: ContextTypes.DEFAULT_TYPE,
     topic: str,
@@ -3000,19 +3004,19 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ---- BACK ----
     if is_back_message(q):
-        # Back inside Boost Tools should just exit the tools menu.
+    # Back inside Boost Tools should just exit the tools menu.
         if context.user_data.get("in_tools"):
             context.user_data.pop("in_tools", None)
             clear_pending_feature(context)
-            clear_eval_context(context)
+            clear_eval_mode_only(context)   # ✅ FIX
             context.user_data["topic"] = DEFAULT_TOPIC
             await update.message.reply_text(
                 "Back to main menu.",
                 reply_markup=main_menu_keyboard(),
             )
             return
-
-        clear_eval_context(context)
+    
+        clear_eval_mode_only(context)       # ✅ FIX
         clear_pending_feature(context)
         context.user_data["topic"] = DEFAULT_TOPIC
         await update.message.reply_text(
