@@ -590,6 +590,10 @@ BTN_POWERWORDS = "⚡ Power Words"
 BTN_PREDICT = "🎯 Predict My Chances"
 BTN_WOWFACTOR = "🔍 Find Wow Factor"
 
+# Wow Factor confirm buttons
+BTN_WOW_USE_LAST = "✅ Use last evaluated text"
+BTN_WOW_PASTE_NEW = "📝 Paste new text"
+
 # Evaluation sub-buttons
 BTN_PS_EVAL = "✅ Personal Statement Evaluation"
 BTN_SUPP_EVAL = "✅ Supplemental Essay Evaluation"
@@ -639,6 +643,18 @@ def tools_menu_keyboard():
         [
             [KeyboardButton(BTN_PROGRESS), KeyboardButton(BTN_INSIDER), KeyboardButton(BTN_POWERWORDS)],
             [KeyboardButton(BTN_PREDICT), KeyboardButton(BTN_WOWFACTOR)],
+            [KeyboardButton(BTN_BACK)],
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=False,
+    )
+
+
+def wowfactor_confirm_keyboard():
+    return ReplyKeyboardMarkup(
+        [
+            [KeyboardButton(BTN_WOW_USE_LAST)],
+            [KeyboardButton(BTN_WOW_PASTE_NEW)],
             [KeyboardButton(BTN_BACK)],
         ],
         resize_keyboard=True,
@@ -1043,9 +1059,11 @@ def clear_eval_context(context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop(k, None)
     context.user_data.pop("eval_active", None)
 
-def clear_eval_mode_only(context: ContextTypes.DEFAULT_TYPE):
+
+def stop_eval_mode(context: ContextTypes.DEFAULT_TYPE):
+    """Exit eval follow-up mode but keep the last evaluated text for Boost Tools."""
     context.user_data.pop("eval_active", None)
-    context.user_data.pop("last_eval_topic", None)
+
 
 def set_eval_context(
     context: ContextTypes.DEFAULT_TYPE,
@@ -3000,40 +3018,32 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logging.exception("Memory update failed (non-fatal): %s", e)
 
-
-
     # ---- BACK ----
     if is_back_message(q):
-    # Back inside Boost Tools should just exit the tools menu.
+        # Back should NOT wipe the current topic or the last evaluated text.
+        # It only navigates UI and exits active modes.
         if context.user_data.get("in_tools"):
             context.user_data.pop("in_tools", None)
-            clear_pending_feature(context)
-            clear_eval_mode_only(context)   # ✅ FIX
-            context.user_data["topic"] = DEFAULT_TOPIC
-            await update.message.reply_text(
-                "Back to main menu.",
-                reply_markup=main_menu_keyboard(),
-            )
-            return
-    
-        clear_eval_mode_only(context)       # ✅ FIX
+
         clear_pending_feature(context)
-        context.user_data["topic"] = DEFAULT_TOPIC
+        stop_eval_mode(context)
+
+        current = FRIENDLY_TOPIC_NAMES.get(get_current_topic(context), "General")
         await update.message.reply_text(
-            "Back to main menu. You're now in general mode - you can just ask questions or choose a section again.",
+            f"Back to main menu. (Current focus: {current})",
             reply_markup=main_menu_keyboard(),
         )
         return
 
     # quick cancel (optional)
     if q.lower() in {"cancel", "stop", "exit"} and context.user_data.get("eval_active", False):
-        clear_eval_context(context)
-        await update.message.reply_text("✅ Stopped evaluation follow-up mode.")
+        stop_eval_mode(context)
+        await update.message.reply_text("✅ Stopped evaluation follow-up mode. (Your last evaluated text is still saved for Boost Tools.)")
         return
 
     # ---- BOOST TOOLS MENU ----
     if q == BTN_TOOLS:
-        clear_eval_context(context)
+        stop_eval_mode(context)
         clear_pending_feature(context)
         context.user_data["in_tools"] = True
         await update.message.reply_text(
@@ -3042,7 +3052,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    if q in {BTN_PROGRESS, BTN_INSIDER, BTN_POWERWORDS, BTN_PREDICT, BTN_WOWFACTOR}:
+    if q in {BTN_PROGRESS, BTN_INSIDER, BTN_POWERWORDS, BTN_PREDICT, BTN_WOWFACTOR, BTN_WOW_USE_LAST, BTN_WOW_PASTE_NEW}:
         # If the user was in another pending mode, clicking a tool should override it.
         clear_pending_feature(context)
         context.user_data["in_tools"] = True
@@ -3059,16 +3069,47 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if q == BTN_PREDICT:
             await tool_predict_chances(update, context)
             return
+
         if q == BTN_WOWFACTOR:
             last = (context.user_data.get("last_eval_text") or "").strip()
+            last_topic = (context.user_data.get("last_eval_topic") or get_current_topic(context) or DEFAULT_TOPIC)
+            last_label = FRIENDLY_TOPIC_NAMES.get(
+                last_topic,
+                FRIENDLY_TOPIC_NAMES.get(get_current_topic(context), "General")
+            )
+
             if len(last) >= 120:
-                await run_wowfactor(update, context, last)
+                set_pending_feature(context, "wowfactor_confirm")
+                await update.message.reply_text(
+                    f"🔍 Find Wow Factor\n\nI found your last evaluated text ({last_label}).\nUse it?",
+                    reply_markup=wowfactor_confirm_keyboard(),
+                )
                 return
 
             set_pending_feature(context, "wowfactor")
             await update.message.reply_text(
-                "🔍 Find Wow Factor\n\nPaste your essay/paragraph (120+ words).\n"
-                "Tip: If you ran an evaluation, I can use your last evaluated text automatically.",
+                "🔍 Find Wow Factor\n\nPaste your essay/paragraph (120+ words).\nTip: After you run an evaluation, I can use that text automatically.",
+                reply_markup=tools_menu_keyboard(),
+            )
+            return
+
+        if q == BTN_WOW_USE_LAST:
+            last = (context.user_data.get("last_eval_text") or "").strip()
+            if len(last) < 120:
+                set_pending_feature(context, "wowfactor")
+                await update.message.reply_text(
+                    "I don't have a saved evaluated text yet. Paste your essay/paragraph (120+ words).",
+                    reply_markup=tools_menu_keyboard(),
+                )
+                return
+            clear_pending_feature(context)
+            await run_wowfactor(update, context, last)
+            return
+
+        if q == BTN_WOW_PASTE_NEW:
+            set_pending_feature(context, "wowfactor")
+            await update.message.reply_text(
+                "📝 Paste your essay/paragraph (120+ words) for Wow Factor analysis.",
                 reply_markup=tools_menu_keyboard(),
             )
             return
@@ -3094,6 +3135,17 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         if pending == "portfolioideas":
             await run_portfolioideas(update, context, q)
+            return
+        if pending == "wowfactor_confirm":
+            # User typed instead of tapping a button. Treat it as new text if long enough.
+            if len((q or '').strip()) >= 120:
+                await run_wowfactor(update, context, q)
+                return
+            await update.message.reply_text(
+                "Tap ✅ Use last evaluated text, or paste a new text (120+ words).",
+                reply_markup=wowfactor_confirm_keyboard(),
+            )
+            set_pending_feature(context, "wowfactor_confirm")
             return
         if pending == "wowfactor":
             if len((q or "").strip()) < 120:
