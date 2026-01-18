@@ -3035,6 +3035,9 @@ async def run_wowfactor(update: Update, context: ContextTypes.DEFAULT_TYPE, text
 # ---------- MAIN ANSWER ----------
 async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (update.message.text or "").strip()
+    # ---- UI ACTION GUARD (prevents double execution / ghost actions) ----
+    if context.user_data.pop("_handled_ui_action", False):
+        return
     if text.startswith("/"):
         # User sent a command while in a pending mode (rewrite/brainstorm/etc.)
         if context.user_data.get("pending_feature"):
@@ -3067,17 +3070,15 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ---- BACK ----
     if is_back_message(q):
-        # Back should NOT wipe the current topic or the last evaluated text.
-        # It only navigates UI and exits active modes.
+        # Back only navigates UI and exits active modes.
         if context.user_data.get("in_tools"):
             context.user_data.pop("in_tools", None)
-
+    
         clear_pending_feature(context)
         stop_eval_mode(context)
-
-        current = FRIENDLY_TOPIC_NAMES.get(get_current_topic(context), "General")
+    
         await update.message.reply_text(
-            f"Back to main menu. (Current focus: {current})",
+            "Back to main menu.",
             reply_markup=main_menu_keyboard(),
         )
         return
@@ -3090,8 +3091,17 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ---- BOOST TOOLS MENU ----
     if q == BTN_TOOLS:
+        # HARD reset of any interactive modes
         clear_eval_context(context)
         clear_pending_feature(context)
+    
+        # Exit any previous tool state
+        context.user_data.pop("in_tools", None)
+    
+        # 🔒 Mark this update as fully handled (prevents ghost execution)
+        context.user_data["_handled_ui_action"] = True
+    
+        # Enter Boost Tools mode
         context.user_data["in_tools"] = True
     
         current_topic = FRIENDLY_TOPIC_NAMES.get(
@@ -3101,7 +3111,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
         first_time = not context.user_data.get("saw_boost_explainer", False)
         context.user_data["saw_boost_explainer"] = True
-
+    
         extra = ""
         if first_time:
             extra = (
@@ -3109,15 +3119,16 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "(Essays, ECs, IELTS, etc.).\n"
                 "Switch sections first if you want different tips.\n"
             )
-
+    
         await update.message.reply_text(
             "🚀 Boost Tools\n\n"
-            "These tools adapt to your current section:\n"
+            "These tools adapt to your last used section:\n"
             f"👉 {current_topic}\n"
             f"{extra}\n"
             "Pick a tool:",
             reply_markup=tools_menu_keyboard(),
         )
+        return
 
     if q in {BTN_PROGRESS, BTN_INSIDER, BTN_POWERWORDS, BTN_PREDICT, BTN_WOWFACTOR, BTN_WOW_USE_LAST, BTN_WOW_PASTE_NEW}:
         # If the user was in another pending mode, clicking a tool should override it.
