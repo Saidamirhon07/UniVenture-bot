@@ -177,6 +177,401 @@ def record_event(user_id, topic: str, kind: str = "message"):
 
     save_stats(stats)
 
+
+
+# -------- User Memory (persistent, per-user; survives restarts) --------
+USER_MEM_DIR = os.path.join(DATA_DIR, "user_memory")
+os.makedirs(USER_MEM_DIR, exist_ok=True)
+
+PAYWALL_ENABLED = os.getenv("PAYWALL_ENABLED", "0").strip() == "1"
+SUPPORT_HANDLE = os.getenv("SUPPORT_HANDLE", "")  # e.g. @UniVentureSupport
+PRO_USER_IDS = set()
+try:
+    _raw = os.getenv("PRO_USER_IDS", "")
+    for part in _raw.split(","):
+        part = part.strip()
+        if part.isdigit():
+            PRO_USER_IDS.add(int(part))
+except Exception:
+    PRO_USER_IDS = set()
+
+PRO_ONLY_TOOLS = {"wowfactor"}  # keep default light; expand later if you want
+
+
+def _default_user_memory() -> dict:
+    return {
+        "profile": {
+            "grade": None,
+            "country": None,
+            "target_countries": [],
+            "major": None,
+            "gpa": None,
+            "sat": None,
+            "ielts": None,
+            "budget": None,
+            "needs_aid": None,
+        },
+        "writing": {
+            "voice_tags": [],
+            "themes": [],
+            "strengths": {},
+            "recurring_issues": {},
+            "best_lines": [],
+            "last_feedback_summary": "",
+        },
+        "history": {
+            "message_count": 0,
+            "eval_count": 0,
+            "topics_seen": [],
+            "tools_used": [],
+            "last_topic": DEFAULT_TOPIC,
+            "last_active": None,
+        },
+        "drafts": {
+            "last_eval": {
+                "topic": None,
+                "date": None,
+                "summary": None,
+            }
+        },
+        "_v": 1,
+    }
+
+
+def _mem_path(user_id: int) -> str:
+    return os.path.join(USER_MEM_DIR, f"{user_id}.json")
+
+
+def load_user_memory(user_id: int) -> dict:
+    path = _mem_path(user_id)
+    if not os.path.exists(path):
+        return _default_user_memory()
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        base = _default_user_memory()
+        # shallow merge (keeps schema additions safe)
+        for k, v in base.items():
+            if isinstance(v, dict):
+                base[k].update(data.get(k, {}))
+            else:
+                base[k] = data.get(k, v)
+        return base
+    except Exception as e:
+        logging.warning(f"Could not load user memory for {user_id}: {e}")
+        return _default_user_memory()
+
+
+def save_user_memory(user_id: int, mem: dict):
+    path = _mem_path(user_id)
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(mem, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        logging.warning(f"Could not save user memory for {user_id}: {e}")
+
+
+def get_user_memory_cached(update: Update, context: ContextTypes.DEFAULT_TYPE) -> dict:
+    user = update.effective_user
+    uid = int(user.id)
+    cached_uid = context.user_data.get("_mem_uid")
+    if cached_uid == uid and isinstance(context.user_data.get("_mem"), dict):
+        return context.user_data["_mem"]
+    mem = load_user_memory(uid)
+    context.user_data["_mem_uid"] = uid
+    context.user_data["_mem"] = mem
+    return mem
+
+
+def persist_user_memory(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    uid = int(user.id)
+    mem = context.user_data.get("_mem")
+    if isinstance(mem, dict):
+        save_user_memory(uid, mem)
+
+
+def is_pro_user(update: Update) -> bool:
+    if not PAYWALL_ENABLED:
+        return True
+    user = update.effective_user
+    return bool(user and int(user.id) in PRO_USER_IDS)
+
+
+def _upgrade_pitch() -> str:
+    handle = (SUPPORT_HANDLE or "the bot owner").strip()
+    return (
+        "\n\n💎 Want the full version + advanced tools + exports?\n"
+        f"Message {handle} to upgrade."
+    )
+
+
+def _safe_add_unique(lst, item, limit=50):
+    if not item:
+        return lst
+    item = str(item).strip()
+    if not item:
+        return lst
+    if item in lst:
+        return lst
+    lst.append(item)
+    return lst[-limit:]
+
+
+def merge_usage_into_memory(context: ContextTypes.DEFAULT_TYPE, mem: dict):
+    # Sync volatile runtime counters into persistent memory
+    topics_seen = context.user_data.get("topics_seen", []) or []
+    tools_used = context.user_data.get("tools_used", []) or []
+    mem["history"]["topics_seen"] = sorted(set((mem["history"].get("topics_seen") or []) + list(topics_seen)))
+    mem["history"]["tools_used"] = sorted(set((mem["history"].get("tools_used") or []) + list(tools_used)))
+    mem["history"]["eval_count"] = int(context.user_data.get("my_eval_count", mem["history"].get("eval_count", 0)) or 0)
+
+
+def extract_profile_signals(text: str, profile: dict) -> dict:
+    t = (text or "")
+
+    # Grade (e.g., 11th grade, grade 12)
+    m = re.search(r"\b(grade|class)\s*(\d{1,2})\b", t, re.I)
+    if m:
+        profile["grade"] = profile.get("grade") or m.group(2)
+
+    # GPA (e.g., GPA 3.8, 3.8/4.0)
+    m = re.search(r"\bGPA\s*[:=]?\s*(\d\.\d{1,2})\b", t, re.I)
+    if m:
+        profile["gpa"] = m.group(1)
+    m = re.search(r"\b(\d\.\d{1,2})\s*/\s*4\.0\b", t)
+    if m:
+        profile["gpa"] = profile.get("gpa") or m.group(1)
+
+    # SAT (e.g., SAT 1450)
+    m = re.search(r"\bSAT\s*[:=]?\s*(1[0-6]\d{2})\b", t, re.I)
+    if m:
+        profile["sat"] = m.group(1)
+
+    # IELTS (e.g., IELTS 7.5)
+    m = re.search(r"\bIELTS\s*[:=]?\s*(\d\.\d|\d)\b", t, re.I)
+    if m:
+        profile["ielts"] = m.group(1)
+
+    # Aid/Scholarship intent
+    if re.search(r"\b(scholarship|financial aid|need[- ]based|full ride|aid)\b", t, re.I):
+        profile["needs_aid"] = True
+
+    # Major (very rough)
+    m = re.search(r"\b(major|intended major|intend to study)\s*[:=]?\s*([A-Za-z&/\- ]{3,40})", t, re.I)
+    if m:
+        cand = m.group(2).strip().strip(".")
+        if len(cand) <= 40:
+            profile["major"] = profile.get("major") or cand
+
+    return profile
+
+
+def memory_summary_for_prompt(mem: dict) -> str:
+    p = mem.get("profile", {}) or {}
+    w = mem.get("writing", {}) or {}
+
+    bits = []
+    # compact profile line
+    prof = []
+    if p.get("grade"):
+        prof.append(f"grade {p['grade']}")
+    if p.get("country"):
+        prof.append(str(p["country"]))
+    if p.get("major"):
+        prof.append(f"major: {p['major']}")
+    if p.get("gpa"):
+        prof.append(f"GPA: {p['gpa']}")
+    if p.get("sat"):
+        prof.append(f"SAT: {p['sat']}")
+    if p.get("ielts"):
+        prof.append(f"IELTS: {p['ielts']}")
+    if p.get("needs_aid"):
+        prof.append("needs aid")
+
+    if prof:
+        bits.append("Profile: " + "; ".join(prof))
+
+    themes = w.get("themes") or []
+    if themes:
+        bits.append("Themes: " + ", ".join(themes[:3]))
+
+    issues = w.get("recurring_issues") or {}
+    if issues:
+        # top 2 recurring issues
+        top = sorted(issues.items(), key=lambda kv: kv[1], reverse=True)[:2]
+        bits.append("Recurring issues: " + ", ".join([f"{k} ({v})" for k, v in top]))
+
+    tags = w.get("voice_tags") or []
+    if tags:
+        bits.append("Voice tags: " + ", ".join(tags[:4]))
+
+    return "\n".join(bits) if bits else "(no saved student context yet)"
+
+
+def coach_decision_notes(topic: str, text: str, mem: dict) -> str:
+    """Lightweight decision-rule layer: flags common patterns so the model gives the right type of help."""
+    t = (text or "")
+    low = t.lower()
+
+    notes = []
+
+    # Detect abstract reflection without scene
+    abstract_markers = sum(low.count(x) for x in ["i learned", "i realized", "important", "impactful", "meaningful", "passion"])
+    sensory_markers = sum(low.count(x) for x in ["smell", "taste", "heard", "whisper", "laughed", "trembled", "sweat", "cold", "warm", "crowd", "street", "classroom", "lab", "bus"])
+    if topic in {"essays_personal", "essays_supplemental"}:
+        if abstract_markers >= 3 and sensory_markers <= 1:
+            notes.append("Likely too abstract: add 1 vivid scene + specific details before reflection.")
+
+        # Resume-like
+        if len(re.findall(r"\b(\d{1,4}|%|hours|members|students|followers)\b", low)) >= 6 or low.count(";") >= 2:
+            notes.append("Reads resume-like: reduce listing, increase narrative + insight.")
+
+        # Vague language
+        if len(re.findall(r"\b(some|many|various|a lot|things|stuff|very)\b", low)) >= 6:
+            notes.append("Too many vague words: swap for concrete nouns + precise outcomes.")
+
+        # Ending drift
+        if len(t) >= 700 and any(low.strip().endswith(x) for x in ["thank you", "in conclusion", "overall", "to sum up"]):
+            notes.append("Weak generic ending: tie back to opening + show forward-looking growth.")
+
+    if topic == "extracurriculars":
+        if len(re.findall(r"\b(helped|participated|member|joined)\b", low)) >= 4:
+            notes.append("Too passive: rewrite with ownership verbs + outcomes.")
+        if len(re.findall(r"\b(impact|result|increased|reached|raised|created|launched)\b", low)) <= 1:
+            notes.append("Missing impact: add numbers or clear change caused by you.")
+
+    if topic == "recommendations":
+        if len(re.findall(r"\b(hardworking|smart|nice|responsible|good student)\b", low)) >= 3:
+            notes.append("Generic adjectives: replace with stories + specific comparisons.")
+
+    # Add 1 memory-based nudge
+    issues = (mem.get("writing", {}) or {}).get("recurring_issues", {}) or {}
+    if issues:
+        top_issue = max(issues.items(), key=lambda kv: kv[1])[0]
+        notes.append(f"Coach memory: watch for recurring issue '{top_issue}'.")
+
+    return "\n".join(notes) if notes else "No major flags detected." 
+
+
+def split_memory_block(model_out: str):
+    """If the model appended a MEMORY_JSON block, split it. Returns (user_text, mem_update_dict_or_None)."""
+    out = (model_out or "").strip()
+    if "MEMORY_JSON:" not in out:
+        return out, None
+    before, after = out.split("MEMORY_JSON:", 1)
+    user_text = before.strip().rstrip("-").strip()
+    js = after.strip()
+    # Allow code fences
+    js = re.sub(r"^```json\s*", "", js)
+    js = re.sub(r"^```\s*", "", js)
+    js = re.sub(r"```\s*$", "", js)
+    try:
+        return user_text, json.loads(js)
+    except Exception:
+        return user_text, None
+
+
+def apply_memory_update(mem: dict, update_obj: dict, topic: str):
+    if not isinstance(update_obj, dict):
+        return
+    w = mem.get("writing", {}) or {}
+
+    # voice tags
+    for tag in (update_obj.get("voice_tags") or []):
+        w["voice_tags"] = _safe_add_unique(list(w.get("voice_tags") or []), tag, limit=20)
+
+    # themes
+    for th in (update_obj.get("themes") or []):
+        w["themes"] = _safe_add_unique(list(w.get("themes") or []), th, limit=20)
+
+    # recurring issues counts
+    issues = w.get("recurring_issues") or {}
+    for issue in (update_obj.get("issues") or []):
+        issue = str(issue).strip()
+        if not issue:
+            continue
+        issues[issue] = int(issues.get(issue, 0) or 0) + 1
+    w["recurring_issues"] = issues
+
+    # strengths counts
+    strengths = w.get("strengths") or {}
+    for st in (update_obj.get("strengths") or []):
+        st = str(st).strip()
+        if not st:
+            continue
+        strengths[st] = int(strengths.get(st, 0) or 0) + 1
+    w["strengths"] = strengths
+
+    # best lines
+    for line in (update_obj.get("best_lines") or []):
+        if isinstance(line, str) and len(line.strip()) >= 20:
+            w["best_lines"] = _safe_add_unique(list(w.get("best_lines") or []), line.strip(), limit=15)
+
+    # summary
+    if isinstance(update_obj.get("summary"), str):
+        w["last_feedback_summary"] = update_obj.get("summary").strip()[:600]
+
+    mem["writing"] = w
+
+    # last eval summary
+    if isinstance(update_obj.get("eval_summary"), str):
+        mem.setdefault("drafts", {}).setdefault("last_eval", {})
+        mem["drafts"]["last_eval"]["topic"] = topic
+        mem["drafts"]["last_eval"]["summary"] = update_obj.get("eval_summary").strip()[:800]
+
+
+def coach_eval_system_prompt(topic: str, mem: dict, decision_notes: str) -> str:
+    nice = FRIENDLY_TOPIC_NAMES.get(topic, topic)
+    mem_sum = memory_summary_for_prompt(mem)
+
+    return (
+        "COACH_PERSONA:\n"
+        "You are UniVenture Coach - a brutally helpful, kind admissions mentor.\n"
+        "You sound like a top human coach: direct, specific, and practical.\n"
+        "No fluff. No generic praise. No mention of being an AI.\n\n"
+        f"Task: Evaluate the student's {nice}.\n"
+        "Use any provided rubrics/guidelines as trusted material.\n\n"
+        "Output format (use these headings, keep it scannable):\n"
+        "1) ✅ Quick verdict (1-2 sentences)\n"
+        "2) ⭐ What works (2-4 bullets)\n"
+        "3) ⚠️ Biggest issues to fix (2-4 bullets)\n"
+        "4) 🧩 Line-level notes (quote 2-5 short excerpts and explain what to change)\n"
+        "5) 🛠 Rewrite plan (3 steps)\n"
+        "6) ❓ One question for you (ask exactly 1 targeted question)\n"
+        "7) 🎯 Next step (one concrete action)\n\n"
+        "Then append exactly: \n"
+        "---\n"
+        "MEMORY_JSON: { ... }\n\n"
+        "Where MEMORY_JSON is valid JSON with keys:\n"
+        "voice_tags (list), themes (list), strengths (list), issues (list), best_lines (list), summary (string), eval_summary (string).\n\n"
+        "Student memory (may be empty):\n"
+        f"{mem_sum}\n\n"
+        "Coach decision notes (rules layer):\n"
+        f"{decision_notes}\n"
+    )
+
+
+def coach_qa_system_prompt(topic: str, mem: dict, decision_notes: str) -> str:
+    nice = FRIENDLY_TOPIC_NAMES.get(topic, topic)
+    mem_sum = memory_summary_for_prompt(mem)
+
+    return (
+        "COACH_PERSONA:\n"
+        "You are UniVenture Coach - a helpful, direct admissions mentor.\n"
+        "Answer like a human coach: short, specific, no fluff.\n"
+        "Always end with one next step.\n"
+        "Do not mention AI or that you can't browse sources.\n\n"
+        f"Current topic: {nice}.\n\n"
+        "Student memory (may be empty):\n"
+        f"{mem_sum}\n\n"
+        "Decision notes:\n"
+        f"{decision_notes}\n\n"
+        "Constraints:\n"
+        "- 4-8 sentences OR 4-6 bullets (choose what fits).\n"
+        "- Practical and actionable.\n"
+    )
+
 # -------- Main menu buttons --------
 BTN_ESSAY = "📝 Essays"
 BTN_EC = "🎯 Extracurricular activities"
@@ -709,6 +1104,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop("in_tools", None)
     user = update.effective_user
     record_event(user.id, "start", kind="start")
+    mem = get_user_memory_cached(update, context)
+    merge_usage_into_memory(context, mem)
+    mem['history']['last_active'] = int(__import__('time').time())
+    mem['history']['last_topic'] = DEFAULT_TOPIC
+    persist_user_memory(update, context)
 
     await send_with_image(
         update,
@@ -1498,6 +1898,7 @@ def _eval_context_from_collection(col, extra_query: str = ""):
     return "\n\n---\n\n".join(docs) if docs else ""
 
 async def run_eval_followup(update: Update, context: ContextTypes.DEFAULT_TYPE, user_request: str):
+    """Apply prior eval feedback to revise the saved text (coach mode)."""
     await show_typing(update, context)
     chat_id = update.effective_chat.id
     user = update.effective_user
@@ -1524,21 +1925,24 @@ async def run_eval_followup(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         logging.error(f"Error getting collection for eval followup: {e}")
         context_block = ""
 
-    sys_role = _sys_role_for_eval(topic)
+    mem = get_user_memory_cached(update, context)
+    merge_usage_into_memory(context, mem)
+    decision_notes = coach_decision_notes(topic, student_text, mem)
 
+    sys = (
+        "You are UniVenture Coach - an elite admissions coach.\n"
+        "Task: revise the student's text by APPLYING the prior feedback.\n"
+        "Rules:\n"
+        "- Keep the student's voice.\n"
+        "- If the user request is vague, prioritize: smoother transitions + deeper reflection + stronger ending tied to the opening.\n"
+        "- Output ONLY the revised text. No commentary.\n\n"
+        "Student memory (for voice consistency):\n"
+        f"{memory_summary_for_prompt(mem)}\n\n"
+        "Decision notes:\n"
+        f"{decision_notes}\n"
+    )
     messages = [
-        {
-            "role": "system",
-            "content": (
-                sys_role
-                + "\n\nRules:\n"
-                "- Apply the prior feedback to revise the text.\n"
-                "- If the request is vague (e.g., 'do the next step'), default to: "
-                "smoother transitions + deeper reflection + stronger conclusion tied to the opening.\n"
-                "- Keep the student's voice.\n"
-                "- Output ONLY the revised text (no commentary)."
-            ),
-        },
+        {"role": "system", "content": sys},
         {"role": "system", "content": f"Guidelines + examples (may be empty):\n{context_block}"},
         {"role": "system", "content": f"Prior feedback to apply:\n{prior_feedback}"},
         {"role": "system", "content": f"Text to revise:\n{student_text}"},
@@ -1553,11 +1957,9 @@ async def run_eval_followup(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     else:
         await update.message.reply_text("❌ Failed to generate revision. Please try again.")
 
+
 async def run_eval_qa(update: Update, context: ContextTypes.DEFAULT_TYPE, user_question: str):
-    """
-    NEW: Answer ANY follow-up question in eval mode using the saved submission + feedback.
-    This fixes: "I can't see your essay here" replies.
-    """
+    """Answer follow-up questions about the already-evaluated text (coach mode)."""
     await show_typing(update, context)
     chat_id = update.effective_chat.id
     user = update.effective_user
@@ -1584,16 +1986,23 @@ async def run_eval_qa(update: Update, context: ContextTypes.DEFAULT_TYPE, user_q
         logging.error(f"Error getting collection for eval QA: {e}")
         context_block = ""
 
+    mem = get_user_memory_cached(update, context)
+    merge_usage_into_memory(context, mem)
+    decision_notes = coach_decision_notes(topic, student_text, mem)
+
     sys = (
-        "You are an experienced admissions mentor.\n"
+        "You are UniVenture Coach, a senior admissions mentor.\n"
         "The user is asking a follow-up question about a text you already evaluated.\n"
         "Rules:\n"
         "- You DO have access to the student's text below.\n"
-        "- Answer the question directly and specifically.\n"
-        "- If they ask about grammar, point out concrete issues and show corrected versions of 2–5 short excerpts.\n"
-        "- If they ask for suggestions, keep them actionable.\n"
-        "- Be concise and readable.\n"
+        "- Answer directly and specifically.\n"
+        "- If they ask about grammar, show 2–5 short corrected excerpts.\n"
         "- Do NOT say you cannot see the essay.\n"
+        "- End with one next step.\n\n"
+        "Student memory:\n"
+        f"{memory_summary_for_prompt(mem)}\n\n"
+        "Decision notes:\n"
+        f"{decision_notes}\n"
     )
 
     messages = [
@@ -1606,6 +2015,56 @@ async def run_eval_qa(update: Update, context: ContextTypes.DEFAULT_TYPE, user_q
 
     a = openai_chat(model="gpt-4.1-mini", messages=messages, temperature=0.35)
     await send_long(update, a)
+
+
+async def _coach_evaluate_common(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    topic: str,
+    student_text_for_eval: str,
+    student_text_for_followup: str,
+    context_block: str,
+    pretty_topic: str,
+):
+    """Shared evaluation engine with Coach Mode + memory updates."""
+    mem = get_user_memory_cached(update, context)
+    merge_usage_into_memory(context, mem)
+
+    # Update profile signals from the submission (cheap heuristics)
+    mem["profile"] = extract_profile_signals(student_text_for_followup, mem.get("profile", {}) or {})
+
+    decision_notes = coach_decision_notes(topic, student_text_for_followup, mem)
+
+    # Choose system prompt
+    if topic in {"essays_personal", "essays_supplemental", "extracurriculars", "recommendations", "portfolio", "ielts_writing"}:
+        sys_role = coach_eval_system_prompt(topic, mem, decision_notes)
+    else:
+        sys_role = coach_eval_system_prompt(topic, mem, decision_notes)
+
+    messages = [
+        {"role": "system", "content": sys_role},
+        {"role": "system", "content": f"Guidelines + examples (may be empty):\n{context_block}"},
+        {"role": "user", "content": f"Here is the student's {pretty_topic}. Evaluate it:\n\n{student_text_for_eval}"},
+    ]
+
+    raw_out = openai_chat(model="gpt-4.1-mini", messages=messages, temperature=0.3)
+    user_text, mem_update = split_memory_block(raw_out)
+
+    # Save eval context for follow-ups
+    set_eval_context(context, topic, student_text_for_followup, user_text)
+    context.user_data["my_eval_count"] = int(context.user_data.get("my_eval_count", 0) or 0) + 1
+
+    # Update persistent memory
+    mem["history"]["message_count"] = int(mem["history"].get("message_count", 0) or 0)
+    mem["history"]["eval_count"] = int(mem["history"].get("eval_count", 0) or 0) + 1
+    mem["history"]["last_topic"] = topic
+    mem["history"]["last_active"] = int(__import__("time").time())
+
+    apply_memory_update(mem, mem_update or {}, topic)
+    persist_user_memory(update, context)
+
+    await send_long(update, user_text)
+
 
 async def evaluate_file_for_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_typing(update, context)
@@ -1659,7 +2118,7 @@ async def evaluate_file_for_topic(update: Update, context: ContextTypes.DEFAULT_
     student_text_for_eval = "\n\n---\n\n".join(parts[:5]) if parts else _truncate_for_storage(full_text, 4000)
     student_text_for_followup = _truncate_for_storage(full_text, 12000)
 
-    await update.message.reply_text(f"Analyzing your {pretty_topic} against my guidelines…")
+    await update.message.reply_text(f"Analyzing your {pretty_topic} (Coach Mode)…")
 
     try:
         col = get_collection(chat_id, topic)
@@ -1668,48 +2127,16 @@ async def evaluate_file_for_topic(update: Update, context: ContextTypes.DEFAULT_
         logging.error(f"Error getting collection for evaluation: {e}")
         context_block = ""
 
-    if topic in {"essays_personal", "essays_supplemental"}:
-        sys_role = (
-            "You are an expert college admissions essay coach. "
-            "Evaluate the student's essay. Focus on clarity, structure, voice, authenticity, and impact. "
-            "Give specific, actionable feedback and suggestions."
-        )
-    elif topic == "recommendations":
-        sys_role = (
-            "You are an expert on college recommendation letters. "
-            "Evaluate the letter in terms of specificity, credibility, depth of insight, and support for the student. "
-            "Give constructive feedback and suggestions for improvement."
-        )
-    elif topic == "extracurriculars":
-        sys_role = (
-            "You are an expert on extracurricular strategy for college applications. "
-            "Evaluate how well the activities are presented in terms of impact, leadership, continuity, and uniqueness. "
-            "Give specific, practical suggestions to make the activities stand out."
-        )
-    elif topic == "ielts_writing":
-        sys_role = (
-            "You are an experienced IELTS Writing examiner. "
-            "Evaluate the student's writing according to IELTS band descriptors. "
-            "Comment on Task Response, Coherence and Cohesion, Lexical Resource, and Grammatical Range and Accuracy. "
-            "Give an approximate band score and clear, actionable feedback."
-        )
-    else:
-        sys_role = (
-            "You are an expert college portfolio reviewer. "
-            "Evaluate the portfolio in terms of coherence, originality, technical quality, and fit for selective colleges. "
-            "Give specific, constructive feedback, not generic advice."
-        )
+    await _coach_evaluate_common(
+        update=update,
+        context=context,
+        topic=topic,
+        student_text_for_eval=student_text_for_eval,
+        student_text_for_followup=student_text_for_followup,
+        context_block=context_block,
+        pretty_topic=pretty_topic,
+    )
 
-    messages = [
-        {"role": "system", "content": sys_role + " Use the guidelines and examples in the context when relevant."},
-        {"role": "system", "content": f"Guidelines + examples (may be empty):\n{context_block}"},
-        {"role": "user", "content": f"Here is the student's {pretty_topic}. Please evaluate it:\n\n{student_text_for_eval}"},
-    ]
-
-    a = openai_chat(model="gpt-4.1-mini", messages=messages, temperature=0.3)
-    set_eval_context(context, topic, student_text_for_followup, a)
-    context.user_data["my_eval_count"] = int(context.user_data.get("my_eval_count", 0) or 0) + 1
-    await send_long(update, a)
 
 async def evaluate_ielts_writing_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_typing(update, context)
@@ -1811,7 +2238,7 @@ async def evaluate_text_for_topic(update: Update, context: ContextTypes.DEFAULT_
     parts = _chunk(raw, max_chars=1500)
     student_text_for_eval = "\n\n---\n\n".join(parts[:5])
 
-    await update.message.reply_text(f"Evaluating your {pretty_topic}…")
+    await update.message.reply_text(f"Evaluating your {pretty_topic} (Coach Mode)…")
 
     try:
         col = get_collection(chat_id, topic)
@@ -1820,47 +2247,16 @@ async def evaluate_text_for_topic(update: Update, context: ContextTypes.DEFAULT_
         logging.error(f"Error getting collection for evaluation: {e}")
         context_block = ""
 
-    if topic in {"essays_personal", "essays_supplemental"}:
-        sys_role = (
-            "You are an expert college admissions essay coach. "
-            "Evaluate the student's essay. Focus on clarity, structure, voice, authenticity, and impact. "
-            "Give specific, actionable feedback and suggestions."
-        )
-    elif topic == "recommendations":
-        sys_role = (
-            "You are an expert on college recommendation letters. "
-            "Evaluate the letter in terms of specificity, credibility, depth of insight, and support for the student. "
-            "Give constructive feedback and suggestions for improvement."
-        )
-    elif topic == "extracurriculars":
-        sys_role = (
-            "You are an expert on extracurricular strategy for college applications. "
-            "Evaluate how well the activities are presented in terms of impact, leadership, continuity, and uniqueness. "
-            "Give specific, practical suggestions to make the activities stand out."
-        )
-    elif topic == "ielts_writing":
-        sys_role = (
-            "You are an experienced IELTS Writing examiner. "
-            "Evaluate the student's writing according to IELTS band descriptors. "
-            "Comment on Task Response, Coherence and Cohesion, Lexical Resource, and Grammatical Range and Accuracy. "
-            "Give an approximate band score and clear, actionable feedback."
-        )
-    else:
-        sys_role = (
-            "You are an expert college portfolio reviewer. "
-            "Evaluate the portfolio description in terms of coherence, originality, technical quality, and fit for selective colleges. "
-            "Give specific, constructive feedback, not generic advice."
-        )
+    await _coach_evaluate_common(
+        update=update,
+        context=context,
+        topic=topic,
+        student_text_for_eval=student_text_for_eval,
+        student_text_for_followup=student_text_for_followup,
+        context_block=context_block,
+        pretty_topic=pretty_topic,
+    )
 
-    messages = [
-        {"role": "system", "content": sys_role + " Use the guidelines and examples in the context when available."},
-        {"role": "system", "content": f"Guidelines + examples (may be empty):\n{context_block}"},
-        {"role": "user", "content": f"Here is the student's {pretty_topic}. Please evaluate it:\n\n{student_text_for_eval}"},
-    ]
-
-    a = openai_chat(model="gpt-4.1-mini", messages=messages, temperature=0.3)
-    set_eval_context(context, topic, student_text_for_followup, a)
-    await send_long(update, a)
 
 # ---------- DOCUMENT & PHOTO ROUTERS ----------
 async def document_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2045,26 +2441,14 @@ async def run_brainstorm(update: Update, context: ContextTypes.DEFAULT_TYPE, des
     user = update.effective_user
     chat_id = update.effective_chat.id
     record_event(user.id, topic, kind="brainstorm")
-
     nice_topic = FRIENDLY_TOPIC_NAMES.get(topic, topic)
+    mem = get_user_memory_cached(update, context)
+    merge_usage_into_memory(context, mem)
+    # update profile signals from the question too (cheap heuristic)
+    mem["profile"] = extract_profile_signals(q, mem.get("profile", {}) or {})
+    decision_notes = coach_decision_notes(topic, q, mem)
 
-    try:
-        col = get_collection(chat_id, topic)
-        res = col.query(query_texts=[description], n_results=6)
-        docs = res.get("documents", [[]])[0]
-    except Exception as e:
-        logging.error(f"Error querying for brainstorm: {e}")
-        docs = []
-        
-    context_block = "\n\n---\n\n".join(docs) if docs else ""
-
-    sys = (
-        f"You are an admissions mentor helping a student brainstorm ideas for {nice_topic}.\n"
-        "- Give 3-5 short bullet ideas or angles.\n"
-        "- Each bullet should be 1-2 concise sentences.\n"
-        "- Focus on realistic, personal, and application-relevant ideas.\n"
-        "- Keep the tone friendly, specific, and not generic."
-    )
+    sys = coach_qa_system_prompt(topic, mem, decision_notes)
 
     messages = [{"role": "system", "content": sys}]
     if context_block:
@@ -2337,6 +2721,7 @@ async def tool_my_progress(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     track_tool_use(context, "progress")
+    persist_user_memory(update, context)
     await update.message.reply_text(out, reply_markup=tools_menu_keyboard())
 
 async def tool_insider_tips(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2399,6 +2784,7 @@ async def tool_insider_tips(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     track_tool_use(context, "insider")
+    persist_user_memory(update, context)
     await update.message.reply_text(out, reply_markup=tools_menu_keyboard())
 
 async def tool_power_words(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2436,6 +2822,7 @@ async def tool_power_words(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines.append("\nTip: Replace weak verbs (did/helped) with one stronger verb + a result (what changed?).")
 
     track_tool_use(context, "powerwords")
+    persist_user_memory(update, context)
     await update.message.reply_text("\n".join(lines), reply_markup=tools_menu_keyboard())
 
 async def tool_predict_chances(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2475,11 +2862,38 @@ async def tool_predict_chances(update: Update, context: ContextTypes.DEFAULT_TYP
         f"Recommended next step: {next_steps}"
     )
 
+    if PAYWALL_ENABLED and (not is_pro_user(update)):
+        out += _upgrade_pitch()
+
     track_tool_use(context, "predict")
+    persist_user_memory(update, context)
     await update.message.reply_text(out, reply_markup=tools_menu_keyboard())
 
 async def run_wowfactor(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
     """Analyze a text and highlight the most memorable 'wow factor'."""
+    # Paywall (optional)
+    if (not is_pro_user(update)) and ('wowfactor' in PRO_ONLY_TOOLS):
+        await update.message.reply_text(
+            "🔍 Find Wow Factor is a PRO tool.\n\n"
+            "Free preview: I'll tell you the direction, but PRO unlocks the full breakdown + rewrite plan."
+            + _upgrade_pitch(),
+            reply_markup=tools_menu_keyboard(),
+        )
+        # Give a tiny preview based on first 400 chars
+        preview = (text or '')[:400]
+        if len(preview.strip()) >= 120:
+            await show_typing(update, context)
+            mini = openai_chat(
+                model='gpt-4.1-mini',
+                messages=[
+                    {'role': 'system', 'content': 'Give ONE sentence: what is the most unique hook in this text? Be specific.'},
+                    {'role': 'user', 'content': preview},
+                ],
+                temperature=0.4,
+                max_tokens=90,
+            )
+            await update.message.reply_text('Preview hook: ' + sanitize_output(mini))
+        return
     await show_typing(update, context)
 
     sys = (
@@ -2506,6 +2920,7 @@ async def run_wowfactor(update: Update, context: ContextTypes.DEFAULT_TYPE, text
     )
 
     track_tool_use(context, "wowfactor")
+    persist_user_memory(update, context)
     await send_long(update, "🔍 FIND WOW FACTOR\n\n" + (a or ""))
     # Keep the tools keyboard visible for the next click.
     await update.message.reply_text("Pick another tool (or tap ⬅️ Back).", reply_markup=tools_menu_keyboard())
@@ -2530,6 +2945,15 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     topic_before = get_current_topic(context)
     record_event(user.id, topic_before, kind="message")
+
+    mem = get_user_memory_cached(update, context)
+    merge_usage_into_memory(context, mem)
+    mem['history']['message_count'] = int(mem['history'].get('message_count', 0) or 0) + 1
+    mem['history']['last_active'] = int(__import__('time').time())
+    mem['history']['last_topic'] = topic_before
+    # cheap profile extraction from user message
+    mem['profile'] = extract_profile_signals(q, mem.get('profile', {}) or {})
+    persist_user_memory(update, context)
 
     # ---- BACK ----
     if is_back_message(q):
@@ -2971,15 +3395,13 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context_block = "\n\n---\n\n".join(docs or [])
     nice_topic = FRIENDLY_TOPIC_NAMES.get(topic, topic)
+    mem = get_user_memory_cached(update, context)
+    merge_usage_into_memory(context, mem)
+    # update profile signals from the question too (cheap heuristic)
+    mem["profile"] = extract_profile_signals(q, mem.get("profile", {}) or {})
+    decision_notes = coach_decision_notes(topic, q, mem)
 
-    sys = (
-        "You are UniVenture, a focused university admissions mentor.\n"
-        f"Current topic: {nice_topic}.\n"
-        "- Give short, clear, high-value answers (3-7 sentences max).\n"
-        "- Speak in a natural, human tone, like a friendly but direct older student mentor.\n"
-        "- Prioritize practical, actionable advice over theory.\n"
-        "- Use the provided context (if any) as trusted program material and do not contradict it."
-    )
+    sys = coach_qa_system_prompt(topic, mem, decision_notes)
 
     messages = [
         {"role": "system", "content": sys},
