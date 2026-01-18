@@ -2924,7 +2924,7 @@ async def tool_power_words(update: Update, context: ContextTypes.DEFAULT_TYPE):
     persist_user_memory(update, context)
     await update.message.reply_text(
     "\n".join(lines)
-    + "\n\n✍️ **Try it now:**\n"
+    + "\n\n✍️ Try it now:\n"
       "Send one sentence or short paragraph, and I’ll rewrite it using these power words "
       "while keeping your original meaning and voice.",
     reply_markup=tools_menu_keyboard(),
