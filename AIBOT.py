@@ -3035,9 +3035,6 @@ async def run_wowfactor(update: Update, context: ContextTypes.DEFAULT_TYPE, text
 # ---------- MAIN ANSWER ----------
 async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (update.message.text or "").strip()
-    # ---- UI ACTION GUARD (prevents double execution / ghost actions) ----
-    if context.user_data.pop("_handled_ui_action", False):
-        return
     if text.startswith("/"):
         # User sent a command while in a pending mode (rewrite/brainstorm/etc.)
         if context.user_data.get("pending_feature"):
