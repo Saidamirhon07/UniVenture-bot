@@ -3,7 +3,7 @@
 # + eval follow-ups (apply feedback) + eval Q&A (any follow-up question about the evaluated text)
 # + embedded tools + Application Plan & School Finder
 # + analytics + admin locks + backup + health + robust command parsing + UUID doc IDs (no reteach bugs)
-
+from datetime import datetime, timedelta
 import os
 os.environ['TZ'] = 'UTC'  # Set timezone to UTC
 
@@ -132,6 +132,7 @@ def _default_stats():
         "messages_per_user": {},
         "topic_counts": {},
         "eval_counts": {},
+        "last_active_per_user": {},
     }
 
 def load_stats():
@@ -158,6 +159,9 @@ def save_stats(stats):
 def record_event(user_id, topic: str, kind: str = "message"):
     stats = load_stats()
     uid = str(user_id)
+    
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    stats.setdefault("last_active_per_user", {})[uid] = today
 
     if uid not in stats["users"]:
         stats["users"].append(uid)
@@ -2372,11 +2376,27 @@ async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     total_evals = sum(eval_counts.values()) if eval_counts else 0
 
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    today_date = datetime.utcnow().date()
+
+    last_active = stats.get("last_active_per_user", {})
+
+    DAU = sum(1 for d in last_active.values() if d == today)
+
+    MAU = sum(
+        1
+        for d in last_active.values()
+        if datetime.strptime(d, "%Y-%m-%d").date() >= today_date - timedelta(days=30)
+    )
+
     msg = (
         f"📊 Bot analytics\n"
-        f"- Unique users: {total_users}\n"
-        f"- Total interactions (events): {total_msgs}\n"
-        f"- Total evaluations: {total_evals}\n\n"
+        f"• Unique users: {total_users}\n"
+        f"• Total interactions: {total_msgs}\n"
+        f"• Total evaluations: {total_evals}\n\n"
+        f"📈 Activity\n"
+        f"• Daily active users (DAU): {DAU}\n"
+        f"• Monthly active users (MAU): {MAU}\n\n"
         f"Top topics:\n{topics_str}"
     )
     await update.message.reply_text(msg)
