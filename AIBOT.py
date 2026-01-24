@@ -3,7 +3,7 @@
 # + eval follow-ups (apply feedback) + eval Q&A (any follow-up question about the evaluated text)
 # + embedded tools + Application Plan & School Finder
 # + analytics + admin locks + backup + health + robust command parsing + UUID doc IDs (no reteach bugs)
-from datetime import datetime, timedelta
+
 import os
 os.environ['TZ'] = 'UTC'  # Set timezone to UTC
 
@@ -132,7 +132,6 @@ def _default_stats():
         "messages_per_user": {},
         "topic_counts": {},
         "eval_counts": {},
-        "last_active_per_user": {},
     }
 
 def load_stats():
@@ -159,9 +158,6 @@ def save_stats(stats):
 def record_event(user_id, topic: str, kind: str = "message"):
     stats = load_stats()
     uid = str(user_id)
-    
-    today = datetime.utcnow().strftime("%Y-%m-%d")
-    stats.setdefault("last_active_per_user", {})[uid] = today
 
     if uid not in stats["users"]:
         stats["users"].append(uid)
@@ -182,6 +178,8 @@ def record_event(user_id, topic: str, kind: str = "message"):
     save_stats(stats)
 
 
+
+DEFAULT_TOPIC = "general"  # defined early (used by memory defaults)
 
 # -------- User Memory (persistent, per-user; survives restarts) --------
 USER_MEM_DIR = os.path.join(DATA_DIR, "user_memory")
@@ -211,7 +209,11 @@ def _default_user_memory() -> dict:
             "major": None,
             "gpa": None,
             "sat": None,
+            "sat_breakdown": None,   # e.g., "Math 780 / EBRW 670"
+            "act": None,
             "ielts": None,
+            "toefl": None,
+            "duolingo": None,        # Duolingo English Test (DET)
             "budget": None,
             "needs_aid": None,
         },
@@ -223,6 +225,36 @@ def _default_user_memory() -> dict:
             "best_lines": [],
             "last_feedback_summary": "",
         },
+
+        # Per-user application portfolio (used by 📂 My Application Portfolio)
+        "application": {
+            "test_scores": {
+                "gpa": None,
+                "sat": None,
+                "sat_breakdown": None,
+                "act": None,
+                "ielts": None,
+                "toefl": None,
+                "duolingo": None,
+                "notes": "",
+            },
+            "essays": {
+                "personal_statement": None,   # not started / outline / draft / revised / final / done
+                "supplementals": None,        # e.g., "6/12 drafted"
+                "common_app": None,
+                "notes": "",
+            },
+            "ecs": {
+                "summary": "",
+                "spike": None,
+                "notes": "",
+            },
+            "readiness": {
+                "last_score": None,
+                "last_updated": None,
+            },
+        },
+
         "history": {
             "message_count": 0,
             "eval_count": 0,
@@ -236,10 +268,12 @@ def _default_user_memory() -> dict:
                 "topic": None,
                 "date": None,
                 "summary": None,
-            }
+            },
+            "eval_history": [],  # rolling list of {date, topic, eval_summary, feedback_snippet}
         },
-        "_v": 1,
+        "_v": 2,
     }
+
 
 
 def _mem_path(user_id: int) -> str:
@@ -344,18 +378,42 @@ def extract_profile_signals(text: str, profile: dict) -> dict:
     if m:
         profile["gpa"] = m.group(1)
     m = re.search(r"\b(\d\.\d{1,2})\s*/\s*4\.0\b", t)
-    if m:
-        profile["gpa"] = profile.get("gpa") or m.group(1)
+    if m and not profile.get("gpa"):
+        profile["gpa"] = m.group(1)
 
-    # SAT (e.g., SAT 1450)
+    # SAT total (e.g., SAT 1450)
     m = re.search(r"\bSAT\s*[:=]?\s*(1[0-6]\d{2})\b", t, re.I)
     if m:
         profile["sat"] = m.group(1)
+
+    # SAT breakdown (Math 780, EBRW 670)
+    m = re.search(r"\bMath\s*(\d{3})\b[^\n]{0,60}\b(EBRW|R&W|Reading|Verbal)\s*(\d{3})\b", t, re.I)
+    if m:
+        profile["sat_breakdown"] = f"Math {m.group(1)} / EBRW {m.group(3)}"
+    else:
+        m2 = re.search(r"\b(EBRW|R&W|Reading|Verbal)\s*(\d{3})\b[^\n]{0,60}\bMath\s*(\d{3})\b", t, re.I)
+        if m2:
+            profile["sat_breakdown"] = f"Math {m2.group(3)} / EBRW {m2.group(2)}"
+
+    # ACT (e.g., ACT 33)
+    m = re.search(r"\bACT\s*[:=]?\s*(\d{2})\b", t, re.I)
+    if m:
+        profile["act"] = m.group(1)
 
     # IELTS (e.g., IELTS 7.5)
     m = re.search(r"\bIELTS\s*[:=]?\s*(\d\.\d|\d)\b", t, re.I)
     if m:
         profile["ielts"] = m.group(1)
+
+    # TOEFL (e.g., TOEFL 105)
+    m = re.search(r"\bTOEFL\s*[:=]?\s*(\d{2,3})\b", t, re.I)
+    if m:
+        profile["toefl"] = m.group(1)
+
+    # Duolingo / DET (e.g., Duolingo 135, DET 130)
+    m = re.search(r"\b(Duolingo|DET)\s*[:=]?\s*(\d{2,3})\b", t, re.I)
+    if m:
+        profile["duolingo"] = m.group(2)
 
     # Aid/Scholarship intent
     if re.search(r"\b(scholarship|financial aid|need[- ]based|full ride|aid)\b", t, re.I):
@@ -369,6 +427,7 @@ def extract_profile_signals(text: str, profile: dict) -> dict:
             profile["major"] = profile.get("major") or cand
 
     return profile
+
 
 
 def memory_summary_for_prompt(mem: dict) -> str:
@@ -388,8 +447,16 @@ def memory_summary_for_prompt(mem: dict) -> str:
         prof.append(f"GPA: {p['gpa']}")
     if p.get("sat"):
         prof.append(f"SAT: {p['sat']}")
+    if p.get("sat_breakdown"):
+        prof.append(str(p["sat_breakdown"]))
+    if p.get("act"):
+        prof.append(f"ACT: {p['act']}")
     if p.get("ielts"):
         prof.append(f"IELTS: {p['ielts']}")
+    if p.get("toefl"):
+        prof.append(f"TOEFL: {p['toefl']}")
+    if p.get("duolingo"):
+        prof.append(f"Duolingo: {p['duolingo']}")
     if p.get("needs_aid"):
         prof.append("needs aid")
 
@@ -617,6 +684,16 @@ BTN_REWRITE = "✍️ Rewrite my text"
 BTN_REC_PACKET = "📄 Rec Letter Packet"
 BTN_PORTFOLIO_IDEAS = "💡 Portfolio Ideas"
 
+# Application Portfolio submenu (inside Portfolio)
+BTN_APP_PORT = "📂 My Application Portfolio"
+BTN_APP_TESTS = "🧾 Test Scores + GPA"
+BTN_APP_ESSAYS = "📝 Essays Status"
+BTN_APP_ADVISOR = "🧭 Advisor Mode"
+BTN_APP_ECS = "🎯 EC Summary"
+BTN_APP_READINESS = "✅ Readiness Check"
+BTN_BACK_PORT = "↩️ Back to Portfolio"
+
+
 # SAT sub-buttons
 BTN_SAT_MATH = "📐 SAT Math"
 BTN_SAT_ENGLISH = "📚 SAT English"
@@ -757,11 +834,26 @@ def portfolio_keyboard():
         [
             [KeyboardButton(BTN_PORT_EVAL)],
             [KeyboardButton(BTN_PORTFOLIO_IDEAS)],
+            [KeyboardButton(BTN_APP_PORT)],
             [KeyboardButton(BTN_BACK)],
         ],
         resize_keyboard=True,
         one_time_keyboard=False,
     )
+
+def app_portfolio_keyboard():
+    return ReplyKeyboardMarkup(
+        [
+            [KeyboardButton(BTN_APP_TESTS), KeyboardButton(BTN_APP_ESSAYS)],
+            [KeyboardButton(BTN_APP_ADVISOR)],
+            [KeyboardButton(BTN_APP_ECS), KeyboardButton(BTN_APP_READINESS)],
+            [KeyboardButton(BTN_BACK_PORT), KeyboardButton(BTN_BACK)],
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=False,
+    )
+
+
 
 def plan_keyboard():
     return ReplyKeyboardMarkup(
@@ -2376,27 +2468,11 @@ async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     total_evals = sum(eval_counts.values()) if eval_counts else 0
 
-    today = datetime.utcnow().strftime("%Y-%m-%d")
-    today_date = datetime.utcnow().date()
-
-    last_active = stats.get("last_active_per_user", {})
-
-    DAU = sum(1 for d in last_active.values() if d == today)
-
-    MAU = sum(
-        1
-        for d in last_active.values()
-        if datetime.strptime(d, "%Y-%m-%d").date() >= today_date - timedelta(days=30)
-    )
-
     msg = (
         f"📊 Bot analytics\n"
-        f"• Unique users: {total_users}\n"
-        f"• Total interactions: {total_msgs}\n"
-        f"• Total evaluations: {total_evals}\n\n"
-        f"📈 Activity\n"
-        f"• Daily active users (DAU): {DAU}\n"
-        f"• Monthly active users (MAU): {MAU}\n\n"
+        f"- Unique users: {total_users}\n"
+        f"- Total interactions (events): {total_msgs}\n"
+        f"- Total evaluations: {total_evals}\n\n"
         f"Top topics:\n{topics_str}"
     )
     await update.message.reply_text(msg)
@@ -2484,6 +2560,358 @@ def set_pending_feature(context: ContextTypes.DEFAULT_TYPE, feature: str | None)
 
 def clear_pending_feature(context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop("pending_feature", None)
+
+def _ensure_application_defaults(mem: dict) -> dict:
+    """Ensure mem['application'] exists with expected nested structure."""
+    if not isinstance(mem, dict):
+        return {}
+    app = mem.get("application")
+    if not isinstance(app, dict):
+        app = {}
+        mem["application"] = app
+
+    app.setdefault("test_scores", {})
+    app.setdefault("essays", {})
+    app.setdefault("ecs", {})
+    app.setdefault("readiness", {})
+
+    ts = app["test_scores"]
+    ts.setdefault("gpa", None)
+    ts.setdefault("sat", None)
+    ts.setdefault("sat_breakdown", None)
+    ts.setdefault("act", None)
+    ts.setdefault("ielts", None)
+    ts.setdefault("toefl", None)
+    ts.setdefault("duolingo", None)
+    ts.setdefault("notes", "")
+
+    es = app["essays"]
+    es.setdefault("personal_statement", None)
+    es.setdefault("supplementals", None)
+    es.setdefault("common_app", None)
+    es.setdefault("notes", "")
+
+    ecs = app["ecs"]
+    ecs.setdefault("summary", "")
+    ecs.setdefault("spike", None)
+    ecs.setdefault("notes", "")
+
+    rd = app["readiness"]
+    rd.setdefault("last_score", None)
+    rd.setdefault("last_updated", None)
+
+    return app
+
+
+def _fmt(v):
+    return str(v).strip() if (v is not None and str(v).strip()) else "—"
+
+
+def format_test_scores_block(app: dict) -> str:
+    ts = (app or {}).get("test_scores", {}) or {}
+    lines = [
+        "🧾 TEST SCORES + GPA",
+        f"• GPA: {_fmt(ts.get('gpa'))}",
+        f"• SAT: {_fmt(ts.get('sat'))}",
+        f"• SAT breakdown: {_fmt(ts.get('sat_breakdown'))}",
+        f"• ACT: {_fmt(ts.get('act'))}",
+        f"• IELTS: {_fmt(ts.get('ielts'))}",
+        f"• TOEFL: {_fmt(ts.get('toefl'))}",
+        f"• Duolingo: {_fmt(ts.get('duolingo'))}",
+    ]
+    notes = (ts.get("notes") or "").strip()
+    if notes:
+        lines.append(f"• Notes: {notes[:350]}")
+    return "\n".join(lines)
+
+
+def format_essays_block(app: dict) -> str:
+    es = (app or {}).get("essays", {}) or {}
+    lines = [
+        "📝 ESSAYS STATUS",
+        f"• Personal Statement: {_fmt(es.get('personal_statement'))}",
+        f"• Supplementals: {_fmt(es.get('supplementals'))}",
+        f"• Common App essay: {_fmt(es.get('common_app'))}",
+    ]
+    notes = (es.get("notes") or "").strip()
+    if notes:
+        lines.append(f"• Notes: {notes[:350]}")
+    return "\n".join(lines)
+
+
+def parse_and_update_test_scores(text: str, mem: dict) -> bool:
+    """Parse user's message to update portfolio test scores. Returns True if anything updated."""
+    if not text or not isinstance(mem, dict):
+        return False
+    app = _ensure_application_defaults(mem)
+    ts = app["test_scores"]
+    updated = False
+    t = text
+
+    # GPA
+    m = re.search(r"\bGPA\s*[:=]?\s*(\d\.\d{1,2})\b", t, re.I)
+    if m:
+        ts["gpa"] = m.group(1); updated = True
+
+    # SAT total
+    m = re.search(r"\bSAT\s*[:=]?\s*(1[0-6]\d{2})\b", t, re.I)
+    if m:
+        ts["sat"] = m.group(1); updated = True
+
+    # SAT breakdown
+    m = re.search(r"\bMath\s*(\d{3})\b[^\n]{0,40}\b(EBRW|R&W|Reading|Verbal)\s*(\d{3})\b", t, re.I)
+    if m:
+        ts["sat_breakdown"] = f"Math {m.group(1)} / EBRW {m.group(3)}"; updated = True
+    else:
+        m2 = re.search(r"\b(EBRW|R&W|Reading|Verbal)\s*(\d{3})\b[^\n]{0,40}\bMath\s*(\d{3})\b", t, re.I)
+        if m2:
+            ts["sat_breakdown"] = f"Math {m2.group(3)} / EBRW {m2.group(2)}"; updated = True
+
+    # ACT
+    m = re.search(r"\bACT\s*[:=]?\s*(\d{2})\b", t, re.I)
+    if m:
+        ts["act"] = m.group(1); updated = True
+
+    # IELTS
+    m = re.search(r"\bIELTS\s*[:=]?\s*(\d\.\d|\d)\b", t, re.I)
+    if m:
+        ts["ielts"] = m.group(1); updated = True
+
+    # TOEFL
+    m = re.search(r"\bTOEFL\s*[:=]?\s*(\d{2,3})\b", t, re.I)
+    if m:
+        ts["toefl"] = m.group(1); updated = True
+
+    # Duolingo / DET
+    m = re.search(r"\b(Duolingo|DET)\s*[:=]?\s*(\d{2,3})\b", t, re.I)
+    if m:
+        ts["duolingo"] = m.group(2); updated = True
+
+    # If they include any extra notes text, keep it (but do not overwrite if empty)
+    if re.search(r"\bnotes?\b", t, re.I) and len(t) >= 20:
+        # crude: take everything after "note:" or "notes:"
+        m = re.search(r"\bnotes?\s*[:=]\s*(.+)$", t, re.I)
+        if m:
+            ts["notes"] = (m.group(1) or "").strip()[:600]
+            updated = True
+
+    # Mirror key fields into profile for prompts
+    prof = mem.get("profile", {}) or {}
+    if ts.get("gpa"): prof["gpa"] = ts["gpa"]
+    if ts.get("sat"): prof["sat"] = ts["sat"]
+    if ts.get("sat_breakdown"): prof["sat_breakdown"] = f"SAT breakdown: {ts['sat_breakdown']}"
+    if ts.get("act"): prof["act"] = ts["act"]
+    if ts.get("ielts"): prof["ielts"] = ts["ielts"]
+    if ts.get("toefl"): prof["toefl"] = ts["toefl"]
+    if ts.get("duolingo"): prof["duolingo"] = ts["duolingo"]
+    mem["profile"] = prof
+
+    return updated
+
+
+def parse_and_update_essays(text: str, mem: dict) -> bool:
+    """Parse user's message to update essay status. Returns True if anything updated."""
+    if not text or not isinstance(mem, dict):
+        return False
+    app = _ensure_application_defaults(mem)
+    es = app["essays"]
+    t = text.strip()
+    updated = False
+
+    # status keywords
+    statuses = ["not started", "outline", "draft", "revised", "final", "done"]
+    def pick_status(s: str):
+        low = s.lower()
+        for st in statuses:
+            if st in low:
+                return st
+        return None
+
+    # PS
+    if re.search(r"\b(ps|personal statement)\b", t, re.I):
+        st = pick_status(t)
+        if st:
+            es["personal_statement"] = st; updated = True
+
+    # Common App
+    if re.search(r"\b(common app|commonapp)\b", t, re.I):
+        st = pick_status(t)
+        if st:
+            es["common_app"] = st; updated = True
+
+    # Supplementals: allow "6/12" or "6 of 12"
+    m = re.search(r"(\d{1,2})\s*/\s*(\d{1,2})", t)
+    if m and re.search(r"\bsupp", t, re.I):
+        es["supplementals"] = f"{m.group(1)}/{m.group(2)} drafted"
+        updated = True
+    elif re.search(r"\bsupp", t, re.I):
+        st = pick_status(t)
+        if st:
+            es["supplementals"] = st; updated = True
+
+    if re.search(r"\bnotes?\b", t, re.I) and len(t) >= 20:
+        m = re.search(r"\bnotes?\s*[:=]\s*(.+)$", t, re.I)
+        if m:
+            es["notes"] = (m.group(1) or "").strip()[:600]
+            updated = True
+
+    return updated
+
+def compute_portfolio_readiness(mem: dict) -> tuple[int, list]:
+    """Simple readiness score from saved portfolio (tests + essays)."""
+    if not isinstance(mem, dict):
+        return 0, []
+    app = _ensure_application_defaults(mem)
+    ts = app.get("test_scores", {}) or {}
+    es = app.get("essays", {}) or {}
+
+    score = 0
+    reasons = []
+
+    # Tests
+    if ts.get("gpa"):
+        score += 20; reasons.append("GPA saved")
+    if ts.get("sat") or ts.get("act"):
+        score += 20; reasons.append("SAT/ACT saved")
+    if ts.get("ielts") or ts.get("toefl") or ts.get("duolingo"):
+        score += 10; reasons.append("English test saved")
+
+    # Essays
+    ps = (es.get("personal_statement") or "").lower()
+    supp = (es.get("supplementals") or "").lower()
+    ca = (es.get("common_app") or "").lower()
+
+    def status_points(s: str):
+        if "final" in s or "done" in s:
+            return 20
+        if "revised" in s:
+            return 15
+        if "draft" in s or "outline" in s:
+            return 10
+        if "not started" in s:
+            return 0
+        return 5 if s.strip() else 0
+
+    score += status_points(ps); 
+    if ps.strip(): reasons.append("PS status saved")
+    score += status_points(ca);
+    if ca.strip(): reasons.append("Common App status saved")
+
+    # Supplementals: if includes x/y, scale
+    m = re.search(r"(\d{1,2})\s*/\s*(\d{1,2})", supp)
+    if m:
+        x, y = int(m.group(1)), max(1, int(m.group(2)))
+        score += int(round(20 * min(1.0, x / y)))
+        reasons.append("Supplementals progress saved")
+    else:
+        sp = status_points(supp)
+        if sp:
+            score += min(20, sp)
+            reasons.append("Supplementals status saved")
+
+    score = max(0, min(100, int(score)))
+    return score, reasons
+
+
+async def app_portfolio_show_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Entry point for 📂 My Application Portfolio."""
+    mem = get_user_memory_cached(update, context)
+    merge_usage_into_memory(context, mem)
+    app = _ensure_application_defaults(mem)
+    persist_user_memory(update, context)
+
+    out = (
+        "📂 MY APPLICATION PORTFOLIO\n\n"
+        + format_test_scores_block(app)
+        + "\n\n"
+        + format_essays_block(app)
+        + "\n\n"
+        "Pick what you want to update or analyze:"
+    )
+    await update.message.reply_text(out, reply_markup=app_portfolio_keyboard())
+
+
+async def run_app_tests(update: Update, context: ContextTypes.DEFAULT_TYPE, user_text: str | None = None):
+    """Show + optionally update Test Scores + GPA."""
+    mem = get_user_memory_cached(update, context)
+    merge_usage_into_memory(context, mem)
+    app = _ensure_application_defaults(mem)
+
+    if user_text:
+        changed = parse_and_update_test_scores(user_text, mem)
+        if changed:
+            persist_user_memory(update, context)
+
+    await update.message.reply_text(
+        format_test_scores_block(app)
+        + "\n\nSend an update like: `GPA 3.9, SAT 1520 (Math 790, EBRW 730), IELTS 7.5`\n"
+        "Or tap ↩️ Back to Portfolio.",
+        reply_markup=app_portfolio_keyboard(),
+    )
+    set_pending_feature(context, "app_tests")
+
+
+async def run_app_essays(update: Update, context: ContextTypes.DEFAULT_TYPE, user_text: str | None = None):
+    """Show + optionally update Essay Status."""
+    mem = get_user_memory_cached(update, context)
+    merge_usage_into_memory(context, mem)
+    app = _ensure_application_defaults(mem)
+
+    if user_text:
+        changed = parse_and_update_essays(user_text, mem)
+        if changed:
+            persist_user_memory(update, context)
+
+    await update.message.reply_text(
+        format_essays_block(app)
+        + "\n\nSend an update like: `PS draft`, `Supps 6/12`, `Common App revised`\n"
+        "Or tap ↩️ Back to Portfolio.",
+        reply_markup=app_portfolio_keyboard(),
+    )
+    set_pending_feature(context, "app_essays")
+
+
+async def run_advisor_mode(update: Update, context: ContextTypes.DEFAULT_TYPE, user_text: str):
+    """Advisor Mode: College Fit Analysis from saved portfolio + user notes."""
+    await show_typing(update, context)
+
+    mem = get_user_memory_cached(update, context)
+    merge_usage_into_memory(context, mem)
+    app = _ensure_application_defaults(mem)
+    prof = mem.get("profile", {}) or {}
+
+    # Use portfolio + optional user's extra notes
+    sys = (
+        "You are UniVenture Advisor - a sharp college-fit analyst.\n"
+        "Your job: give a realistic, helpful College Fit Analysis using the student's stats and constraints.\n\n"
+        "Output format (exact headings):\n"
+        "1) 🎯 Snapshot (2 lines)\n"
+        "2) ✅ Strengths (3 bullets)\n"
+        "3) ⚠️ Risks / gaps (3 bullets)\n"
+        "4) 🏫 Fit strategy (Reach/Match/Safety approach + what to prioritize)\n"
+        "5) 📌 Next 7 days (3 concrete actions)\n\n"
+        "Rules: no fake acceptance %; be specific; consider financial aid if mentioned.\n"
+    )
+
+    portfolio_block = (
+        "STUDENT PORTFOLIO:\n"
+        + format_test_scores_block(app)
+        + "\n\n"
+        + format_essays_block(app)
+        + "\n\n"
+        + f"Needs aid: {bool(prof.get('needs_aid'))}\n"
+    )
+
+    messages = [
+        {"role": "system", "content": sys},
+        {"role": "system", "content": portfolio_block},
+        {"role": "user", "content": user_text or "Use the saved portfolio only and give my fit analysis."},
+    ]
+
+    out = openai_chat(model="gpt-4.1-mini", messages=messages, temperature=0.45, max_tokens=550)
+    await send_long(update, out)
+    await update.message.reply_text("Want to update scores/essays or run Advisor Mode again?", reply_markup=app_portfolio_keyboard())
+
 
 async def run_brainstorm(update: Update, context: ContextTypes.DEFAULT_TYPE, description: str):
     """Brainstorm helper usable from both /brainstorm and button-based flows.
@@ -2597,44 +3025,6 @@ async def run_rewrite(update: Update, context: ContextTypes.DEFAULT_TYPE, text_t
 
     a = openai_chat(model="gpt-4.1-mini", messages=messages, temperature=0.4)
     await send_long(update, a)
-
-async def run_powerwords_apply(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
-    await show_typing(update, context)
-    topic = get_current_topic(context)
-    label = FRIENDLY_TOPIC_NAMES.get(topic, "your writing")
-
-    sys = (
-        f"You are an admissions writing coach.\n"
-        f"Rewrite the sentence or paragraph below using strong but natural power words "
-        f"appropriate for {label}.\n\n"
-        "Rules:\n"
-        "- Preserve the student’s original meaning and tone.\n"
-        "- Do NOT exaggerate or invent achievements.\n"
-        "- Improve verbs, clarity, and impact.\n"
-        "- Keep it concise.\n\n"
-        "Output format:\n"
-        "📝 Improved version:\n"
-        "<rewritten text>\n\n"
-        "🔍 What changed:\n"
-        "- <brief explanation>"
-    )
-
-    messages = [
-        {"role": "system", "content": sys},
-        {"role": "user", "content": text},
-    ]
-
-    out = openai_chat(
-        model="gpt-4.1-mini",
-        messages=messages,
-        temperature=0.3,
-    )
-
-    await send_long(update, out)
-    await update.message.reply_text(
-        "Want to try another sentence or use a different tool?",
-        reply_markup=tools_menu_keyboard(),
-    )
 
 async def rewrite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (update.message.text or "").strip()
@@ -2847,7 +3237,7 @@ async def tool_insider_tips(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     tips_by_topic = {
         "essays_personal": (
-            "🤫 INSIDER TIPS - PERSONAL STATEMENT\n\n"
+            "🤫 INSIDER TIPS — PERSONAL STATEMENT\n\n"
             "• Your first 2 lines are everything: start with a moment, not an intro.\n"
             "• One specific scene > 10 generic achievements.\n"
             "• Show reflection: what changed in you, not just what happened.\n"
@@ -2855,15 +3245,15 @@ async def tool_insider_tips(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• End with forward motion: what you’ll do next in college."
         ),
         "essays_supplemental": (
-            "🤫 INSIDER TIPS - SUPPLEMENTALS\n\n"
+            "🤫 INSIDER TIPS — SUPPLEMENTALS\n\n"
             "• 'Why us' works best as: YOU → THEIR SPECIFICS → YOU AGAIN.\n"
-            "• Mention 2 ultr-specific fit points (lab, prof, program, initiative).\n"
-            "• Avoid resume repetition-add new angles and values.\n"
+            "• Mention 2 ultra-specific fit points (lab, prof, program, initiative).\n"
+            "• Avoid resume repetition—add new angles and values.\n"
             "• Short prompts: one strong claim + one mini-story + one insight.\n"
             "• Make it sound like a real student, not marketing copy."
         ),
         "extracurriculars": (
-            "🤫 INSIDER TIPS - EXTRACURRICULARS\n\n"
+            "🤫 INSIDER TIPS — EXTRACURRICULARS\n\n"
             "• Impact beats title. Numbers help (people reached, hours, funds).\n"
             "• Show progression: member → builder → leader/mentor.\n"
             "• Use action verbs + outcomes (what changed because of you).\n"
@@ -2871,15 +3261,15 @@ async def tool_insider_tips(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• Always answer: Why you? Why it matters?"
         ),
         "recommendations": (
-            "🤫 INSIDER TIPS - RECOMMENDATIONS\n\n"
-            "• Best letters include 2-3 stories that only that teacher could tell.\n"
+            "🤫 INSIDER TIPS — RECOMMENDATIONS\n\n"
+            "• Best letters include 2–3 stories that only that teacher could tell.\n"
             "• Ask teachers who saw you struggle AND grow (not just easy A's).\n"
             "• Give them a brag sheet with facts, projects, and specific moments.\n"
             "• Strong recs compare you to peers (“top 5% I’ve taught”).\n"
             "• Remind early: 3 gentle reminders > 1 last-minute panic."
         ),
         "portfolio": (
-            "🤫 INSIDER TIPS - PORTFOLIO\n\n"
+            "🤫 INSIDER TIPS — PORTFOLIO\n\n"
             "• Curate: 6 great pieces beats 20 average ones.\n"
             "• Add process: drafts, iterations, what you learned.\n"
             "• Label your role clearly (solo vs team, what you owned).\n"
@@ -2887,10 +3277,10 @@ async def tool_insider_tips(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• Tie to future: what you want to build next."
         ),
         "ielts_writing": (
-            "🤫 INSIDER TIPS - IELTS WRITING\n\n"
+            "🤫 INSIDER TIPS — IELTS WRITING\n\n"
             "• Task 2: clear position in the intro + topic sentences every paragraph.\n"
             "• Aim for: example → explanation → link back.\n"
-            "• Don’t chase fancy words accuracy > complexity.\n"
+            "• Don’t chase fancy words—accuracy > complexity.\n"
             "• Use cohesive devices naturally (however, therefore, moreover).\n"
             "• Save 3 minutes to check grammar + articles + verb tenses."
         ),
@@ -2934,23 +3324,14 @@ async def tool_power_words(update: Update, context: ContextTypes.DEFAULT_TYPE):
     pack = packs.get(topic, packs["essays_personal"])
     label = FRIENDLY_TOPIC_NAMES.get(topic, "Your writing")
 
-    lines = [f"⚡ POWER WORDS - {label.upper()}\n"]
+    lines = [f"⚡ POWER WORDS — {label.upper()}\n"]
     for k, words in pack.items():
         lines.append(f"{k}: " + ", ".join(words))
-    lines.append("\nReplace weak verbs (did/helped) with one stronger verb + a result (what changed?).")
     lines.append("\nTip: Replace weak verbs (did/helped) with one stronger verb + a result (what changed?).")
 
     track_tool_use(context, "powerwords")
     persist_user_memory(update, context)
-    await update.message.reply_text(
-    "\n".join(lines)
-    + "\n\n✍️ Try it now:\n"
-      "Send one sentence or short paragraph, and I’ll rewrite it using these power words "
-      "while keeping your original meaning and voice.",
-    reply_markup=tools_menu_keyboard(),
-    )
-    set_pending_feature(context, "powerwords_apply")
-
+    await update.message.reply_text("\n".join(lines), reply_markup=tools_menu_keyboard())
 
 async def tool_predict_chances(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """A 'readiness indicator' (NOT a real acceptance probability)."""
@@ -3025,7 +3406,7 @@ async def run_wowfactor(update: Update, context: ContextTypes.DEFAULT_TYPE, text
 
     sys = (
         "You are a top college admissions essay coach. "
-        "Find the ONE most unique, compelling, memorable element in the student's text - the 'wow factor'.\n\n"
+        "Find the ONE most unique, compelling, memorable element in the student's text — the 'wow factor'.\n\n"
         "Output format (exact headings):\n"
         "🎯 WOW FACTOR: <2-6 word label>\n"
         "✨ Why it stands out: <1-2 sentences>\n"
@@ -3087,15 +3468,17 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ---- BACK ----
     if is_back_message(q):
-        # Back only navigates UI and exits active modes.
+        # Back should NOT wipe the current topic or the last evaluated text.
+        # It only navigates UI and exits active modes.
         if context.user_data.get("in_tools"):
             context.user_data.pop("in_tools", None)
-    
+
         clear_pending_feature(context)
         stop_eval_mode(context)
-    
+
+        current = FRIENDLY_TOPIC_NAMES.get(get_current_topic(context), "General")
         await update.message.reply_text(
-            "Back to main menu.",
+            f"Back to main menu. (Current focus: {current})",
             reply_markup=main_menu_keyboard(),
         )
         return
@@ -3108,41 +3491,11 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ---- BOOST TOOLS MENU ----
     if q == BTN_TOOLS:
-        # HARD reset of any interactive modes
+        stop_eval_mode(context)
         clear_pending_feature(context)
-        stop_eval_mode(context)  # or clear_eval_mode_only(context)
-    
-        # Exit any previous tool state
-        context.user_data.pop("in_tools", None)
-    
-        # 🔒 Mark this update as fully handled (prevents ghost execution)
-        context.user_data["_handled_ui_action"] = True
-    
-        # Enter Boost Tools mode
         context.user_data["in_tools"] = True
-    
-        current_topic = FRIENDLY_TOPIC_NAMES.get(
-            get_current_topic(context),
-            "General"
-        )
-    
-        first_time = not context.user_data.get("saw_boost_explainer", False)
-        context.user_data["saw_boost_explainer"] = True
-    
-        extra = ""
-        if first_time:
-            extra = (
-                "\nℹ️ Boost Tools always use the section you last opened "
-                "(Essays, ECs, IELTS, etc.).\n"
-                "Switch sections first if you want different tips.\n"
-            )
-    
         await update.message.reply_text(
-            "🚀 Boost Tools\n\n"
-            "These tools adapt to your last used section:\n"
-            f"👉 {current_topic}\n"
-            f"{extra}\n"
-            "Pick a tool:",
+            "🚀 Boost Tools\n\nPick a tool:",
             reply_markup=tools_menu_keyboard(),
         )
         return
@@ -3213,10 +3566,6 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     pending = context.user_data.get("pending_feature")
     if pending:
         clear_pending_feature(context)
-        if pending == "powerwords_apply":
-            clear_pending_feature(context)
-            await run_powerwords_apply(update, context, q)
-            return
         if pending == "brainstorm":
             await run_brainstorm(update, context, q)
             return
@@ -3234,6 +3583,15 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         if pending == "portfolioideas":
             await run_portfolioideas(update, context, q)
+            return
+        if pending == "app_tests":
+            await run_app_tests(update, context, q)
+            return
+        if pending == "app_essays":
+            await run_app_essays(update, context, q)
+            return
+        if pending == "advisor_mode":
+            await run_advisor_mode(update, context, q)
             return
         if pending == "wowfactor_confirm":
             # User typed instead of tapping a button. Treat it as new text if long enough.
@@ -3397,7 +3755,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             image_key="portfolio",
         )
         await update.message.reply_text(
-            "You can upload PDF/DOCX for detailed feedback (✅ Portfolio Evaluation), or tap '💡 Portfolio Ideas'."
+            "You can upload PDF/DOCX for detailed feedback (✅ Portfolio Evaluation), tap '💡 Portfolio Ideas', or open 📂 My Application Portfolio."
         )
         return
 
@@ -3469,6 +3827,89 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         set_pending_feature(context, "portfolioideas")
         await update.message.reply_text(
             "💡 Portfolio Ideas mode ON.\n\nTell me your field (CS, design, art, film, etc.), your skills, and target programs."
+        )
+        return
+
+    # ---- APPLICATION PORTFOLIO (inside Portfolio) ----
+    if q == BTN_APP_PORT:
+        # Keep topic as portfolio for consistency
+        context.user_data["topic"] = "portfolio"
+        track_topic(context, "portfolio")
+        clear_pending_feature(context)
+        stop_eval_mode(context)
+        await app_portfolio_show_menu(update, context)
+        return
+
+    if q == BTN_BACK_PORT:
+        clear_pending_feature(context)
+        stop_eval_mode(context)
+        context.user_data["topic"] = "portfolio"
+        track_topic(context, "portfolio")
+        await send_with_image(
+            update,
+            "You're now in Portfolio Check.\nAsk about structure and how to present your work.",
+            reply_markup=portfolio_keyboard(),
+            image_key="portfolio",
+        )
+        await update.message.reply_text(
+            "You can upload PDF/DOCX for detailed feedback (✅ Portfolio Evaluation), tap '💡 Portfolio Ideas', or open 📂 My Application Portfolio."
+        )
+        return
+
+    if q == BTN_APP_TESTS:
+        context.user_data["topic"] = "portfolio"
+        track_topic(context, "portfolio")
+        clear_pending_feature(context)
+        await run_app_tests(update, context, None)
+        return
+
+    if q == BTN_APP_ESSAYS:
+        context.user_data["topic"] = "portfolio"
+        track_topic(context, "portfolio")
+        clear_pending_feature(context)
+        await run_app_essays(update, context, None)
+        return
+
+    if q == BTN_APP_ADVISOR:
+        context.user_data["topic"] = "portfolio"
+        track_topic(context, "portfolio")
+        clear_pending_feature(context)
+        set_pending_feature(context, "advisor_mode")
+        await update.message.reply_text(
+            "🧭 Advisor Mode ON.\n\n"
+            "Tell me: target countries, intended major, budget/need aid, and a rough school list (optional).\n"
+            "If you want, just type: `use saved portfolio`.",
+            reply_markup=app_portfolio_keyboard(),
+        )
+        return
+
+    if q == BTN_APP_ECS:
+        await update.message.reply_text(
+            "🎯 EC Summary is coming next.\n\n"
+            "For now: go to 🎯 Extracurricular activities and run ✅ Extracurricular Evaluation, "
+            "or tell me your top 3 activities + impact and I’ll help you summarize them.",
+            reply_markup=app_portfolio_keyboard(),
+        )
+        return
+
+    if q == BTN_APP_READINESS:
+        mem = get_user_memory_cached(update, context)
+        merge_usage_into_memory(context, mem)
+        score, reasons = compute_portfolio_readiness(mem)
+        app = _ensure_application_defaults(mem)
+        app.setdefault("readiness", {})
+        app["readiness"]["last_score"] = score
+        app["readiness"]["last_updated"] = int(__import__("time").time())
+        mem["application"] = app
+        persist_user_memory(update, context)
+
+        why = ("; ".join(reasons) if reasons else "Not enough saved yet.")
+        await update.message.reply_text(
+            "✅ READINESS CHECK (Portfolio)\n\n"
+            f"Score: {_progress_bar(score)}\n"
+            f"Based on: {why}\n\n"
+            "Next step: update 🧾 Test Scores + GPA and 📝 Essays Status, then run 🧭 Advisor Mode.",
+            reply_markup=app_portfolio_keyboard(),
         )
         return
 
