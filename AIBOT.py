@@ -7,6 +7,7 @@
 import os
 os.environ['TZ'] = 'UTC'  # Set timezone to UTC
 
+from datetime import datetime
 from telegram import Update, KeyboardButton, ReplyKeyboardMarkup
 from telegram.constants import ChatAction
 from telegram.ext import (
@@ -198,6 +199,11 @@ except Exception:
     PRO_USER_IDS = set()
 
 PRO_ONLY_TOOLS = {"wowfactor"}  # keep default light; expand later if you want
+
+def _now_utc_date() -> str:
+    """Return current UTC date as YYYY-MM-DD (used for per-user portfolio tracking)."""
+    return datetime.utcnow().strftime("%Y-%m-%d")
+
 
 
 def _default_user_memory() -> dict:
@@ -690,8 +696,14 @@ BTN_APP_TESTS = "🧾 Test Scores + GPA"
 BTN_APP_ESSAYS = "📝 Essays Status"
 BTN_APP_ADVISOR = "🧭 Advisor Mode"
 BTN_APP_ECS = "🎯 EC Summary"
+BTN_APP_AWARDS = "🏆 Awards & Honors"
+BTN_APP_PREFS = "🎯 Preferences & Constraints"
+BTN_APP_WELLNESS = "🧠 Wellness Check"
 BTN_APP_READINESS = "✅ Readiness Check"
 BTN_BACK_PORT = "↩️ Back to Portfolio"
+
+# School Finder helper
+BTN_SF_FROM_PORT = "🎓 Suggest schools from My Portfolio"
 
 
 # SAT sub-buttons
@@ -845,8 +857,9 @@ def app_portfolio_keyboard():
     return ReplyKeyboardMarkup(
         [
             [KeyboardButton(BTN_APP_TESTS), KeyboardButton(BTN_APP_ESSAYS)],
-            [KeyboardButton(BTN_APP_ADVISOR)],
-            [KeyboardButton(BTN_APP_ECS), KeyboardButton(BTN_APP_READINESS)],
+            [KeyboardButton(BTN_APP_ECS), KeyboardButton(BTN_APP_AWARDS)],
+            [KeyboardButton(BTN_APP_PREFS), KeyboardButton(BTN_APP_WELLNESS)],
+            [KeyboardButton(BTN_APP_ADVISOR), KeyboardButton(BTN_APP_READINESS)],
             [KeyboardButton(BTN_BACK_PORT), KeyboardButton(BTN_BACK)],
         ],
         resize_keyboard=True,
@@ -864,7 +877,10 @@ def plan_keyboard():
 
 def schoolfinder_keyboard():
     return ReplyKeyboardMarkup(
-        [[KeyboardButton(BTN_BACK)]],
+        [
+            [KeyboardButton(BTN_SF_FROM_PORT)],
+            [KeyboardButton(BTN_BACK)],
+        ],
         resize_keyboard=True,
         one_time_keyboard=False,
     )
@@ -2570,10 +2586,51 @@ def _ensure_application_defaults(mem: dict) -> dict:
         app = {}
         mem["application"] = app
 
+
+    # Test scores / academics
     app.setdefault("test_scores", {})
+    # Essays status
     app.setdefault("essays", {})
+    # EC summary (short snapshot)
     app.setdefault("ecs", {})
+    # Awards/honors list
+    app.setdefault("awards", {})
+    # Preferences/constraints used for school suggestions
+    app.setdefault("preferences", {})
+    # Wellness signals (optional)
+    app.setdefault("wellness", {})
+    # Internal readiness (computed)
     app.setdefault("readiness", {})
+
+    # --- nested defaults ---
+    ecs = app["ecs"]
+    if isinstance(ecs, dict):
+        ecs.setdefault("summary", None)  # free-text 1-8 lines
+        ecs.setdefault("highlights", [])  # short bullets extracted/entered
+        ecs.setdefault("updated_at", None)
+
+    awards = app["awards"]
+    if isinstance(awards, dict):
+        awards.setdefault("items", [])  # list[str]
+        awards.setdefault("updated_at", None)
+
+    prefs = app["preferences"]
+    if isinstance(prefs, dict):
+        prefs.setdefault("target_countries", [])
+        prefs.setdefault("major", None)
+        prefs.setdefault("budget", None)
+        prefs.setdefault("needs_aid", None)
+        prefs.setdefault("deadlines", None)
+        prefs.setdefault("notes", None)
+        prefs.setdefault("updated_at", None)
+
+    well = app["wellness"]
+    if isinstance(well, dict):
+        well.setdefault("stress_level", None)   # 1-10
+        well.setdefault("hours_per_week", None)  # study/app workload
+        well.setdefault("sleep_hours", None)     # avg
+        well.setdefault("notes", None)
+        well.setdefault("updated_at", None)
 
     ts = app["test_scores"]
     ts.setdefault("gpa", None)
@@ -2595,6 +2652,22 @@ def _ensure_application_defaults(mem: dict) -> dict:
     ecs.setdefault("summary", "")
     ecs.setdefault("spike", None)
     ecs.setdefault("notes", "")
+
+    aw = app["awards"]
+    aw.setdefault("items", [])  # list[str]
+    aw.setdefault("notes", "")
+
+    pr = app["preferences"]
+    pr.setdefault("target_countries", [])
+    pr.setdefault("intended_major", None)
+    pr.setdefault("budget", None)
+    pr.setdefault("needs_aid", None)
+    pr.setdefault("constraints", "")
+
+    wl = app["wellness"]
+    wl.setdefault("stress_level", None)  # 1-10 (self-report)
+    wl.setdefault("hours_per_week", None)
+    wl.setdefault("notes", "")
 
     rd = app["readiness"]
     rd.setdefault("last_score", None)
@@ -2636,6 +2709,127 @@ def format_essays_block(app: dict) -> str:
     notes = (es.get("notes") or "").strip()
     if notes:
         lines.append(f"• Notes: {notes[:350]}")
+    return "\n".join(lines)
+
+
+def _split_bullets(text: str, limit: int = 10) -> list[str]:
+    lines = []
+    for raw in (text or "").splitlines():
+        s = raw.strip()
+        if not s:
+            continue
+        if s.startswith(("-", "•", "*")):
+            s = s.lstrip("-*• ").strip()
+        if s and s not in lines:
+            lines.append(s)
+        if len(lines) >= limit:
+            break
+    return lines
+
+
+def format_ecs_block(app: dict) -> str:
+    ecs = (app or {}).get("ecs", {}) or {}
+    updated_at = ecs.get("updated_at") or "(never)"
+    summary = ecs.get("summary") or "(not set)"
+    highlights = ecs.get("highlights") or []
+
+    lines = [
+        "🎯 EC SUMMARY (My Application Portfolio)",
+        f"Last updated: {updated_at}",
+        "",
+        "Summary:",
+        str(summary),
+        "",
+        "Highlights:",
+    ]
+    if highlights:
+        for h in highlights[:10]:
+            lines.append(f"- {h}")
+    else:
+        lines.append("- (none yet)")
+    lines.append(
+        "\nSend your ECs as 3-8 short lines (role + what you did + impact). "
+        "Example:\n- Robotics captain: led 12 students; built line-following bot; won regional\n- Tutoring: 2 hrs/week; helped 6 students raise grades"
+    )
+    return "\n".join(lines)
+
+
+def format_awards_block(app: dict) -> str:
+    awards = (app or {}).get("awards", {}) or {}
+    updated_at = awards.get("updated_at") or "(never)"
+    items = awards.get("items") or []
+    lines = [
+        "🏆 AWARDS & HONORS (My Application Portfolio)",
+        f"Last updated: {updated_at}",
+        "",
+    ]
+    if items:
+        for it in items[:15]:
+            lines.append(f"- {it}")
+    else:
+        lines.append("(none yet)")
+    lines.append(
+        "\nSend awards as a list (one per line). Example:\n- National Olympiad Silver (Math)\n- School 'Student of the Year'" 
+    )
+    return "\n".join(lines)
+
+
+def format_prefs_block(app: dict, mem: dict) -> str:
+    prefs = (app or {}).get("preferences", {}) or {}
+    updated_at = prefs.get("updated_at") or "(never)"
+
+    # Prefer explicit prefs but fall back to profile
+    profile = (mem or {}).get("profile", {}) or {}
+    major = prefs.get("major") or profile.get("major") or "(unknown)"
+    countries = prefs.get("target_countries") or profile.get("target_countries") or []
+    budget = prefs.get("budget") or profile.get("budget") or "(unknown)"
+    needs_aid = prefs.get("needs_aid")
+    if needs_aid is None:
+        needs_aid = profile.get("needs_aid")
+    deadlines = prefs.get("deadlines") or "(unknown)"
+    notes = prefs.get("notes") or ""
+
+    lines = [
+        "🎯 PREFERENCES & CONSTRAINTS (My Application Portfolio)",
+        f"Last updated: {updated_at}",
+        "",
+        f"Major/field: {major}",
+        f"Target countries: {', '.join(countries) if countries else '(unknown)'}",
+        f"Budget: {budget}",
+        f"Needs financial aid: {needs_aid if needs_aid is not None else '(unknown)'}",
+        f"Deadlines: {deadlines}",
+    ]
+    if notes:
+        lines += ["", "Notes:", str(notes).strip()[:600]]
+
+    lines.append(
+        "\nSend a short message like:\n"
+        "- Major: Computer Science\n"
+        "- Countries: US, Canada, UK\n"
+        "- Budget: need full scholarship\n"
+        "- Deadlines: Nov 2026 EA/ED + Jan 2027 RD"
+    )
+    return "\n".join(lines)
+
+
+def format_wellness_block(app: dict) -> str:
+    w = (app or {}).get("wellness", {}) or {}
+    updated_at = w.get("updated_at") or "(never)"
+    lines = [
+        "🧠 WELLNESS CHECK (My Application Portfolio)",
+        f"Last updated: {updated_at}",
+        "",
+        f"Stress (1-10): {w.get('stress_level') or '(unknown)'}",
+        f"Hours/week (school+apps): {w.get('hours_per_week') or '(unknown)'}",
+        f"Sleep (avg hours): {w.get('sleep_hours') or '(unknown)'}",
+    ]
+    if w.get("notes"):
+        lines += ["", "Notes:", str(w.get("notes")).strip()[:600]]
+
+    lines.append(
+        "\nSend a short update like: \"stress 7, 18 hrs/week, sleep 6.5; exams in March\". "
+        "This helps me recommend a realistic school list + timeline." 
+    )
     return "\n".join(lines)
 
 
@@ -2699,7 +2893,7 @@ def parse_and_update_test_scores(text: str, mem: dict) -> bool:
     prof = mem.get("profile", {}) or {}
     if ts.get("gpa"): prof["gpa"] = ts["gpa"]
     if ts.get("sat"): prof["sat"] = ts["sat"]
-    if ts.get("sat_breakdown"): prof["sat_breakdown"] = f"SAT breakdown: {ts['sat_breakdown']}"
+    if ts.get("sat_breakdown"): prof["sat_breakdown"] = ts["sat_breakdown"]
     if ts.get("act"): prof["act"] = ts["act"]
     if ts.get("ielts"): prof["ielts"] = ts["ielts"]
     if ts.get("toefl"): prof["toefl"] = ts["toefl"]
@@ -2757,8 +2951,186 @@ def parse_and_update_essays(text: str, mem: dict) -> bool:
 
     return updated
 
+
+def parse_and_update_ecs(text: str, mem: dict) -> bool:
+    """Save a short EC summary + bullet highlights."""
+    if not text or not isinstance(mem, dict):
+        return False
+    app = _ensure_application_defaults(mem)
+    ecs = app["ecs"]
+    t = (text or "").strip()
+    if not t:
+        return False
+
+    updated = False
+    # Store raw summary (cap for safety)
+    ecs["summary"] = t[:1400]
+    updated = True
+
+    bullets = _split_bullets(t, limit=10)
+    if bullets:
+        ecs["highlights"] = bullets
+    else:
+        # If no bullets, try to split sentences into quick highlights
+        parts = re.split(r"(?<=[.!?])\s+", t)
+        ecs["highlights"] = [p.strip()[:180] for p in parts if p.strip()][:5]
+
+    ecs["updated_at"] = _now_utc_date()
+    return updated
+
+
+def parse_and_update_awards(text: str, mem: dict) -> bool:
+    """Save awards/honors as a list."""
+    if not text or not isinstance(mem, dict):
+        return False
+    app = _ensure_application_defaults(mem)
+    awards = app["awards"]
+    t = (text or "").strip()
+    if not t:
+        return False
+
+    items = _split_bullets(t, limit=15)
+    if not items:
+        # Fall back to comma-separated
+        maybe = [x.strip() for x in re.split(r"[,;]", t) if x.strip()]
+        items = maybe[:15]
+
+    if not items:
+        return False
+
+    awards["items"] = items
+    awards["updated_at"] = _now_utc_date()
+    return True
+
+
+def _extract_field_line(text: str, keys: list[str]) -> str | None:
+    for k in keys:
+        m = re.search(rf"\b{k}\b\s*[:=]\s*(.+)$", text, flags=re.I | re.M)
+        if m:
+            return (m.group(1) or "").strip()
+    return None
+
+
+def parse_and_update_preferences(text: str, mem: dict) -> bool:
+    """Save target countries/major/budget/aid notes. Also updates mem['profile'] when possible."""
+    if not text or not isinstance(mem, dict):
+        return False
+    app = _ensure_application_defaults(mem)
+    prefs = app["preferences"]
+    prof = mem.setdefault("profile", {})
+    t = (text or "").strip()
+    if not t:
+        return False
+
+    updated = False
+
+    # Try to extract a major/field of interest
+    maj = _extract_field_line(t, ["major", "intended major", "field", "interest"]) or None
+    if maj:
+        prefs["major"] = maj[:120]
+        prefs["intended_major"] = prefs.get("intended_major") or maj[:120]
+        prof["major"] = maj[:120]
+        prof["intended_major"] = prof.get("intended_major") or maj[:120]
+        updated = True
+
+    # Target countries/regions
+    countries = _extract_field_line(t, ["countries", "country", "target", "region", "destinations"]) or None
+    if countries:
+        lst = [x.strip() for x in re.split(r"[,;/]", countries) if x.strip()]
+        prefs["target_countries"] = lst[:10]
+        updated = True
+
+    # Budget / cost constraints
+    budget = _extract_field_line(t, ["budget", "cost", "tuition", "max"]) or None
+    if budget:
+        prefs["budget"] = budget[:120]
+        updated = True
+
+    # Aid needs
+    aid_line = _extract_field_line(t, ["aid", "financial aid", "scholarship", "need-based"]) or None
+    if aid_line:
+        if re.search(r"\b(no|don't|do not)\b", aid_line, re.I):
+            prefs["needs_aid"] = False
+            prof["needs_aid"] = False
+        else:
+            prefs["needs_aid"] = True
+            prof["needs_aid"] = True
+        updated = True
+
+    deadlines = _extract_field_line(t, ["deadlines", "deadline", "intake", "term"]) or None
+    if deadlines:
+        prefs["deadlines"] = deadlines[:160]
+        updated = True
+
+    # Always store a short note block
+    prefs["notes"] = t[:800]
+    updated = True
+
+    prefs["updated_at"] = _now_utc_date()
+    return updated
+
+
+
+def parse_and_update_prefs(text: str, mem: dict) -> bool:
+    """Backward-compatible alias for older code paths."""
+    return parse_and_update_preferences(text, mem)
+
+def parse_and_update_wellness(text: str, mem: dict) -> bool:
+    """Save stress/time/sleep snapshot. This supports realistic planning advice."""
+    if not text or not isinstance(mem, dict):
+        return False
+    app = _ensure_application_defaults(mem)
+    w = app["wellness"]
+    t = (text or "").strip()
+    if not t:
+        return False
+
+    # Defaults
+    updated = False
+
+    # Stress 1-10
+    m = re.search(r"stress\s*[:=]?\s*(\d{1,2})", t, re.I)
+    if m:
+        try:
+            val = int(m.group(1))
+            if 0 <= val <= 10:
+                w["stress_level"] = val
+                updated = True
+        except Exception:
+            pass
+
+    # Hours per week
+    m = re.search(r"hours\s*/\s*week\s*[:=]?\s*(\d{1,3})", t, re.I)
+    if not m:
+        m = re.search(r"(\d{1,3})\s*h\s*/\s*week", t, re.I)
+    if m:
+        try:
+            w["hours_per_week"] = int(m.group(1))
+            updated = True
+        except Exception:
+            pass
+
+    # Sleep hours
+    m = re.search(r"sleep\s*[:=]?\s*(\d{1,2}(?:\.\d)?)", t, re.I)
+    if m:
+        try:
+            w["sleep_hours"] = float(m.group(1))
+            updated = True
+        except Exception:
+            pass
+
+    support = _extract_field_line(t, ["support", "help", "notes"]) or None
+    if support:
+        w["support_needs"] = support[:200]
+        updated = True
+
+    w["notes"] = t[:500]
+    updated = True
+    w["updated_at"] = _now_utc_date()
+    return updated
+
 def compute_portfolio_readiness(mem: dict) -> tuple[int, list]:
-    """Simple readiness score from saved portfolio (tests + essays)."""
+    """Simple readiness score from saved portfolio (academics, essays, ECs, and constraints)."""
     if not isinstance(mem, dict):
         return 0, []
     app = _ensure_application_defaults(mem)
@@ -2809,6 +3181,35 @@ def compute_portfolio_readiness(mem: dict) -> tuple[int, list]:
             score += min(20, sp)
             reasons.append("Supplementals status saved")
 
+    # Extra portfolio parts (helps reflect readiness more realistically)
+    ecs = app.get("ecs", {}) or {}
+    aw = app.get("awards", {}) or {}
+    pr = app.get("preferences", {}) or {}
+    wl = app.get("wellness", {}) or {}
+
+    if (ecs.get("summary") or "").strip():
+        score += 5
+        reasons.append("EC summary saved")
+    if ecs.get("highlights"):
+        score += 3
+        reasons.append("EC highlights saved")
+    if aw.get("items"):
+        score += 3
+        reasons.append("Awards saved")
+    if any(
+        [
+            (pr.get("major") or "").strip(),
+            pr.get("target_countries") or [],
+            pr.get("budget"),
+            pr.get("needs_aid") is not None,
+        ]
+    ):
+        score += 3
+        reasons.append("Preferences/constraints saved")
+    if any([wl.get("stress_level"), wl.get("sleep_hours"), wl.get("hours_per_week")]):
+        score += 2
+        reasons.append("Wellness check saved")
+
     score = max(0, min(100, int(score)))
     return score, reasons
 
@@ -2821,12 +3222,21 @@ async def app_portfolio_show_menu(update: Update, context: ContextTypes.DEFAULT_
     persist_user_memory(update, context)
 
     out = (
-        "📂 MY APPLICATION PORTFOLIO\n\n"
+        "📂 MY APPLICATION PORTFOLIO (snapshot)\n\n"
         + format_test_scores_block(app)
         + "\n\n"
         + format_essays_block(app)
         + "\n\n"
-        "Pick what you want to update or analyze:"
+        + format_ecs_block(app)
+        + "\n\n"
+        + format_awards_block(app)
+        + "\n\n"
+        + format_prefs_block(app, mem)
+        + "\n\n"
+        + format_wellness_block(app)
+        + "\n\n"
+        "Pick what you want to update or analyze.\n"
+        "Tip: School Finder can suggest schools based on this portfolio."
     )
     await update.message.reply_text(out, reply_markup=app_portfolio_keyboard())
 
@@ -2871,6 +3281,99 @@ async def run_app_essays(update: Update, context: ContextTypes.DEFAULT_TYPE, use
     set_pending_feature(context, "app_essays")
 
 
+async def run_app_ecs(update: Update, context: ContextTypes.DEFAULT_TYPE, user_text: str | None = None):
+    """Show + optionally update EC Summary."""
+    mem = get_user_memory_cached(update, context)
+    merge_usage_into_memory(context, mem)
+    app = _ensure_application_defaults(mem)
+
+    if user_text:
+        changed = parse_and_update_ecs(user_text, mem)
+        if changed:
+            persist_user_memory(update, context)
+
+    await update.message.reply_text(
+        format_ecs_block(app)
+        + "\n\nSend your top ECs in bullets (role + impact + time). Example:\n"
+        "- Robotics captain: led 12, won regional, mentored 30 juniors (6h/week)\n"
+        "- Research intern: co-authored poster, built Python pipeline\n\n"
+        "Or tap ↩️ Back to Portfolio.",
+        reply_markup=app_portfolio_keyboard(),
+    )
+    set_pending_feature(context, "app_ecs")
+
+
+async def run_app_awards(update: Update, context: ContextTypes.DEFAULT_TYPE, user_text: str | None = None):
+    """Show + optionally update Awards & Honors."""
+    mem = get_user_memory_cached(update, context)
+    merge_usage_into_memory(context, mem)
+    app = _ensure_application_defaults(mem)
+
+    if user_text:
+        changed = parse_and_update_awards(user_text, mem)
+        if changed:
+            persist_user_memory(update, context)
+
+    await update.message.reply_text(
+        format_awards_block(app)
+        + "\n\nSend awards/honors in bullets (award + level + year). Example:\n"
+        "- National Math Olympiad finalist (2025)\n"
+        "- School top 1% GPA (2024)\n\n"
+        "Or tap ↩️ Back to Portfolio.",
+        reply_markup=app_portfolio_keyboard(),
+    )
+    set_pending_feature(context, "app_awards")
+
+
+async def run_app_prefs(update: Update, context: ContextTypes.DEFAULT_TYPE, user_text: str | None = None):
+    """Show + optionally update Preferences & Constraints."""
+    mem = get_user_memory_cached(update, context)
+    merge_usage_into_memory(context, mem)
+    app = _ensure_application_defaults(mem)
+
+    if user_text:
+        changed = parse_and_update_prefs(user_text, mem)
+        if changed:
+            persist_user_memory(update, context)
+
+    await update.message.reply_text(
+        format_prefs_block(app, mem)
+        + "\n\nSend your preferences in 3–6 short lines, e.g.:\n"
+        "Major: CS / Data Science\n"
+        "Countries: US, UK, Canada\n"
+        "Budget: $10k/year\n"
+        "Aid: yes\n"
+        "Notes: want strong research + entrepreneurship\n\n"
+        "Or tap ↩️ Back to Portfolio.",
+        reply_markup=app_portfolio_keyboard(),
+    )
+    set_pending_feature(context, "app_prefs")
+
+
+async def run_app_wellness(update: Update, context: ContextTypes.DEFAULT_TYPE, user_text: str | None = None):
+    """Show + optionally update Wellness Check."""
+    mem = get_user_memory_cached(update, context)
+    merge_usage_into_memory(context, mem)
+    app = _ensure_application_defaults(mem)
+
+    if user_text:
+        changed = parse_and_update_wellness(user_text, mem)
+        if changed:
+            persist_user_memory(update, context)
+
+    await update.message.reply_text(
+        format_wellness_block(app)
+        + "\n\nOptional: share current load, e.g.:\n"
+        "Stress: 7/10\n"
+        "Sleep: 6.5h\n"
+        "Workload: 25h/week\n"
+        "Support needs: time management / burnout\n\n"
+        "Or tap ↩️ Back to Portfolio.",
+        reply_markup=app_portfolio_keyboard(),
+    )
+    set_pending_feature(context, "app_wellness")
+
+
 async def run_advisor_mode(update: Update, context: ContextTypes.DEFAULT_TYPE, user_text: str):
     """Advisor Mode: College Fit Analysis from saved portfolio + user notes."""
     await show_typing(update, context)
@@ -2893,13 +3396,38 @@ async def run_advisor_mode(update: Update, context: ContextTypes.DEFAULT_TYPE, u
         "Rules: no fake acceptance %; be specific; consider financial aid if mentioned.\n"
     )
 
+    # Writing insights are stored at top-level mem['writing'] (counts + tags), but keep a fallback.
+    writing = (mem.get("writing") or app.get("writing") or {})
+    strengths_dict = writing.get("strengths") or {}
+    issues_dict = writing.get("recurring_issues") or {}
+    voice_tags = writing.get("voice_tags") or []
+    themes = writing.get("themes") or []
+    last_feedback = (writing.get("last_feedback_summary") or "").strip()
+
+    wr_strengths = [k for k, _ in sorted(strengths_dict.items(), key=lambda kv: kv[1], reverse=True)[:5]]
+    wr_issues = [k for k, _ in sorted(issues_dict.items(), key=lambda kv: kv[1], reverse=True)[:5]]
+
     portfolio_block = (
         "STUDENT PORTFOLIO:\n"
         + format_test_scores_block(app)
         + "\n\n"
         + format_essays_block(app)
         + "\n\n"
+        + format_ecs_block(app)
+        + "\n\n"
+        + format_awards_block(app)
+        + "\n\n"
+        + format_prefs_block(app, mem)
+        + "\n\n"
+        + format_wellness_block(app)
+        + "\n\n"
         + f"Needs aid: {bool(prof.get('needs_aid'))}\n"
+        + "\nWRITING SIGNALS (from past evals):\n"
+        + (f"- Strengths: {', '.join(wr_strengths)}\n" if wr_strengths else "- Strengths: (none saved yet)\n")
+        + (f"- Recurring issues: {', '.join(wr_issues)}\n" if wr_issues else "- Recurring issues: (none saved yet)\n")
+        + (f"- Voice tags: {', '.join(voice_tags[:6])}\n" if voice_tags else "")
+        + (f"- Themes: {', '.join(themes[:6])}\n" if themes else "")
+        + (f"- Last feedback summary: {last_feedback[:220]}\n" if last_feedback else "")
     )
 
     messages = [
@@ -3147,6 +3675,78 @@ async def run_schoolfinder(update: Update, context: ContextTypes.DEFAULT_TYPE, d
     a = openai_chat(model="gpt-4.1-mini", messages=messages, temperature=0.6)
     await send_long(update, a)
 
+
+async def run_schoolfinder_from_portfolio(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Suggest schools using the user's saved My Application Portfolio + analysis."""
+    await show_typing(update, context)
+    mem = get_user_memory_cached(update, context)
+    merge_usage_into_memory(context, mem)
+    app = _ensure_application_defaults(mem)
+    prof = mem.get("profile", {}) or {}
+
+    # Compact snapshot for the model
+    # Writing insights are stored at top-level mem['writing'] as counts + tags.
+    writing = (mem.get("writing") or app.get("writing") or {})
+    strengths_dict = writing.get("strengths") or {}
+    issues_dict = writing.get("recurring_issues") or {}
+    wr_strengths = [k for k, _ in sorted(strengths_dict.items(), key=lambda kv: kv[1], reverse=True)[:5]]
+    wr_issues = [k for k, _ in sorted(issues_dict.items(), key=lambda kv: kv[1], reverse=True)[:5]]
+
+    portfolio_block = (
+        "SAVED PORTFOLIO SNAPSHOT\n"
+        + format_test_scores_block(app)
+        + "\n\n"
+        + format_essays_block(app)
+        + "\n\n"
+        + format_ecs_block(app)
+        + "\n\n"
+        + format_awards_block(app)
+        + "\n\n"
+        + format_prefs_block(app, mem)
+        + "\n\n"
+        + format_wellness_block(app)
+        + "\n\nWRITING ANALYSIS (from past evals)\n"
+        + f"Strengths: {', '.join(wr_strengths) if wr_strengths else 'unknown'}\n"
+        + f"Risks / gaps: {', '.join(wr_issues) if wr_issues else 'none logged'}\n"
+        + f"Needs aid: {prof.get('needs_aid', 'unknown')}\n"
+        + f"Intended major: {prof.get('major') or prof.get('intended_major') or 'unknown'}\n"
+    )
+
+    # Optional RAG (if you teach any school-finder rubric/notes)
+    context_block = ""
+    chat_id = update.effective_chat.id
+    try:
+        col = get_collection(chat_id, "school_finder")
+        try:
+            r = col.query(query_texts=[portfolio_block], where={"type": "qa"}, n_results=4)
+            docs = (r.get("documents") or [[]])[0]
+        except Exception:
+            r = col.query(query_texts=[portfolio_block], n_results=4)
+            docs = (r.get("documents") or [[]])[0]
+    except Exception as e:
+        logging.error(f"Error querying school_finder sources: {e}")
+        docs = []
+
+
+    sys_prompt = (
+        "You are a university match advisor. Use the student's saved portfolio and writing analysis to suggest schools. "
+        "Be realistic for a Central Asia international applicant. If constraints are missing, assume they want: strong academics, "
+        "good outcomes, and some financial-aid possibilities.\n\n"
+        "OUTPUT FORMAT:\n"
+        "1) 2 bullets: Strengths (based on portfolio + writing analysis)\n"
+        "2) 2 bullets: Risks / Gaps\n"
+        "3) School list in 3 buckets: REACH / MATCH / SAFETY (3–6 schools each). For each school: 1 short reason.\n"
+        "4) Next step: 1 sentence telling what info to add to improve the list.\n\n"
+        "Keep it under ~250-320 words. Do NOT invent exact acceptance rates." + context_block
+    )
+
+    messages = [
+        {"role": "system", "content": sys_prompt},
+        {"role": "user", "content": portfolio_block},
+    ]
+    a = openai_chat(model="gpt-4.1-mini", messages=messages, temperature=0.5)
+    await send_long(update, a)
+
 async def schoolfinder_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["topic"] = "school_finder"
     track_topic(context, "school_finder")
@@ -3155,7 +3755,9 @@ async def schoolfinder_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(parts) < 2:
         set_pending_feature(context, "schoolfinder")
         await update.message.reply_text(
-            "🏫 School Finder mode ON.\n\nSend me your GPA, tests, budget, target countries, intended major, and constraints (e.g. need scholarship).",
+            "🏫 School Finder mode ON.\n\n"
+            "Option A: send me your GPA, tests, budget, target countries, intended major, and constraints (e.g. need scholarship).\n\n"
+            f"Option B: tap '{BTN_SF_FROM_PORT}' to use your saved My Application Portfolio (and the bot's strengths/weaknesses analysis).",
             reply_markup=schoolfinder_keyboard(),
         )
         return
@@ -3563,6 +4165,13 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     # --- pending feature input ---
+    # Allow a direct portfolio-based school suggestion even when a pending feature is set.
+    if q == BTN_SF_FROM_PORT:
+        clear_pending_feature(context)
+        clear_eval_context(context)
+        await run_schoolfinder_from_portfolio(update, context)
+        return
+
     pending = context.user_data.get("pending_feature")
     if pending:
         clear_pending_feature(context)
@@ -3590,8 +4199,32 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if pending == "app_essays":
             await run_app_essays(update, context, q)
             return
+        if pending == "app_ecs":
+            await run_app_ecs(update, context, q)
+            return
+        if pending == "app_awards":
+            await run_app_awards(update, context, q)
+            return
+        if pending == "app_prefs":
+            await run_app_prefs(update, context, q)
+            return
+        if pending == "app_wellness":
+            await run_app_wellness(update, context, q)
+            return
         if pending == "advisor_mode":
             await run_advisor_mode(update, context, q)
+            return
+        if pending == "app_ecs":
+            await run_app_ecs(update, context, q)
+            return
+        if pending == "app_awards":
+            await run_app_awards(update, context, q)
+            return
+        if pending == "app_prefs":
+            await run_app_prefs(update, context, q)
+            return
+        if pending == "app_wellness":
+            await run_app_wellness(update, context, q)
             return
         if pending == "wowfactor_confirm":
             # User typed instead of tapping a button. Treat it as new text if long enough.
@@ -3884,12 +4517,31 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if q == BTN_APP_ECS:
-        await update.message.reply_text(
-            "🎯 EC Summary is coming next.\n\n"
-            "For now: go to 🎯 Extracurricular activities and run ✅ Extracurricular Evaluation, "
-            "or tell me your top 3 activities + impact and I’ll help you summarize them.",
-            reply_markup=app_portfolio_keyboard(),
-        )
+        context.user_data["topic"] = "portfolio"
+        track_topic(context, "portfolio")
+        clear_pending_feature(context)
+        await run_app_ecs(update, context, None)
+        return
+
+    if q == BTN_APP_AWARDS:
+        context.user_data["topic"] = "portfolio"
+        track_topic(context, "portfolio")
+        clear_pending_feature(context)
+        await run_app_awards(update, context, None)
+        return
+
+    if q == BTN_APP_PREFS:
+        context.user_data["topic"] = "portfolio"
+        track_topic(context, "portfolio")
+        clear_pending_feature(context)
+        await run_app_prefs(update, context, None)
+        return
+
+    if q == BTN_APP_WELLNESS:
+        context.user_data["topic"] = "portfolio"
+        track_topic(context, "portfolio")
+        clear_pending_feature(context)
+        await run_app_wellness(update, context, None)
         return
 
     if q == BTN_APP_READINESS:
