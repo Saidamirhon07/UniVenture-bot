@@ -4299,7 +4299,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         current = FRIENDLY_TOPIC_NAMES.get(get_current_topic(context), "General")
         await update.message.reply_text(
-            f"Back to main menu. (Current focus: {current})",
+            f"Back to main menu.",
             reply_markup=main_menu_keyboard(),
         )
         return
@@ -4316,7 +4316,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         clear_pending_feature(context)
         context.user_data["in_tools"] = True
         await update.message.reply_text(
-            "🚀 Boost Tools\n\nPick a tool:",
+            "🚀 Boost Tools\n\nThese tools adapt to your last used section:\n👉 {current}\nPick a tool:",
             reply_markup=tools_menu_keyboard(),
         )
         return
