@@ -706,10 +706,9 @@ BTN_APP_WELLNESS = "🧠 Wellness Check"
 BTN_APP_READINESS = "✅ Readiness Check"
 BTN_BACK_PORT = "↩️ Back to Portfolio"
 
-# School Finder helper
-BTN_SF_FROM_PORT = "🎓 Suggest schools from My Portfolio"
-
-
+# School Finder sub-buttons
+BTN_SF_FROM_PORT = "📌 Use My Portfolio"
+BTN_SF_MANUAL = "✍️ Enter Details Manually"
 # SAT sub-buttons
 BTN_SAT_MATH = "📐 SAT Math"
 BTN_SAT_ENGLISH = "📚 SAT English"
@@ -893,9 +892,11 @@ def plan_choice_keyboard():
     )
 
 def schoolfinder_keyboard():
+    """School Finder submenu (mirrors the Application Plan UX)."""
     return ReplyKeyboardMarkup(
         [
             [KeyboardButton(BTN_SF_FROM_PORT)],
+            [KeyboardButton(BTN_SF_MANUAL)],
             [KeyboardButton(BTN_BACK)],
         ],
         resize_keyboard=True,
@@ -3974,7 +3975,7 @@ async def schoolfinder_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         set_pending_feature(context, "schoolfinder")
         await update.message.reply_text(
             "🏫 School Finder mode ON.\n\n"
-            "Option A: send me your GPA, tests, budget, target countries, intended major, and constraints (e.g. need scholarship).\n\n"
+            f"Option A: tap '{BTN_SF_MANUAL}' and send me your GPA, tests, budget, target countries, intended major, and constraints (e.g. need scholarship).\n\n"
             f"Option B: tap '{BTN_SF_FROM_PORT}' to use your saved My Application Portfolio (and the bot's strengths/weaknesses analysis).",
             reply_markup=schoolfinder_keyboard(),
         )
@@ -4390,6 +4391,20 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await run_schoolfinder_from_portfolio(update, context)
         return
 
+    if q == BTN_SF_MANUAL:
+        clear_pending_feature(context)
+        clear_eval_context(context)
+        context.user_data["topic"] = "school_finder"
+        track_topic(context, "school_finder")
+        set_pending_feature(context, "schoolfinder")
+        await send_with_image(
+            update,
+            "🏫 School Finder mode ON.\n\nSend me your GPA (or approximate), test scores (if any), budget, target countries, intended major, and constraints (e.g. need scholarship).",
+            reply_markup=schoolfinder_keyboard(),
+            image_key="schoolfinder_main",
+        )
+        return
+
     pending = context.user_data.get("pending_feature")
     if pending:
         clear_pending_feature(context)
@@ -4554,6 +4569,24 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         clear_eval_context(context)
         context.user_data["topic"] = "school_finder"
         track_topic(context, "school_finder")
+
+        # If the user already has portfolio data, show the same 2-choice submenu as Application Plan.
+        try:
+            mem = get_user_memory_cached(update, context)
+            merge_usage_into_memory(context, mem)
+            if has_application_portfolio_data(mem):
+                clear_pending_feature(context)
+                await send_with_image(
+                    update,
+                    "🏫 School Finder\n\nChoose one:\n• 📌 Use My Portfolio\n• ✍️ Enter Details Manually",
+                    reply_markup=schoolfinder_keyboard(),
+                    image_key="schoolfinder_main",
+                )
+                return
+        except Exception:
+            pass
+
+        # No (usable) portfolio yet -> go straight to manual input.
         set_pending_feature(context, "schoolfinder")
         await send_with_image(
             update,
