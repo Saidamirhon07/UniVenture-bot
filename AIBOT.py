@@ -160,9 +160,6 @@ def record_event(user_id, topic: str, kind: str = "message"):
     stats = load_stats()
     uid = str(user_id)
 
-    today = _now_utc_date()
-    stats.setdefault("last_active_per_user", {})[uid] = today
-    
     if uid not in stats["users"]:
         stats["users"].append(uid)
 
@@ -662,6 +659,10 @@ BTN_PORT = "🖼️ Portfolio Check"
 BTN_PLAN_MAIN = "📅 Application Plan"
 BTN_SF_MAIN = "🏫 School Finder"
 
+# Application Plan (portfolio-aware) sub-buttons
+BTN_PLAN_FROM_PORT = "📌 Plan from my portfolio"
+BTN_PLAN_MANUAL = "📝 Enter info manually"
+
 # Boost tools (cross-topic)
 BTN_TOOLS = "🚀 Boost Tools"
 BTN_PROGRESS = "📊 My Progress"
@@ -874,6 +875,19 @@ def app_portfolio_keyboard():
 def plan_keyboard():
     return ReplyKeyboardMarkup(
         [[KeyboardButton(BTN_BACK)]],
+        resize_keyboard=True,
+        one_time_keyboard=False,
+    )
+
+
+def plan_choice_keyboard():
+    """Shown only if the user already has some data in My Application Portfolio."""
+    return ReplyKeyboardMarkup(
+        [
+            [KeyboardButton(BTN_PLAN_FROM_PORT)],
+            [KeyboardButton(BTN_PLAN_MANUAL)],
+            [KeyboardButton(BTN_BACK)],
+        ],
         resize_keyboard=True,
         one_time_keyboard=False,
     )
@@ -2072,6 +2086,7 @@ async def run_eval_followup(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
     mem = get_user_memory_cached(update, context)
     merge_usage_into_memory(context, mem)
+
     decision_notes = coach_decision_notes(topic, student_text, mem)
 
     sys = (
@@ -2474,19 +2489,6 @@ async def photo_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ---------- STATS ----------
 async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     stats = load_stats()
-    today = _now_utc_date()
-    today_date = datetime.strptime(today, "%Y-%m-%d").date()
-    
-    last_active = stats.get("last_active_per_user", {})
-    
-    DAU = sum(1 for d in last_active.values() if d == today)
-    
-    MAU = sum(
-        1
-        for d in last_active.values()
-        if datetime.strptime(d, "%Y-%m-%d").date() >= today_date - timedelta(days=30)
-    )
-
     total_users = len(stats.get("users", []))
     total_msgs = stats.get("messages_total", 0)
     topic_counts = stats.get("topic_counts", {})
@@ -2502,12 +2504,9 @@ async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     msg = (
         f"📊 Bot analytics\n"
-        f"• Unique users: {total_users}\n"
-        f"• Total interactions: {total_msgs}\n"
-        f"• Total evaluations: {total_evals}\n\n"
-        f"📈 Activity\n"
-        f"• Daily active users (DAU): {DAU}\n"
-        f"• Monthly active users (MAU): {MAU}\n\n"
+        f"- Unique users: {total_users}\n"
+        f"- Total interactions (events): {total_msgs}\n"
+        f"- Total evaluations: {total_evals}\n\n"
         f"Top topics:\n{topics_str}"
     )
     await update.message.reply_text(msg)
@@ -2590,9 +2589,50 @@ async def health(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🧪 Health Check\n\n" + "\n".join(checks))
 
 # ---------- NEW FEATURE HELPERS ----------
-def _now_utc_date() -> str:
-    """Return current UTC date as YYYY-MM-DD"""
-    return datetime.utcnow().strftime("%Y-%m-%d")
+def _app_portfolio_compact_summary(mem: dict) -> str:
+    """
+    Create a compact, LLM-friendly summary of the user's Application Portfolio.
+    Used for School Finder & Application Plan when 'use my portfolio' is selected.
+    """
+    if not mem or "portfolio" not in mem:
+        return ""
+
+    p = mem.get("portfolio", {}) or {}
+    parts = []
+
+    # Academics
+    if p.get("grade"):
+        parts.append(f"Grade: {p['grade']}")
+    if p.get("gpa"):
+        parts.append(f"GPA: {p['gpa']}")
+    if p.get("sat"):
+        parts.append(f"SAT: {p['sat']}")
+    if p.get("ielts"):
+        parts.append(f"IELTS: {p['ielts']}")
+
+    # Preferences
+    if p.get("major"):
+        parts.append(f"Intended major: {p['major']}")
+    if p.get("target_countries"):
+        parts.append("Target countries: " + ", ".join(p["target_countries"]))
+    if p.get("needs_aid"):
+        parts.append("Needs financial aid")
+
+    # Strengths & weaknesses from coach memory
+    writing = mem.get("writing", {})
+    strengths = writing.get("strengths", {})
+    issues = writing.get("recurring_issues", {})
+
+    if strengths:
+        top_strengths = sorted(strengths, key=strengths.get, reverse=True)[:3]
+        parts.append("Key strengths: " + ", ".join(top_strengths))
+
+    if issues:
+        top_issues = sorted(issues, key=issues.get, reverse=True)[:3]
+        parts.append("Main weaknesses to manage: " + ", ".join(top_issues))
+
+    return "\n".join(parts)
+
 def set_pending_feature(context: ContextTypes.DEFAULT_TYPE, feature: str | None):
     context.user_data["pending_feature"] = feature
 
@@ -2696,6 +2736,74 @@ def _ensure_application_defaults(mem: dict) -> dict:
     rd.setdefault("last_updated", None)
 
     return app
+
+
+def has_application_portfolio_data(mem: dict) -> bool:
+    """Return True if the user's My Application Portfolio has enough signal to use."""
+    app = _ensure_application_defaults(mem)
+
+    ts = app.get("test_scores", {}) or {}
+    profile = app.get("profile", {}) or {}
+    essays = app.get("essays", {}) or {}
+    ecs = app.get("ecs", {}) or {}
+    awards = app.get("awards", {}) or {}
+    prefs = app.get("preferences", {}) or {}
+
+    # Any of these signals makes the portfolio useful.
+    score_signals = any(
+        (ts.get("gpa"), ts.get("sat"), ts.get("ielts"), ts.get("toefl"), ts.get("act"))
+    )
+    profile_signals = bool(profile.get("grade") or profile.get("country"))
+    essay_signals = bool((essays.get("ps_topic") or "").strip() or (essays.get("supps_notes") or "").strip())
+    ec_signals = bool((ecs.get("summary") or "").strip() or ecs.get("spike"))
+    awards_signals = bool(awards.get("items"))
+    prefs_signals = bool((prefs.get("intended_major") or "").strip() or (prefs.get("target_countries") or []) or prefs.get("needs_aid") is True)
+
+    return bool(score_signals or profile_signals or essay_signals or ec_signals or awards_signals or prefs_signals)
+
+
+def application_portfolio_compact_summary(mem: dict) -> str:
+    """A compact, model-friendly summary of the user's Application Portfolio."""
+    app = _ensure_application_defaults(mem)
+    ts = app.get("test_scores", {}) or {}
+    profile = app.get("profile", {}) or {}
+    essays = app.get("essays", {}) or {}
+    ecs = app.get("ecs", {}) or {}
+    awards = app.get("awards", {}) or {}
+    prefs = app.get("preferences", {}) or {}
+    wellness = app.get("wellness", {}) or {}
+
+    lines = []
+    lines.append("APPLICATION PORTFOLIO")
+    lines.append(f"Profile: grade={_fmt(profile.get('grade'))}; country={_fmt(profile.get('country'))}")
+    lines.append(
+        "Tests: "
+        f"GPA={_fmt(ts.get('gpa'))}; SAT={_fmt(ts.get('sat'))}; IELTS={_fmt(ts.get('ielts'))}; TOEFL={_fmt(ts.get('toefl'))}; ACT={_fmt(ts.get('act'))}"
+    )
+    lines.append(f"Intended major: {_fmt(prefs.get('intended_major'))}")
+    tc = prefs.get("target_countries") or []
+    lines.append("Target countries: " + (", ".join(tc) if tc else "—"))
+    lines.append(f"Needs aid: {_fmt(prefs.get('needs_aid'))}; Budget: {_fmt(prefs.get('budget'))}")
+    if (prefs.get("constraints") or "").strip():
+        lines.append("Constraints: " + (prefs.get("constraints") or "").strip()[:220])
+    if (ecs.get("summary") or "").strip():
+        lines.append("EC summary: " + (ecs.get("summary") or "").strip()[:260])
+    if ecs.get("spike"):
+        lines.append("Spike: " + str(ecs.get("spike")))
+    if awards.get("items"):
+        lines.append("Awards: " + "; ".join([str(x) for x in awards.get("items", [])][:6]))
+    if (essays.get("ps_topic") or "").strip():
+        lines.append("PS topic: " + (essays.get("ps_topic") or "").strip()[:220])
+    if (essays.get("supps_notes") or "").strip():
+        lines.append("Supps notes: " + (essays.get("supps_notes") or "").strip()[:220])
+    if (wellness.get("notes") or "").strip() or wellness.get("stress_level"):
+        lines.append(
+            "Wellness: "
+            f"stress={_fmt(wellness.get('stress_level'))}; hours/wk={_fmt(wellness.get('hours_per_week'))}; "
+            f"notes={(wellness.get('notes') or '').strip()[:160] or '—'}"
+        )
+
+    return "\n".join(lines)
 
 
 def _fmt(v):
@@ -3618,6 +3726,84 @@ async def run_plan(update: Update, context: ContextTypes.DEFAULT_TYPE, descripti
     a = openai_chat(model="gpt-4.1-mini", messages=messages, temperature=0.5)
     await send_long(update, a)
 
+
+async def run_plan_from_portfolio(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Create an application plan using the student's saved My Application Portfolio + coach memory."""
+    await show_typing(update, context)
+    user = update.effective_user
+    chat_id = update.effective_chat.id
+
+    # Ensure we are in the right topic
+    context.user_data["topic"] = "application_plan"
+    track_topic(context, "application_plan")
+
+    mem = get_user_memory_cached(update, context)
+    merge_usage_into_memory(context, mem)
+
+    # Extract saved strengths/weaknesses signals from prior evaluations (if any)
+    writing = (mem or {}).get("writing") or {}
+    strengths_dict = writing.get("strengths") or {}
+    issues_dict = writing.get("issues") or {}
+    wr_strengths = [
+        k for k, v in strengths_dict.items() if isinstance(v, (int, float)) and v >= 1
+    ]
+    wr_issues = [k for k, v in issues_dict.items() if isinstance(v, (int, float)) and v >= 1]
+
+    if not has_application_portfolio_data(mem):
+        set_pending_feature(context, "plan")
+        await update.message.reply_text(
+            "📅 Application Plan\n\n"
+            "I don't have enough info saved in your 📁 My Application Portfolio yet.\n\n"
+            "Tell me your grade, target countries, intended major, test scores (if any), and your rough deadlines.",
+            reply_markup=plan_keyboard(),
+        )
+        return
+
+    record_event(user.id, "application_plan", kind="plan_from_portfolio")
+
+    portfolio_block = _app_portfolio_compact_summary(mem)
+    coach_mem = memory_summary_for_prompt(mem)
+    decision_notes = coach_decision_notes("application_plan", portfolio_block, mem)
+
+    # Optional planning context from stored sources (non-fatal if empty)
+    context_block = ""
+    try:
+        col = get_collection(chat_id, "application_plan")
+        res = col.query(query_texts=[portfolio_block], n_results=6)
+        docs = res.get("documents", [[]])[0]
+        context_block = "\n\n---\n\n".join(docs or [])
+    except Exception as e:
+        logging.error(f"Error querying for plan_from_portfolio: {e}")
+
+    sys = (
+        "You are an admissions strategy mentor.\n"
+        "Create a concise application plan using the student's saved application portfolio and coach memory.\n"
+        "Rules:\n"
+        "- Organize it into short bullet points under 3 headings: Academics & Testing, Essays & Recs, Activities & Extras.\n"
+        "- Keep it actionable and personalized (no generic advice).\n"
+        "- Keep total response around 130-220 words.\n"
+        "- If info is missing, add 2-4 short clarification questions at the end (max 4).\n"
+    )
+
+    messages = [
+        {"role": "system", "content": sys},
+        {"role": "system", "content": f"Student memory (may be empty):\n{coach_mem}"},
+        {"role": "system", "content": f"Decision notes:\n{decision_notes}"},
+    ]
+    if wr_strengths or wr_issues:
+        s = ", ".join(wr_strengths[:6]) if wr_strengths else "(none saved)"
+        w = ", ".join(wr_issues[:6]) if wr_issues else "(none saved)"
+        messages.append({
+            "role": "system",
+            "content": f"Coach analysis from prior evals (may be empty):\nStrengths: {s}\nWeaknesses/issues: {w}",
+        })
+    if context_block:
+        messages.append({"role": "system", "content": f"Planning notes (may be empty):\n{context_block}"})
+    messages.append({"role": "user", "content": f"Use this application portfolio:\n\n{portfolio_block}"})
+
+    a = openai_chat(model="gpt-4.1-mini", messages=messages, temperature=0.5)
+    await send_long(update, a)
+
 async def plan_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["topic"] = "application_plan"
     track_topic(context, "application_plan")
@@ -3703,6 +3889,16 @@ async def run_schoolfinder_from_portfolio(update: Update, context: ContextTypes.
     await show_typing(update, context)
     mem = get_user_memory_cached(update, context)
     merge_usage_into_memory(context, mem)
+
+    if not has_application_portfolio_data(mem):
+        set_pending_feature(context, "schoolfinder")
+        await update.message.reply_text(
+            "🏫 School Finder\n\n"
+            "I don't have enough info saved in your 📁 My Application Portfolio yet.\n\n"
+            "Send me your GPA (or approximate), test scores (if any), budget, target countries, intended major, and constraints (e.g. need scholarship).",
+            reply_markup=schoolfinder_keyboard(),
+        )
+        return
     app = _ensure_application_defaults(mem)
     prof = mem.get("profile", {}) or {}
 
@@ -4302,6 +4498,46 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if q == BTN_PLAN_MAIN:
+        clear_eval_context(context)
+        context.user_data["topic"] = "application_plan"
+        track_topic(context, "application_plan")
+        # If the user already filled some info in My Application Portfolio, offer a 1-tap plan.
+        try:
+            mem = get_user_memory_cached(update, context)
+            merge_usage_into_memory(context, mem)
+            if has_application_portfolio_data(mem):
+                clear_pending_feature(context)
+                await send_with_image(
+                    update,
+                    "📅 Application Plan\n\nI can create a plan using your saved 📁 My Application Portfolio, or you can enter info manually.",
+                    reply_markup=plan_choice_keyboard(),
+                    image_key="plan_main",
+                )
+                return
+
+        except Exception:
+            pass
+
+        # No (usable) portfolio yet -> ask the standard questions.
+        set_pending_feature(context, "plan")
+        await send_with_image(
+            update,
+            "📅 Application Plan mode ON.\n\nTell me your grade, target countries, intended major, test scores (if any), and your rough deadlines.",
+            reply_markup=plan_keyboard(),
+            image_key="plan_main",
+        )
+        return
+
+    if q == BTN_PLAN_FROM_PORT:
+        clear_eval_context(context)
+        context.user_data["topic"] = "application_plan"
+        track_topic(context, "application_plan")
+        clear_pending_feature(context)
+        stop_eval_mode(context)
+        await run_plan_from_portfolio(update, context)
+        return
+
+    if q == BTN_PLAN_MANUAL:
         clear_eval_context(context)
         context.user_data["topic"] = "application_plan"
         track_topic(context, "application_plan")
