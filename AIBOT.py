@@ -4316,7 +4316,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         clear_pending_feature(context)
         context.user_data["in_tools"] = True
         await update.message.reply_text(
-            f"🚀 Boost Tools\n\nThese tools adapt to your last used section:\n👉 {current}\nPick a tool:",
+            f"🚀 Boost Tools\n\nThese tools adapt to your last used section:\n👉 {current}\n\nPick a tool:",
             reply_markup=tools_menu_keyboard(),
         )
         return
