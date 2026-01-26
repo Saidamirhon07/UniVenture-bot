@@ -4271,6 +4271,9 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     user = update.effective_user
     q = text
+    
+    if context.user_data.pop("_handled_ui_action", False):
+        return
 
     topic_before = get_current_topic(context)
     record_event(user.id, topic_before, kind="message")
