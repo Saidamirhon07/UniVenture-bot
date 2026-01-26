@@ -4315,11 +4315,34 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ---- BOOST TOOLS MENU ----
     if q == BTN_TOOLS:
-        stop_eval_mode(context)
         clear_pending_feature(context)
+        stop_eval_mode(context)
+    
+        # mark UI-only action
+        context.user_data["_handled_ui_action"] = True
         context.user_data["in_tools"] = True
+    
+        # SAFE topic resolution
+        last_section = context.user_data.get("last_used_section", DEFAULT_TOPIC)
+        current = FRIENDLY_TOPIC_NAMES.get(last_section, "General")
+    
+        first_time = not context.user_data.get("saw_boost_explainer", False)
+        context.user_data["saw_boost_explainer"] = True
+    
+        extra = ""
+        if first_time:
+            extra = (
+                "\nℹ️ Boost Tools always use the section you last opened "
+                "(Essays, ECs, IELTS, etc.).\n"
+                "Switch sections first if you want different tips.\n"
+            )
+    
         await update.message.reply_text(
-            f"🚀 Boost Tools\n\nThese tools adapt to your last used section:\n👉 {current}\n\nPick a tool:",
+            "🚀 Boost Tools\n\n"
+            "These tools adapt to your last used section:\n"
+            f"👉 {current}\n"
+            f"{extra}\n"
+            "Pick a tool:",
             reply_markup=tools_menu_keyboard(),
         )
         return
