@@ -4302,7 +4302,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         current = FRIENDLY_TOPIC_NAMES.get(get_current_topic(context), "General")
         await update.message.reply_text(
-            f"Back to main menu.",
+            "Back to main menu.",
             reply_markup=main_menu_keyboard(),
         )
         return
