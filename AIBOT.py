@@ -7,7 +7,7 @@
 import os
 os.environ['TZ'] = 'UTC'  # Set timezone to UTC
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from telegram import Update, KeyboardButton, ReplyKeyboardMarkup
 from telegram.constants import ChatAction
 from telegram.ext import (
@@ -160,6 +160,9 @@ def record_event(user_id, topic: str, kind: str = "message"):
     stats = load_stats()
     uid = str(user_id)
 
+    today = _now_utc_date()
+    stats.setdefault("last_active_per_user", {})[uid] = today
+    
     if uid not in stats["users"]:
         stats["users"].append(uid)
 
@@ -2471,6 +2474,19 @@ async def photo_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ---------- STATS ----------
 async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     stats = load_stats()
+    today = _now_utc_date()
+    today_date = datetime.strptime(today, "%Y-%m-%d").date()
+    
+    last_active = stats.get("last_active_per_user", {})
+    
+    DAU = sum(1 for d in last_active.values() if d == today)
+    
+    MAU = sum(
+        1
+        for d in last_active.values()
+        if datetime.strptime(d, "%Y-%m-%d").date() >= today_date - timedelta(days=30)
+    )
+
     total_users = len(stats.get("users", []))
     total_msgs = stats.get("messages_total", 0)
     topic_counts = stats.get("topic_counts", {})
@@ -2486,9 +2502,12 @@ async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     msg = (
         f"📊 Bot analytics\n"
-        f"- Unique users: {total_users}\n"
-        f"- Total interactions (events): {total_msgs}\n"
-        f"- Total evaluations: {total_evals}\n\n"
+        f"• Unique users: {total_users}\n"
+        f"• Total interactions: {total_msgs}\n"
+        f"• Total evaluations: {total_evals}\n\n"
+        f"📈 Activity\n"
+        f"• Daily active users (DAU): {DAU}\n"
+        f"• Monthly active users (MAU): {MAU}\n\n"
         f"Top topics:\n{topics_str}"
     )
     await update.message.reply_text(msg)
@@ -2571,6 +2590,9 @@ async def health(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🧪 Health Check\n\n" + "\n".join(checks))
 
 # ---------- NEW FEATURE HELPERS ----------
+def _now_utc_date() -> str:
+    """Return current UTC date as YYYY-MM-DD"""
+    return datetime.utcnow().strftime("%Y-%m-%d")
 def set_pending_feature(context: ContextTypes.DEFAULT_TYPE, feature: str | None):
     context.user_data["pending_feature"] = feature
 
