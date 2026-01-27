@@ -4292,20 +4292,29 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ---- BACK ----
     if is_back_message(q):
-        # Back should NOT wipe the current topic or the last evaluated text.
-        # It only navigates UI and exits active modes.
+
+    # ⬅️ Back from Boost Tools
         if context.user_data.get("in_tools"):
             context.user_data.pop("in_tools", None)
-
+            clear_pending_feature(context)
+            stop_eval_mode(context)
+    
+            await update.message.reply_text(
+                "Back to main menu.",
+                reply_markup=main_menu_keyboard(),
+            )
+            return   # 🔴 THIS RETURN IS CRITICAL
+    
+        # ⬅️ Back from anywhere else
         clear_pending_feature(context)
         stop_eval_mode(context)
-
-        current = FRIENDLY_TOPIC_NAMES.get(get_current_topic(context), "General")
+    
         await update.message.reply_text(
             "Back to main menu.",
             reply_markup=main_menu_keyboard(),
         )
         return
+
 
     # quick cancel (optional)
     if q.lower() in {"cancel", "stop", "exit"} and context.user_data.get("eval_active", False):
