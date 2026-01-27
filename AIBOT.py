@@ -4272,25 +4272,6 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     q = text
     
-    if context.user_data.pop("_handled_ui_action", False):
-        return
-
-    topic_before = get_current_topic(context)
-    record_event(user.id, topic_before, kind="message")
-
-    try:
-        mem = get_user_memory_cached(update, context)
-        merge_usage_into_memory(context, mem)
-        mem["history"]["message_count"] = int(mem["history"].get("message_count", 0) or 0) + 1
-        mem["history"]["last_active"] = int(__import__("time").time())
-        mem["history"]["last_topic"] = topic_before
-        # cheap profile extraction from user message
-        mem["profile"] = extract_profile_signals(q, mem.get("profile", {}) or {})
-        persist_user_memory(update, context)
-    except Exception as e:
-        logging.exception("Memory update failed (non-fatal): %s", e)
-
-    # ---- BACK ----
     if is_back_message(q):
 
     # ⬅️ Back from Boost Tools
@@ -4314,6 +4295,25 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=main_menu_keyboard(),
         )
         return
+    
+    if context.user_data.pop("_handled_ui_action", False):
+        return
+
+    topic_before = get_current_topic(context)
+    record_event(user.id, topic_before, kind="message")
+
+    try:
+        mem = get_user_memory_cached(update, context)
+        merge_usage_into_memory(context, mem)
+        mem["history"]["message_count"] = int(mem["history"].get("message_count", 0) or 0) + 1
+        mem["history"]["last_active"] = int(__import__("time").time())
+        mem["history"]["last_topic"] = topic_before
+        # cheap profile extraction from user message
+        mem["profile"] = extract_profile_signals(q, mem.get("profile", {}) or {})
+        persist_user_memory(update, context)
+    except Exception as e:
+        logging.exception("Memory update failed (non-fatal): %s", e)
+
 
 
     # quick cancel (optional)
