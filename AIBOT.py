@@ -133,6 +133,7 @@ def _default_stats():
         "messages_per_user": {},
         "topic_counts": {},
         "eval_counts": {},
+        "activity_by_date": {},
     }
 
 def load_stats():
@@ -167,6 +168,26 @@ def record_event(user_id, topic: str, kind: str = "message"):
 
     mpu = stats.setdefault("messages_per_user", {})
     mpu[uid] = mpu.get(uid, 0) + 1
+
+    # Activity tracking for DAU/MAU (by UTC date)
+    try:
+        today_key = datetime.utcnow().strftime("%Y-%m-%d")
+        abd = stats.setdefault("activity_by_date", {})
+        ulist = abd.setdefault(today_key, [])
+        if uid not in ulist:
+            ulist.append(uid)
+
+        # prune to last ~62 days to keep file small
+        cutoff = datetime.utcnow().date() - timedelta(days=62)
+        for d in list(abd.keys()):
+            try:
+                if datetime.strptime(d, "%Y-%m-%d").date() < cutoff:
+                    abd.pop(d, None)
+            except Exception:
+                # if malformed key, drop it
+                abd.pop(d, None)
+    except Exception:
+        pass
 
     if topic:
         tc = stats.setdefault("topic_counts", {})
@@ -2502,10 +2523,54 @@ async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         topics_str = "No topic data yet."
 
     total_evals = sum(eval_counts.values()) if eval_counts else 0
+    # DAU / MAU (based on activity_by_date; fallback to last_active timestamps)
+    abd = stats.get("activity_by_date", {}) or {}
+    today = datetime.utcnow().date()
+    today_key = today.strftime("%Y-%m-%d")
+
+    if abd:
+        dau = len(set(abd.get(today_key, []) or []))
+
+        mau_users = set()
+        start = today - timedelta(days=29)
+        for k, uids in abd.items():
+            try:
+                d = datetime.strptime(k, "%Y-%m-%d").date()
+            except Exception:
+                continue
+            if start <= d <= today:
+                mau_users.update(uids or [])
+        mau = len(mau_users)
+    else:
+        # Fallback: use per-user `history.last_active` timestamps from user memory files
+        try:
+            import glob
+            now_ts = __import__("time").time()
+            dau_cut = now_ts - 24 * 3600
+            mau_cut = now_ts - 30 * 24 * 3600
+
+            dau = 0
+            mau = 0
+            for fp in glob.glob(os.path.join(USER_MEM_DIR, "*.json")):
+                try:
+                    with open(fp, "r", encoding="utf-8") as f:
+                        mem = json.load(f)
+                    ts = int(((mem.get("history") or {}).get("last_active") or 0) or 0)
+                    if ts >= dau_cut:
+                        dau += 1
+                    if ts >= mau_cut:
+                        mau += 1
+                except Exception:
+                    continue
+        except Exception:
+            dau = 0
+            mau = 0
 
     msg = (
         f"📊 Bot analytics\n"
         f"- Unique users: {total_users}\n"
+        f"- DAU (today): {dau}\n"
+        f"- MAU (last 30d): {mau}\n"
         f"- Total interactions (events): {total_msgs}\n"
         f"- Total evaluations: {total_evals}\n\n"
         f"Top topics:\n{topics_str}"
@@ -4295,9 +4360,6 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=main_menu_keyboard(),
         )
         return
-    
-    if context.user_data.pop("_handled_ui_action", False):
-        return
 
     topic_before = get_current_topic(context)
     record_event(user.id, topic_before, kind="message")
@@ -4328,7 +4390,6 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         stop_eval_mode(context)
     
         # mark UI-only action
-        context.user_data["_handled_ui_action"] = True
         context.user_data["in_tools"] = True
     
         # SAFE topic resolution
