@@ -133,7 +133,6 @@ def _default_stats():
         "messages_per_user": {},
         "topic_counts": {},
         "eval_counts": {},
-        "activity_by_date": {},
     }
 
 def load_stats():
@@ -168,26 +167,6 @@ def record_event(user_id, topic: str, kind: str = "message"):
 
     mpu = stats.setdefault("messages_per_user", {})
     mpu[uid] = mpu.get(uid, 0) + 1
-
-    # Activity tracking for DAU/MAU (by UTC date)
-    try:
-        today_key = datetime.utcnow().strftime("%Y-%m-%d")
-        abd = stats.setdefault("activity_by_date", {})
-        ulist = abd.setdefault(today_key, [])
-        if uid not in ulist:
-            ulist.append(uid)
-
-        # prune to last ~62 days to keep file small
-        cutoff = datetime.utcnow().date() - timedelta(days=62)
-        for d in list(abd.keys()):
-            try:
-                if datetime.strptime(d, "%Y-%m-%d").date() < cutoff:
-                    abd.pop(d, None)
-            except Exception:
-                # if malformed key, drop it
-                abd.pop(d, None)
-    except Exception:
-        pass
 
     if topic:
         tc = stats.setdefault("topic_counts", {})
@@ -901,17 +880,17 @@ def plan_keyboard():
 
 
 def plan_choice_keyboard():
-    """Shown only if the user already has some data in My Application Portfolio."""
+    """Application Plan submenu (lets the user choose portfolio vs manual input)."""
+    # NOTE: We intentionally use the same labels as the Portfolio/School Finder UX for consistency.
     return ReplyKeyboardMarkup(
         [
-            [KeyboardButton(BTN_PLAN_FROM_PORT)],
-            [KeyboardButton(BTN_PLAN_MANUAL)],
+            [KeyboardButton(BTN_SF_FROM_PORT)],   # 📌 Use My Portfolio
+            [KeyboardButton(BTN_SF_MANUAL)],      # ✍️ Enter Details Manually
             [KeyboardButton(BTN_BACK)],
         ],
         resize_keyboard=True,
         one_time_keyboard=False,
     )
-
 def schoolfinder_keyboard():
     """School Finder submenu (mirrors the Application Plan UX)."""
     return ReplyKeyboardMarkup(
@@ -2523,54 +2502,10 @@ async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         topics_str = "No topic data yet."
 
     total_evals = sum(eval_counts.values()) if eval_counts else 0
-    # DAU / MAU (based on activity_by_date; fallback to last_active timestamps)
-    abd = stats.get("activity_by_date", {}) or {}
-    today = datetime.utcnow().date()
-    today_key = today.strftime("%Y-%m-%d")
-
-    if abd:
-        dau = len(set(abd.get(today_key, []) or []))
-
-        mau_users = set()
-        start = today - timedelta(days=29)
-        for k, uids in abd.items():
-            try:
-                d = datetime.strptime(k, "%Y-%m-%d").date()
-            except Exception:
-                continue
-            if start <= d <= today:
-                mau_users.update(uids or [])
-        mau = len(mau_users)
-    else:
-        # Fallback: use per-user `history.last_active` timestamps from user memory files
-        try:
-            import glob
-            now_ts = __import__("time").time()
-            dau_cut = now_ts - 24 * 3600
-            mau_cut = now_ts - 30 * 24 * 3600
-
-            dau = 0
-            mau = 0
-            for fp in glob.glob(os.path.join(USER_MEM_DIR, "*.json")):
-                try:
-                    with open(fp, "r", encoding="utf-8") as f:
-                        mem = json.load(f)
-                    ts = int(((mem.get("history") or {}).get("last_active") or 0) or 0)
-                    if ts >= dau_cut:
-                        dau += 1
-                    if ts >= mau_cut:
-                        mau += 1
-                except Exception:
-                    continue
-        except Exception:
-            dau = 0
-            mau = 0
 
     msg = (
         f"📊 Bot analytics\n"
         f"- Unique users: {total_users}\n"
-        f"- DAU (today): {dau}\n"
-        f"- MAU (last 30d): {mau}\n"
         f"- Total interactions (events): {total_msgs}\n"
         f"- Total evaluations: {total_evals}\n\n"
         f"Top topics:\n{topics_str}"
@@ -3876,10 +3811,10 @@ async def plan_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (update.message.text or "").strip()
     parts = text.split(maxsplit=1)
     if len(parts) < 2:
-        set_pending_feature(context, "plan")
+        clear_pending_feature(context)
         await update.message.reply_text(
-            "📅 Application Plan mode ON.\n\nTell me your grade, target countries, intended major, test scores (if any), and your rough deadlines.",
-            reply_markup=plan_keyboard(),
+            "📅 Application Plan\n\nChoose one:\n• 📌 Use My Portfolio\n• ✍️ Enter Details Manually",
+            reply_markup=plan_choice_keyboard(),
         )
         return
     await run_plan(update, context, parts[1].strip())
@@ -4360,6 +4295,9 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=main_menu_keyboard(),
         )
         return
+    
+    if context.user_data.pop("_handled_ui_action", False):
+        return
 
     topic_before = get_current_topic(context)
     record_event(user.id, topic_before, kind="message")
@@ -4390,6 +4328,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         stop_eval_mode(context)
     
         # mark UI-only action
+        context.user_data["_handled_ui_action"] = True
         context.user_data["in_tools"] = True
     
         # SAFE topic resolution
@@ -4482,14 +4421,43 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # --- pending feature input ---
     # Allow a direct portfolio-based school suggestion even when a pending feature is set.
     if q == BTN_SF_FROM_PORT:
+        # This label is shared across features (School Finder / Application Plan).
+        # Route based on the current topic to avoid misfires.
         clear_pending_feature(context)
         clear_eval_context(context)
+        current_topic = get_current_topic(context)
+
+        if current_topic == "application_plan":
+            context.user_data["topic"] = "application_plan"
+            track_topic(context, "application_plan")
+            stop_eval_mode(context)
+            await run_plan_from_portfolio(update, context)
+            return
+
+        # Default: School Finder
         await run_schoolfinder_from_portfolio(update, context)
         return
 
     if q == BTN_SF_MANUAL:
+        # This label is shared across features (School Finder / Application Plan).
         clear_pending_feature(context)
         clear_eval_context(context)
+        current_topic = get_current_topic(context)
+
+        if current_topic == "application_plan":
+            context.user_data["topic"] = "application_plan"
+            track_topic(context, "application_plan")
+            set_pending_feature(context, "plan")
+            stop_eval_mode(context)
+            await send_with_image(
+                update,
+                "📅 Application Plan mode ON.\n\nTell me your grade, target countries, intended major, test scores (if any), and your rough deadlines.",
+                reply_markup=plan_keyboard(),
+                image_key="plan_main",
+            )
+            return
+
+        # Default: School Finder
         context.user_data["topic"] = "school_finder"
         track_topic(context, "school_finder")
         set_pending_feature(context, "schoolfinder")
@@ -4500,6 +4468,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             image_key="schoolfinder_main",
         )
         return
+
 
     pending = context.user_data.get("pending_feature")
     if pending:
@@ -4612,29 +4581,22 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         clear_eval_context(context)
         context.user_data["topic"] = "application_plan"
         track_topic(context, "application_plan")
-        # If the user already filled some info in My Application Portfolio, offer a 1-tap plan.
+
+        # Try to load memory (optional) to keep cache/usage consistent.
         try:
             mem = get_user_memory_cached(update, context)
             merge_usage_into_memory(context, mem)
-            if has_application_portfolio_data(mem):
-                clear_pending_feature(context)
-                await send_with_image(
-                    update,
-                    "📅 Application Plan\n\nI can create a plan using your saved 📁 My Application Portfolio, or you can enter info manually.",
-                    reply_markup=plan_choice_keyboard(),
-                    image_key="plan_main",
-                )
-                return
-
         except Exception:
             pass
 
-        # No (usable) portfolio yet -> ask the standard questions.
-        set_pending_feature(context, "plan")
+        # Always show the 2-choice submenu so the user can decide:
+        # - Use saved portfolio (if present; we'll ask for missing info if needed)
+        # - Enter details manually
+        clear_pending_feature(context)
         await send_with_image(
             update,
-            "📅 Application Plan mode ON.\n\nTell me your grade, target countries, intended major, test scores (if any), and your rough deadlines.",
-            reply_markup=plan_keyboard(),
+            "📅 Application Plan\n\nChoose one:\n• 📌 Use My Portfolio\n• ✍️ Enter Details Manually",
+            reply_markup=plan_choice_keyboard(),
             image_key="plan_main",
         )
         return
