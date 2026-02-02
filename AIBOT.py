@@ -20,7 +20,10 @@ from telegram.ext import (
 from dotenv import load_dotenv
 import chromadb
 from chromadb.utils import embedding_functions
-import os, io, nest_asyncio, logging, json, base64, uuid, re
+import os, io, nest
+
+FAST_MODEL = "gpt-4.1-mini"
+STRONG_MODEL = "gpt-4.1"_asyncio, logging, json, base64, uuid, re
 
 # -------- File extraction deps --------
 from pdfminer.high_level import extract_text
@@ -1088,7 +1091,8 @@ async def send_long(update: Update, text: str):
     text = sanitize_output(text)
     for i in range(0, len(text), MAX_LEN):
         try:
-            await update.message.reply_text(text[i : i + MAX_LEN])
+            await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(text[i : i + MAX_LEN])
         except Exception as e:
             logging.error(f"Failed to send message part: {e}")
 
@@ -1114,6 +1118,7 @@ async def send_with_image(
         else:
             logging.warning(f"Image file not found: {path}")
 
+    await update.message.chat.send_action(ChatAction.TYPING)
     await update.message.reply_text(caption, reply_markup=reply_markup)
 
 # -------- Vision helper --------
@@ -1280,7 +1285,8 @@ async def teach(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logging.info("🔥 /teach RECEIVED")
 
     if not require_admin(update):
-        await update.message.reply_text("⛔ You are not allowed to teach global sources.")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text("⛔ You are not allowed to teach global sources.")
         return
 
     await show_typing(update, context)
@@ -1293,13 +1299,15 @@ async def teach(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logging.info(f"Raw teach input: '{raw}'")
     
     if not raw:
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "Use format:\n/teach <title> | <content>\n\n" f"Current topic: {topic}"
         )
         return
         
     if "|" not in raw:
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "Use format:\n/teach <title> | <content>\n\n" f"Current topic: {topic}"
         )
         return
@@ -1307,18 +1315,21 @@ async def teach(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         title, content = [p.strip() for p in raw.split("|", 1)]
     except ValueError:
-        await update.message.reply_text("❌ Invalid format. Use: /teach <title> | <content>")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text("❌ Invalid format. Use: /teach <title> | <content>")
         return
         
     if not title or not content:
-        await update.message.reply_text("❌ Title or content is empty. Use: /teach <title> | <content>")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text("❌ Title or content is empty. Use: /teach <title> | <content>")
         return
 
     try:
         col = get_collection(chat_id, topic)
     except Exception as e:
         logging.error(f"Failed to get collection: {e}")
-        await update.message.reply_text(f"❌ Failed to access database: {e}")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(f"❌ Failed to access database: {e}")
         return
 
     try:
@@ -1328,7 +1339,8 @@ async def teach(update: Update, context: ContextTypes.DEFAULT_TYPE):
         existing = {"ids": []}
 
     if existing and existing.get("ids"):
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             f"'{title}' already exists in topic: {topic}. "
             "Use /unlearn '{title}' first if you want to replace it."
         )
@@ -1342,17 +1354,20 @@ async def teach(update: Update, context: ContextTypes.DEFAULT_TYPE):
             documents=[safe_text_for_embedding(content)],
         )
         logging.info(f"Successfully added document '{title}' to topic '{topic}'")
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             f"Learned '{title}' ✅ (topic: {topic}, mode: Q&A, scope: GLOBAL)"
         )
     except Exception as e:
         logging.error(f"Failed to add document to Chroma: {e}")
-        await update.message.reply_text(f"❌ Failed to save: {str(e)[:200]}")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(f"❌ Failed to save: {str(e)[:200]}")
 
 # ---------- TEACH RUBRIC (EVALUATION sources) ----------
 async def teachrubric(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not require_admin(update):
-        await update.message.reply_text("⛔ You are not allowed to teach global rubrics.")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text("⛔ You are not allowed to teach global rubrics.")
         return
 
     await show_typing(update, context)
@@ -1363,13 +1378,15 @@ async def teachrubric(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logging.info(f"Raw teachrubric input: '{raw}'")
     
     if not raw:
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "Use format:\n/teachrubric <title> | <rubric / evaluation criteria>"
         )
         return
         
     if "|" not in raw:
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "Use format:\n/teachrubric <title> | <rubric / evaluation criteria>"
         )
         return
@@ -1377,11 +1394,13 @@ async def teachrubric(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         title, content = [p.strip() for p in raw.split("|", 1)]
     except ValueError:
-        await update.message.reply_text("❌ Invalid format. Use: /teachrubric <title> | <rubric>")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text("❌ Invalid format. Use: /teachrubric <title> | <rubric>")
         return
         
     if not title or not content:
-        await update.message.reply_text("❌ Title or rubric content is empty.")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text("❌ Title or rubric content is empty.")
         return
 
     topic = get_current_topic(context)
@@ -1391,7 +1410,8 @@ async def teachrubric(update: Update, context: ContextTypes.DEFAULT_TYPE):
         col = get_collection(chat_id, topic)
     except Exception as e:
         logging.error(f"Failed to get collection: {e}")
-        await update.message.reply_text(f"❌ Failed to access database: {e}")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(f"❌ Failed to access database: {e}")
         return
 
     try:
@@ -1401,7 +1421,8 @@ async def teachrubric(update: Update, context: ContextTypes.DEFAULT_TYPE):
         existing = {"ids": []}
 
     if existing and existing.get("ids"):
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             f"'{title}' already exists in topic: {topic}. "
             "Use /unlearn '{title}' first if you want to replace it."
         )
@@ -1416,17 +1437,20 @@ async def teachrubric(update: Update, context: ContextTypes.DEFAULT_TYPE):
             documents=[safe_text_for_embedding(content)],
         )
         logging.info(f"Successfully added rubric '{title}' to topic '{topic}'")
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             f"Learned evaluation rubric '{title}' ✅ (topic: {topic}, scope: GLOBAL)"
         )
     except Exception as e:
         logging.error(f"Failed to add rubric to Chroma: {e}")
-        await update.message.reply_text(f"❌ Failed to save rubric: {str(e)[:200]}")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(f"❌ Failed to save rubric: {str(e)[:200]}")
 
 # ---------- TEACH FILE (Q&A sources) ----------
 async def teachfile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not require_admin(update):
-        await update.message.reply_text("⛔ You are not allowed to teach from files.")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text("⛔ You are not allowed to teach from files.")
         return
 
     await show_typing(update, context)
@@ -1437,11 +1461,13 @@ async def teachfile(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     doc = update.message.document
     if not doc:
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "Attach a PDF or DOCX and write /teachfile in the caption to train me from it."
         )
         return
 
+    await update.message.chat.send_action(ChatAction.TYPING)
     await update.message.reply_text(
         "Reading your file and extracting text to learn from it (Q&A)…"
     )
@@ -1451,7 +1477,8 @@ async def teachfile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         file_bytes = await tgfile.download_as_bytearray()
         name = (doc.file_name or "upload").lower()
     except Exception as e:
-        await update.message.reply_text(f"Failed to download file: {e}")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(f"Failed to download file: {e}")
         return
 
     try:
@@ -1461,26 +1488,31 @@ async def teachfile(update: Update, context: ContextTypes.DEFAULT_TYPE):
             d = DocxDocument(io.BytesIO(file_bytes))
             text = "\n".join(p.text for p in d.paragraphs)
         else:
-            await update.message.reply_text("Only PDF or DOCX are supported for /teachfile.")
+            await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text("Only PDF or DOCX are supported for /teachfile.")
             return
     except Exception as e:
-        await update.message.reply_text(f"Could not read file: {e}")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(f"Could not read file: {e}")
         return
 
     if not text or not text.strip():
-        await update.message.reply_text("I couldn't find any readable text in that file.")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text("I couldn't find any readable text in that file.")
         return
 
     parts = _chunk(text)
     if not parts:
-        await update.message.reply_text("Text was too short or could not be chunked.")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text("Text was too short or could not be chunked.")
         return
 
     try:
         col = get_collection(chat_id, topic)
     except Exception as e:
         logging.error(f"Failed to get collection: {e}")
-        await update.message.reply_text(f"❌ Failed to access database: {e}")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(f"❌ Failed to access database: {e}")
         return
 
     try:
@@ -1490,7 +1522,8 @@ async def teachfile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         existing = {"ids": []}
 
     if existing and existing.get("ids"):
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             f"'{name}' is already learned in topic: {topic}.\n"
             "Use /unlearn <title> to remove it first."
         )
@@ -1504,17 +1537,20 @@ async def teachfile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         col.add(ids=ids, metadatas=metas, documents=[safe_text_for_embedding(p) for p in parts])
         logging.info(f"Successfully added file '{name}' with {len(parts)} parts to topic '{topic}'")
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             f"Learned from file ✅ ({len(parts)} parts) in topic: {topic} (Q&A, scope: GLOBAL)"
         )
     except Exception as e:
         logging.error(f"Failed to add file to Chroma: {e}")
-        await update.message.reply_text(f"❌ Failed to save file content: {str(e)[:200]}")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(f"❌ Failed to save file content: {str(e)[:200]}")
 
 # ---------- TEACH FILE EVAL (EVALUATION sources) ----------
 async def teachfile_eval(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not require_admin(update):
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "⛔ You are not allowed to teach evaluation rubrics from files."
         )
         return
@@ -1527,11 +1563,13 @@ async def teachfile_eval(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     doc = update.message.document
     if not doc:
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "Attach a PDF or DOCX and write /teachfile_eval in the caption to teach an evaluation rubric."
         )
         return
 
+    await update.message.chat.send_action(ChatAction.TYPING)
     await update.message.reply_text(
         "Reading your rubric file and extracting evaluation criteria…"
     )
@@ -1541,7 +1579,8 @@ async def teachfile_eval(update: Update, context: ContextTypes.DEFAULT_TYPE):
         file_bytes = await tgfile.download_as_bytearray()
         name = (doc.file_name or "upload").lower()
     except Exception as e:
-        await update.message.reply_text(f"Failed to download file: {e}")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(f"Failed to download file: {e}")
         return
 
     try:
@@ -1551,26 +1590,31 @@ async def teachfile_eval(update: Update, context: ContextTypes.DEFAULT_TYPE):
             d = DocxDocument(io.BytesIO(file_bytes))
             text = "\n".join(p.text for p in d.paragraphs)
         else:
-            await update.message.reply_text("Only PDF or DOCX are supported for /teachfile_eval.")
+            await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text("Only PDF or DOCX are supported for /teachfile_eval.")
             return
     except Exception as e:
-        await update.message.reply_text(f"Could not read file: {e}")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(f"Could not read file: {e}")
         return
 
     if not text or not text.strip():
-        await update.message.reply_text("I couldn't find any readable text in that file.")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text("I couldn't find any readable text in that file.")
         return
 
     parts = _chunk(text)
     if not parts:
-        await update.message.reply_text("Text was too short or could not be chunked.")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text("Text was too short or could not be chunked.")
         return
 
     try:
         col = get_collection(chat_id, topic)
     except Exception as e:
         logging.error(f"Failed to get collection: {e}")
-        await update.message.reply_text(f"❌ Failed to access database: {e}")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(f"❌ Failed to access database: {e}")
         return
 
     try:
@@ -1580,7 +1624,8 @@ async def teachfile_eval(update: Update, context: ContextTypes.DEFAULT_TYPE):
         existing = {"ids": []}
 
     if existing and existing.get("ids"):
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             f"'{name}' is already learned in topic: {topic}.\n"
             "Use /unlearn <title> to remove it first."
         )
@@ -1594,17 +1639,20 @@ async def teachfile_eval(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         col.add(ids=ids, metadatas=metas, documents=[safe_text_for_embedding(p) for p in parts])
         logging.info(f"Successfully added eval file '{name}' with {len(parts)} parts to topic '{topic}'")
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             f"Learned evaluation rubric from file ✅ ({len(parts)} parts) in topic: {topic} (scope: GLOBAL)"
         )
     except Exception as e:
         logging.error(f"Failed to add eval file to Chroma: {e}")
-        await update.message.reply_text(f"❌ Failed to save rubric content: {str(e)[:200]}")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(f"❌ Failed to save rubric content: {str(e)[:200]}")
 
 # ---------- TEACH LINK (Q&A) ----------
 async def teachlink(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not require_admin(update):
-        await update.message.reply_text("⛔ You are not allowed to teach from links.")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text("⛔ You are not allowed to teach from links.")
         return
 
     await show_typing(update, context)
@@ -1616,36 +1664,43 @@ async def teachlink(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg_text = extract_command_text(update)
     rest = strip_command(msg_text, "teachlink")
     if not rest:
-        await update.message.reply_text("Use: /teachlink <url>")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text("Use: /teachlink <url>")
         return
 
     url = rest.strip()
+    await update.message.chat.send_action(ChatAction.TYPING)
     await update.message.reply_text("Fetching content from link and learning from it (Q&A)…")
 
     try:
         downloaded = trafilatura.fetch_url(url)
         if not downloaded:
-            await update.message.reply_text("Could not fetch the URL. Please check the link.")
+            await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text("Could not fetch the URL. Please check the link.")
             return
         text = trafilatura.extract(downloaded)
     except Exception as e:
-        await update.message.reply_text(f"Error while fetching the URL: {e}")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(f"Error while fetching the URL: {e}")
         return
 
     if not text:
-        await update.message.reply_text("Couldn't extract readable text from that link.")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text("Couldn't extract readable text from that link.")
         return
 
     chunks = _chunk(text)
     if not chunks:
-        await update.message.reply_text("The page did not contain enough text to learn from.")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text("The page did not contain enough text to learn from.")
         return
 
     try:
         col = get_collection(chat_id, topic)
     except Exception as e:
         logging.error(f"Failed to get collection: {e}")
-        await update.message.reply_text(f"❌ Failed to access database: {e}")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(f"❌ Failed to access database: {e}")
         return
 
     try:
@@ -1655,7 +1710,8 @@ async def teachlink(update: Update, context: ContextTypes.DEFAULT_TYPE):
         existing = {"ids": []}
 
     if existing and existing.get("ids"):
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             f"This link is already learned in topic: {topic}.\nUse /unlearn <url> to remove it first."
         )
         return
@@ -1668,17 +1724,20 @@ async def teachlink(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         col.add(ids=ids, metadatas=metas, documents=[safe_text_for_embedding(c) for c in chunks])
         logging.info(f"Successfully added link '{url}' with {len(chunks)} parts to topic '{topic}'")
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             f"Learned from link ✅ ({len(chunks)} parts) in topic: {topic} (Q&A, scope: GLOBAL)"
         )
     except Exception as e:
         logging.error(f"Failed to add link to Chroma: {e}")
-        await update.message.reply_text(f"❌ Failed to save link content: {str(e)[:200]}")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(f"❌ Failed to save link content: {str(e)[:200]}")
 
 # ---------- TEACH LINK EVAL (EVALUATION sources) ----------
 async def teachlink_eval(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not require_admin(update):
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "⛔ You are not allowed to teach evaluation material from links."
         )
         return
@@ -1692,10 +1751,12 @@ async def teachlink_eval(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg_text = extract_command_text(update)
     rest = strip_command(msg_text, "teachlink_eval")
     if not rest:
-        await update.message.reply_text("Use: /teachlink_eval <url>")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text("Use: /teachlink_eval <url>")
         return
 
     url = rest.strip()
+    await update.message.chat.send_action(ChatAction.TYPING)
     await update.message.reply_text(
         "Fetching content from link and learning it as evaluation / rubric material…"
     )
@@ -1703,27 +1764,32 @@ async def teachlink_eval(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         downloaded = trafilatura.fetch_url(url)
         if not downloaded:
-            await update.message.reply_text("Could not fetch the URL. Please check the link.")
+            await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text("Could not fetch the URL. Please check the link.")
             return
         text = trafilatura.extract(downloaded)
     except Exception as e:
-        await update.message.reply_text(f"Error while fetching the URL: {e}")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(f"Error while fetching the URL: {e}")
         return
 
     if not text:
-        await update.message.reply_text("Couldn't extract readable text from that link.")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text("Couldn't extract readable text from that link.")
         return
 
     chunks = _chunk(text)
     if not chunks:
-        await update.message.reply_text("The page did not contain enough text to learn from.")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text("The page did not contain enough text to learn from.")
         return
 
     try:
         col = get_collection(chat_id, topic)
     except Exception as e:
         logging.error(f"Failed to get collection: {e}")
-        await update.message.reply_text(f"❌ Failed to access database: {e}")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(f"❌ Failed to access database: {e}")
         return
 
     try:
@@ -1733,7 +1799,8 @@ async def teachlink_eval(update: Update, context: ContextTypes.DEFAULT_TYPE):
         existing = {"ids": []}
 
     if existing and existing.get("ids"):
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             f"This link is already learned in topic: {topic}.\nUse /unlearn <url> to remove it first."
         )
         return
@@ -1746,17 +1813,20 @@ async def teachlink_eval(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         col.add(ids=ids, metadatas=metas, documents=[safe_text_for_embedding(c) for c in chunks])
         logging.info(f"Successfully added eval link '{url}' with {len(chunks)} parts to topic '{topic}'")
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             f"Learned evaluation material from link ✅ ({len(chunks)} parts) in topic: {topic} (scope: GLOBAL)"
         )
     except Exception as e:
         logging.error(f"Failed to add eval link to Chroma: {e}")
-        await update.message.reply_text(f"❌ Failed to save evaluation content: {str(e)[:200]}")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(f"❌ Failed to save evaluation content: {str(e)[:200]}")
 
 # ---------- TEACH IMAGE (Q&A) ----------
 async def teachimage(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not require_admin(update):
-        await update.message.reply_text("⛔ You are not allowed to teach from images.")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text("⛔ You are not allowed to teach from images.")
         return
 
     await show_typing(update, context)
@@ -1767,7 +1837,8 @@ async def teachimage(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     photos = update.message.photo or []
     if not photos:
-        await update.message.reply_text("Please send a clear image with caption:\n/teachimage <title>")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text("Please send a clear image with caption:\n/teachimage <title>")
         return
 
     caption = (update.message.caption or "").strip()
@@ -1782,9 +1853,11 @@ async def teachimage(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not title:
             title = f"image_{tgfile.file_unique_id}"
     except Exception as e:
-        await update.message.reply_text(f"Failed to get image file: {e}")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(f"Failed to get image file: {e}")
         return
 
+    await update.message.chat.send_action(ChatAction.TYPING)
     await update.message.reply_text(
         f"Reading your image for topic '{topic}' and extracting text to learn from it…"
     )
@@ -1792,29 +1865,34 @@ async def teachimage(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         img_bytes = await tgfile.download_as_bytearray()
     except Exception as e:
-        await update.message.reply_text(f"Failed to download image: {e}")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(f"Failed to download image: {e}")
         return
 
     try:
         extracted = extract_text_from_image_bytes(img_bytes)
     except Exception as e:
-        await update.message.reply_text(f"Could not extract text from image: {e}")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(f"Could not extract text from image: {e}")
         return
 
     if not extracted.strip():
-        await update.message.reply_text("I couldn't read any text from that image.")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text("I couldn't read any text from that image.")
         return
 
     parts = _chunk(extracted)
     if not parts:
-        await update.message.reply_text("The extracted text was too short to learn from.")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text("The extracted text was too short to learn from.")
         return
 
     try:
         col = get_collection(chat_id, topic)
     except Exception as e:
         logging.error(f"Failed to get collection: {e}")
-        await update.message.reply_text(f"❌ Failed to access database: {e}")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(f"❌ Failed to access database: {e}")
         return
 
     try:
@@ -1824,7 +1902,8 @@ async def teachimage(update: Update, context: ContextTypes.DEFAULT_TYPE):
         existing = {"ids": []}
 
     if existing and existing.get("ids"):
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             f"'{title}' is already learned in topic: {topic}.\nUse /unlearn <title> to remove it first if needed."
         )
         return
@@ -1837,12 +1916,14 @@ async def teachimage(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         col.add(ids=ids, metadatas=metas, documents=[safe_text_for_embedding(p) for p in parts])
         logging.info(f"Successfully added image '{title}' with {len(parts)} parts to topic '{topic}'")
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             f"Learned from image '{title}' ✅ ({len(parts)} parts) in topic: {topic} (Q&A, scope: GLOBAL)"
         )
     except Exception as e:
         logging.error(f"Failed to add image to Chroma: {e}")
-        await update.message.reply_text(f"❌ Failed to save image content: {str(e)[:200]}")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(f"❌ Failed to save image content: {str(e)[:200]}")
 
 # ---------- SOURCES ----------
 async def sources_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1850,11 +1931,13 @@ async def sources_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         collections = chroma.list_collections()
     except Exception as e:
-        await update.message.reply_text(f"Error accessing database: {e}")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(f"Error accessing database: {e}")
         return
 
     if not collections:
-        await update.message.reply_text("No sources stored yet.")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text("No sources stored yet.")
         return
 
     source_stats = {}
@@ -1890,7 +1973,8 @@ async def sources_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
             total_bytes += size_bytes
 
     if not source_stats:
-        await update.message.reply_text("No sources found in any collections.")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text("No sources found in any collections.")
         return
 
     lines = []
@@ -1919,13 +2003,15 @@ async def sources(update: Update, context: ContextTypes.DEFAULT_TYPE):
         data = col.get(include=["metadatas"])
     except Exception as e:
         logging.error(f"Error getting collection: {e}")
-        await update.message.reply_text(f"Error accessing database: {e}")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(f"Error accessing database: {e}")
         return
         
     metas = data.get("metadatas") or []
 
     if not metas:
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             f"📌 Active topic: {topic}\nNo sources yet. (Global collection is empty.)"
         )
         return
@@ -1954,12 +2040,14 @@ async def sources(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for t in qa_titles:
             lines.append(f"• {t}")
 
+    await update.message.chat.send_action(ChatAction.TYPING)
     await update.message.reply_text("\n".join(lines))
 
 # ---------- UNLEARN ----------
 async def unlearn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not require_admin(update):
-        await update.message.reply_text("⛔ You are not allowed to remove global sources.")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text("⛔ You are not allowed to remove global sources.")
         return
 
     await show_typing(update, context)
@@ -1971,7 +2059,8 @@ async def unlearn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = extract_command_text(update)
     rest = strip_command(text, "unlearn")
     if not rest:
-        await update.message.reply_text("Usage: /unlearn <exact title shown in /sources>")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text("Usage: /unlearn <exact title shown in /sources>")
         return
 
     title = rest.strip()
@@ -1980,37 +2069,43 @@ async def unlearn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         col = get_collection(chat_id, topic)
     except Exception as e:
         logging.error(f"Failed to get collection: {e}")
-        await update.message.reply_text(f"❌ Failed to access database: {e}")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(f"❌ Failed to access database: {e}")
         return
         
     try:
         to_delete = col.get(where={"title": title})
     except Exception as e:
         logging.error(f"Error checking for documents to delete: {e}")
-        await update.message.reply_text(f"❌ Error checking for documents: {e}")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(f"❌ Error checking for documents: {e}")
         return
         
     removed = len((to_delete or {}).get("ids") or [])
 
     if removed == 0:
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             f"No source titled '{title}' found in topic: {topic} (GLOBAL)."
         )
         return
 
     try:
         col.delete(where={"title": title})
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             f"Removed '{title}' ✅ ({removed} parts) from topic: {topic} (GLOBAL)"
         )
     except Exception as e:
         logging.error(f"Error deleting documents: {e}")
-        await update.message.reply_text(f"❌ Failed to remove '{title}': {e}")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(f"❌ Failed to remove '{title}': {e}")
 
 # ---------- CLEAR ----------
 async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not require_admin(update):
-        await update.message.reply_text("⛔ You are not allowed to clear global knowledge.")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text("⛔ You are not allowed to clear global knowledge.")
         return
 
     await show_typing(update, context)
@@ -2021,10 +2116,12 @@ async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
     collection_name = f"{COLLECTION_PREFIX}_{topic}"
     try:
         chroma.delete_collection(collection_name)
-        await update.message.reply_text(f"Forgot everything 🧹 (topic: {topic}, scope: GLOBAL)")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(f"Forgot everything 🧹 (topic: {topic}, scope: GLOBAL)")
     except Exception as e:
         logging.warning(f"Could not delete collection {collection_name}: {e}")
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             f"Didn't find any stored sources to clear for topic: {topic} (GLOBAL)."
         )
 
@@ -2070,7 +2167,8 @@ async def run_eval_followup(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     prior_feedback = (context.user_data.get("last_eval_feedback") or "").strip()
 
     if not student_text:
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "✅ Evaluation follow-up is ON, but I don't have your last text saved.\n\n"
             "Please paste the full text again (or upload PDF/DOCX), then I'll apply feedback."
         )
@@ -2116,7 +2214,8 @@ async def run_eval_followup(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         context.user_data["last_eval_text"] = revised
         await send_long(update, revised)
     else:
-        await update.message.reply_text("❌ Failed to generate revision. Please try again.")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text("❌ Failed to generate revision. Please try again.")
 
 
 async def run_eval_qa(update: Update, context: ContextTypes.DEFAULT_TYPE, user_question: str):
@@ -2132,7 +2231,8 @@ async def run_eval_qa(update: Update, context: ContextTypes.DEFAULT_TYPE, user_q
     prior_feedback = (context.user_data.get("last_eval_feedback") or "").strip()
 
     if not student_text:
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "✅ Evaluation mode is ON, but I don't have your last submission saved.\n\n"
             "Please paste the full text again (or upload PDF/DOCX)."
         )
@@ -2236,7 +2336,8 @@ async def evaluate_file_for_topic(update: Update, context: ContextTypes.DEFAULT_
 
     allowed = set(EVAL_TOPICS) | {"ielts_writing"}
     if topic not in allowed:
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "To evaluate an essay, recommendation, EC description, portfolio, or IELTS Writing, "
             "choose the correct menu first, then send the file."
         )
@@ -2244,10 +2345,12 @@ async def evaluate_file_for_topic(update: Update, context: ContextTypes.DEFAULT_
 
     doc = update.message.document
     if not doc:
-        await update.message.reply_text("Please attach a PDF or DOCX file.")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text("Please attach a PDF or DOCX file.")
         return
 
     pretty_topic = _pretty_topic_for_eval(topic)
+    await update.message.chat.send_action(ChatAction.TYPING)
     await update.message.reply_text(f"Reading your {pretty_topic} file…")
 
     try:
@@ -2255,7 +2358,8 @@ async def evaluate_file_for_topic(update: Update, context: ContextTypes.DEFAULT_
         file_bytes = await tgfile.download_as_bytearray()
         name = (doc.file_name or "document").lower()
     except Exception as e:
-        await update.message.reply_text(f"Failed to download file: {e}")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(f"Failed to download file: {e}")
         return
 
     try:
@@ -2265,20 +2369,24 @@ async def evaluate_file_for_topic(update: Update, context: ContextTypes.DEFAULT_
             d = DocxDocument(io.BytesIO(file_bytes))
             full_text = "\n".join(p.text for p in d.paragraphs)
         else:
-            await update.message.reply_text("Only PDF or DOCX are supported for evaluation.")
+            await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text("Only PDF or DOCX are supported for evaluation.")
             return
     except Exception as e:
-        await update.message.reply_text(f"Could not read file: {e}")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(f"Could not read file: {e}")
         return
 
     if not (full_text or "").strip():
-        await update.message.reply_text("I couldn't read enough text from that file to evaluate.")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text("I couldn't read enough text from that file to evaluate.")
         return
 
     parts = _chunk(full_text, max_chars=1500)
     student_text_for_eval = "\n\n---\n\n".join(parts[:5]) if parts else _truncate_for_storage(full_text, 4000)
     student_text_for_followup = _truncate_for_storage(full_text, 12000)
 
+    await update.message.chat.send_action(ChatAction.TYPING)
     await update.message.reply_text(f"Analyzing your {pretty_topic} (Coach Mode)…")
 
     try:
@@ -2308,32 +2416,38 @@ async def evaluate_ielts_writing_image(update: Update, context: ContextTypes.DEF
 
     photos = update.message.photo or []
     if not photos:
-        await update.message.reply_text("Please send a clear photo of your IELTS Writing answer.")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text("Please send a clear photo of your IELTS Writing answer.")
         return
 
     largest = photos[-1]
     try:
         tgfile = await largest.get_file()
     except Exception as e:
-        await update.message.reply_text(f"Failed to get image file: {e}")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(f"Failed to get image file: {e}")
         return
         
+    await update.message.chat.send_action(ChatAction.TYPING)
     await update.message.reply_text("Reading your IELTS Writing answer from the image…")
     
     try:
         img_bytes = await tgfile.download_as_bytearray()
     except Exception as e:
-        await update.message.reply_text(f"Failed to download image: {e}")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(f"Failed to download image: {e}")
         return
 
     try:
         extracted = extract_text_from_image_bytes(img_bytes)
     except Exception as e:
-        await update.message.reply_text(f"Could not extract text from image: {e}")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(f"Could not extract text from image: {e}")
         return
 
     if not extracted.strip():
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "I couldn't read enough text from that image. Please try a clearer photo."
         )
         return
@@ -2342,6 +2456,7 @@ async def evaluate_ielts_writing_image(update: Update, context: ContextTypes.DEF
     parts = _chunk(extracted, max_chars=1500)
     student_text_for_eval = "\n\n---\n\n".join(parts[:5]) if parts else _truncate_for_storage(extracted, 4000)
 
+    await update.message.chat.send_action(ChatAction.TYPING)
     await update.message.reply_text("Analyzing your IELTS Writing answer…")
 
     try:
@@ -2377,7 +2492,8 @@ async def evaluate_text_for_topic(update: Update, context: ContextTypes.DEFAULT_
 
     allowed = set(EVAL_TOPICS) | {"ielts_writing"}
     if topic not in allowed:
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "Text evaluation is only available for Personal Statement, Supplemental Essays, "
             "Extracurriculars, Recommendation Letters, Portfolio, and IELTS Writing.\n\n"
             "Choose the correct topic first, then tap the Evaluation button again."
@@ -2389,7 +2505,8 @@ async def evaluate_text_for_topic(update: Update, context: ContextTypes.DEFAULT_
         raw = raw.replace(marker, "").strip()
 
     if len(raw) < 100:
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "The text is too short to evaluate. Please paste the full essay/letter/description."
         )
         return
@@ -2399,6 +2516,7 @@ async def evaluate_text_for_topic(update: Update, context: ContextTypes.DEFAULT_
     parts = _chunk(raw, max_chars=1500)
     student_text_for_eval = "\n\n---\n\n".join(parts[:5])
 
+    await update.message.chat.send_action(ChatAction.TYPING)
     await update.message.reply_text(f"Evaluating your {pretty_topic} (Coach Mode)…")
 
     try:
@@ -2450,6 +2568,7 @@ async def document_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await evaluate_file_for_topic(update, context)
         return
 
+    await update.message.chat.send_action(ChatAction.TYPING)
     await update.message.reply_text(
         "If you want me to LEARN from this file, send it again and write /teachfile, "
         "/teachfile_eval, /teachlink, or /teachlink_eval in the caption.\n\n"
@@ -2479,6 +2598,7 @@ async def photo_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await evaluate_ielts_writing_image(update, context)
         return
 
+    await update.message.chat.send_action(ChatAction.TYPING)
     await update.message.reply_text(
         "I can learn from images too 🤖🖼\n\n"
         "If you want me to *learn* from this image (e.g., essay screenshot, rubric), "
@@ -2510,21 +2630,25 @@ async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"- Total evaluations: {total_evals}\n\n"
         f"Top topics:\n{topics_str}"
     )
+    await update.message.chat.send_action(ChatAction.TYPING)
     await update.message.reply_text(msg)
 
 # ---------- BACKUP SOURCES ----------
 async def backup_sources(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not require_admin(update):
-        await update.message.reply_text("⛔ Admin only.")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text("⛔ Admin only.")
         return
 
+    await update.message.chat.send_action(ChatAction.TYPING)
     await update.message.reply_text("📦 Backing up all sources…")
 
     data = {}
     try:
         collections = chroma.list_collections()
     except Exception as e:
-        await update.message.reply_text(f"Error accessing database: {e}")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(f"Error accessing database: {e}")
         return
 
     for col_info in collections:
@@ -2544,12 +2668,14 @@ async def backup_sources(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             f"✅ Backup completed.\nSaved to:\n{path}\n\nYou can download it from your server volume."
         )
     except Exception as e:
         logging.error(f"Error saving backup: {e}")
-        await update.message.reply_text(f"❌ Failed to save backup: {e}")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(f"❌ Failed to save backup: {e}")
 
 # ---------- HEALTH CHECK ----------
 async def health(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2587,6 +2713,7 @@ async def health(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         checks.append(f"❌ Volume: {str(e)[:100]}")
 
+    await update.message.chat.send_action(ChatAction.TYPING)
     await update.message.reply_text("🧪 Health Check\n\n" + "\n".join(checks))
 
 # ---------- NEW FEATURE HELPERS ----------
@@ -3369,6 +3496,7 @@ async def app_portfolio_show_menu(update: Update, context: ContextTypes.DEFAULT_
         "Pick what you want to update or analyze.\n"
         "Tip: School Finder can suggest schools based on this portfolio."
     )
+    await update.message.chat.send_action(ChatAction.TYPING)
     await update.message.reply_text(out, reply_markup=app_portfolio_keyboard())
 
 
@@ -3383,6 +3511,7 @@ async def run_app_tests(update: Update, context: ContextTypes.DEFAULT_TYPE, user
         if changed:
             persist_user_memory(update, context)
 
+    await update.message.chat.send_action(ChatAction.TYPING)
     await update.message.reply_text(
         format_test_scores_block(app)
         + "\n\nSend an update like: `GPA 3.9, SAT 1520 (Math 790, EBRW 730), IELTS 7.5`\n"
@@ -3403,6 +3532,7 @@ async def run_app_essays(update: Update, context: ContextTypes.DEFAULT_TYPE, use
         if changed:
             persist_user_memory(update, context)
 
+    await update.message.chat.send_action(ChatAction.TYPING)
     await update.message.reply_text(
         format_essays_block(app)
         + "\n\nSend an update like: `PS draft`, `Supps 6/12`, `Common App revised`\n"
@@ -3423,6 +3553,7 @@ async def run_app_ecs(update: Update, context: ContextTypes.DEFAULT_TYPE, user_t
         if changed:
             persist_user_memory(update, context)
 
+    await update.message.chat.send_action(ChatAction.TYPING)
     await update.message.reply_text(
         format_ecs_block(app)
         + "\n\nSend your top ECs in bullets (role + impact + time). Example:\n"
@@ -3445,6 +3576,7 @@ async def run_app_awards(update: Update, context: ContextTypes.DEFAULT_TYPE, use
         if changed:
             persist_user_memory(update, context)
 
+    await update.message.chat.send_action(ChatAction.TYPING)
     await update.message.reply_text(
         format_awards_block(app)
         + "\n\nSend awards/honors in bullets (award + level + year). Example:\n"
@@ -3467,6 +3599,7 @@ async def run_app_prefs(update: Update, context: ContextTypes.DEFAULT_TYPE, user
         if changed:
             persist_user_memory(update, context)
 
+    await update.message.chat.send_action(ChatAction.TYPING)
     await update.message.reply_text(
         format_prefs_block(app, mem)
         + "\n\nSend your preferences in 3–6 short lines, e.g.:\n"
@@ -3492,6 +3625,7 @@ async def run_app_wellness(update: Update, context: ContextTypes.DEFAULT_TYPE, u
         if changed:
             persist_user_memory(update, context)
 
+    await update.message.chat.send_action(ChatAction.TYPING)
     await update.message.reply_text(
         format_wellness_block(app)
         + "\n\nOptional: share current load, e.g.:\n"
@@ -3569,6 +3703,7 @@ async def run_advisor_mode(update: Update, context: ContextTypes.DEFAULT_TYPE, u
 
     out = openai_chat(model="gpt-4.1-mini", messages=messages, temperature=0.45, max_tokens=550)
     await send_long(update, out)
+    await update.message.chat.send_action(ChatAction.TYPING)
     await update.message.reply_text("Want to update scores/essays or run Advisor Mode again?", reply_markup=app_portfolio_keyboard())
 
 
@@ -3632,7 +3767,8 @@ async def brainstorm_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     parts = text.split(maxsplit=1)
     if len(parts) < 2:
         set_pending_feature(context, "brainstorm")
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "🧠 Brainstorm mode ON.\n\nBriefly tell me about yourself, your target major, and what you want to write about."
         )
         return
@@ -3690,7 +3826,8 @@ async def rewrite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     parts = text.split(maxsplit=1)
     if len(parts) < 2:
         set_pending_feature(context, "rewrite")
-        await update.message.reply_text("✍️ Rewrite mode ON.\n\nSend me the paragraph or essay you want me to improve.")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text("✍️ Rewrite mode ON.\n\nSend me the paragraph or essay you want me to improve.")
         return
     await run_rewrite(update, context, parts[1].strip())
 
@@ -3752,7 +3889,8 @@ async def run_plan_from_portfolio(update: Update, context: ContextTypes.DEFAULT_
 
     if not has_application_portfolio_data(mem):
         set_pending_feature(context, "plan")
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "📅 Application Plan\n\n"
             "I don't have enough info saved in your 📁 My Application Portfolio yet.\n\n"
             "Tell me your grade, target countries, intended major, test scores (if any), and your rough deadlines.",
@@ -3812,7 +3950,8 @@ async def plan_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     parts = text.split(maxsplit=1)
     if len(parts) < 2:
         clear_pending_feature(context)
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "📅 Application Plan\n\nChoose one:\n• 📌 Use My Portfolio\n• ✍️ Enter Details Manually",
             reply_markup=plan_choice_keyboard(),
         )
@@ -3843,7 +3982,8 @@ async def recpacket_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     parts = text.split(maxsplit=1)
     if len(parts) < 2:
         set_pending_feature(context, "recpacket")
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "✉️ Rec Letter Packet mode ON.\n\nTell me which teacher will write your rec, what classes you took with them, your achievements, and what you want them to highlight."
         )
         return
@@ -3893,7 +4033,8 @@ async def run_schoolfinder_from_portfolio(update: Update, context: ContextTypes.
 
     if not has_application_portfolio_data(mem):
         set_pending_feature(context, "schoolfinder")
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "🏫 School Finder\n\n"
             "I don't have enough info saved in your 📁 My Application Portfolio yet.\n\n"
             "Send me your GPA (or approximate), test scores (if any), budget, target countries, intended major, and constraints (e.g. need scholarship).",
@@ -3973,7 +4114,8 @@ async def schoolfinder_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     parts = text.split(maxsplit=1)
     if len(parts) < 2:
         set_pending_feature(context, "schoolfinder")
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "🏫 School Finder mode ON.\n\n"
             f"Option A: tap '{BTN_SF_MANUAL}' and send me your GPA, tests, budget, target countries, intended major, and constraints (e.g. need scholarship).\n\n"
             f"Option B: tap '{BTN_SF_FROM_PORT}' to use your saved My Application Portfolio (and the bot's strengths/weaknesses analysis).",
@@ -4004,7 +4146,8 @@ async def portfolioideas_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
     parts = text.split(maxsplit=1)
     if len(parts) < 2:
         set_pending_feature(context, "portfolioideas")
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "🖼️ Portfolio Ideas mode ON.\n\nTell me your field (CS, design, art, film, etc.), your skills, and the kind of programs you are targeting."
         )
         return
@@ -4051,6 +4194,7 @@ async def tool_my_progress(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     track_tool_use(context, "progress")
     persist_user_memory(update, context)
+    await update.message.chat.send_action(ChatAction.TYPING)
     await update.message.reply_text(out, reply_markup=tools_menu_keyboard())
 
 async def tool_insider_tips(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -4114,6 +4258,7 @@ async def tool_insider_tips(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     track_tool_use(context, "insider")
     persist_user_memory(update, context)
+    await update.message.chat.send_action(ChatAction.TYPING)
     await update.message.reply_text(out, reply_markup=tools_menu_keyboard())
 
 async def tool_power_words(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -4152,6 +4297,7 @@ async def tool_power_words(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     track_tool_use(context, "powerwords")
     persist_user_memory(update, context)
+    await update.message.chat.send_action(ChatAction.TYPING)
     await update.message.reply_text("\n".join(lines), reply_markup=tools_menu_keyboard())
 
 async def tool_predict_chances(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -4196,13 +4342,15 @@ async def tool_predict_chances(update: Update, context: ContextTypes.DEFAULT_TYP
 
     track_tool_use(context, "predict")
     persist_user_memory(update, context)
+    await update.message.chat.send_action(ChatAction.TYPING)
     await update.message.reply_text(out, reply_markup=tools_menu_keyboard())
 
 async def run_wowfactor(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
     """Analyze a text and highlight the most memorable 'wow factor'."""
     # Paywall (optional)
     if (not is_pro_user(update)) and ('wowfactor' in PRO_ONLY_TOOLS):
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "🔍 Find Wow Factor is a PRO tool.\n\n"
             "Free preview: I'll tell you the direction, but PRO unlocks the full breakdown + rewrite plan."
             + _upgrade_pitch(),
@@ -4221,7 +4369,8 @@ async def run_wowfactor(update: Update, context: ContextTypes.DEFAULT_TYPE, text
                 temperature=0.4,
                 max_tokens=90,
             )
-            await update.message.reply_text('Preview hook: ' + sanitize_output(mini))
+            await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text('Preview hook: ' + sanitize_output(mini))
         return
     await show_typing(update, context)
 
@@ -4252,6 +4401,7 @@ async def run_wowfactor(update: Update, context: ContextTypes.DEFAULT_TYPE, text
     persist_user_memory(update, context)
     await send_long(update, "🔍 FIND WOW FACTOR\n\n" + (a or ""))
     # Keep the tools keyboard visible for the next click.
+    await update.message.chat.send_action(ChatAction.TYPING)
     await update.message.reply_text("Pick another tool (or tap ⬅️ Back).", reply_markup=tools_menu_keyboard())
 
 # ---------- MAIN ANSWER ----------
@@ -4261,7 +4411,8 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # User sent a command while in a pending mode (rewrite/brainstorm/etc.)
         if context.user_data.get("pending_feature"):
             clear_pending_feature(context)
-            await update.message.reply_text(
+            await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
                 "ℹ️ Switched out of the previous mode to process your command."
             )
         return
@@ -4280,7 +4431,8 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             clear_pending_feature(context)
             stop_eval_mode(context)
     
-            await update.message.reply_text(
+            await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
                 "Back to main menu.",
                 reply_markup=main_menu_keyboard(),
             )
@@ -4290,7 +4442,8 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         clear_pending_feature(context)
         stop_eval_mode(context)
     
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "Back to main menu.",
             reply_markup=main_menu_keyboard(),
         )
@@ -4319,7 +4472,8 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # quick cancel (optional)
     if q.lower() in {"cancel", "stop", "exit"} and context.user_data.get("eval_active", False):
         stop_eval_mode(context)
-        await update.message.reply_text("✅ Stopped evaluation follow-up mode. (Your last evaluated text is still saved for Boost Tools.)")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text("✅ Stopped evaluation follow-up mode. (Your last evaluated text is still saved for Boost Tools.)")
         return
 
     # ---- BOOST TOOLS MENU ----
@@ -4346,7 +4500,8 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "Switch sections first if you want different tips.\n"
             )
     
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "🚀 Boost Tools\n\n"
             "These tools adapt to your last used section:\n"
             f"👉 {current}\n"
@@ -4384,14 +4539,16 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             if len(last) >= 120:
                 set_pending_feature(context, "wowfactor_confirm")
-                await update.message.reply_text(
+                await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
                     f"🔍 Find Wow Factor\n\nI found your last evaluated text ({last_label}).\nUse it?",
                     reply_markup=wowfactor_confirm_keyboard(),
                 )
                 return
 
             set_pending_feature(context, "wowfactor")
-            await update.message.reply_text(
+            await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
                 "🔍 Find Wow Factor\n\nPaste your essay/paragraph (120+ words).\nTip: After you run an evaluation, I can use that text automatically.",
                 reply_markup=tools_menu_keyboard(),
             )
@@ -4401,7 +4558,8 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             last = (context.user_data.get("last_eval_text") or "").strip()
             if len(last) < 120:
                 set_pending_feature(context, "wowfactor")
-                await update.message.reply_text(
+                await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
                     "I don't have a saved evaluated text yet. Paste your essay/paragraph (120+ words).",
                     reply_markup=tools_menu_keyboard(),
                 )
@@ -4412,7 +4570,8 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if q == BTN_WOW_PASTE_NEW:
             set_pending_feature(context, "wowfactor")
-            await update.message.reply_text(
+            await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
                 "📝 Paste your essay/paragraph (120+ words) for Wow Factor analysis.",
                 reply_markup=tools_menu_keyboard(),
             )
@@ -4529,7 +4688,8 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if len((q or '').strip()) >= 120:
                 await run_wowfactor(update, context, q)
                 return
-            await update.message.reply_text(
+            await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
                 "Tap ✅ Use last evaluated text, or paste a new text (120+ words).",
                 reply_markup=wowfactor_confirm_keyboard(),
             )
@@ -4537,7 +4697,8 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         if pending == "wowfactor":
             if len((q or "").strip()) < 120:
-                await update.message.reply_text(
+                await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
                     "Please paste a bit more text (120+ words) so I can detect a real wow factor.",
                     reply_markup=tools_menu_keyboard(),
                 )
@@ -4666,7 +4827,8 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=essay_ps_keyboard(),
             image_key="essays_personal",
         )
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "For detailed feedback, tap '✅ Personal Statement Evaluation' and then upload PDF/DOCX or paste the text.\n\n"
             "After I evaluate, you can ask ANY follow-up question about your essay (grammar, clarity, wording, etc.)."
         )
@@ -4683,7 +4845,8 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=essay_supp_keyboard(),
             image_key="essays_supplemental",
         )
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "For detailed feedback, tap '✅ Supplemental Essay Evaluation' and then upload PDF/DOCX or paste the text.\n\n"
             "After I evaluate, you can ask ANY follow-up question about your essay."
         )
@@ -4699,13 +4862,15 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=ec_keyboard(),
             image_key="extracurriculars",
         )
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "For feedback, click '✅ Extracurricular Evaluation' and then upload PDF/DOCX or paste your EC descriptions."
         )
         return
 
     if q == BTN_EC_PROGRAMS:
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "🌍 Here is a list of top extracurricular programs and opportunities:\n\n"
             "https://docs.google.com/spreadsheets/d/1D-UlJGrg32Ib-9Rvm9y7lKkE6jkx3EK-Kb_qJ6G3tos/edit?usp=sharing\n"
         )
@@ -4721,7 +4886,8 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=rec_keyboard(),
             image_key="recommendations",
         )
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "You can:\n- Tap '✅ Rec Letter Evaluation' to get feedback on a draft.\n- Tap '📄 Rec Letter Packet' to build a brag sheet."
         )
         return
@@ -4736,7 +4902,8 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=portfolio_keyboard(),
             image_key="portfolio",
         )
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "You can upload PDF/DOCX for detailed feedback (✅ Portfolio Evaluation), tap '💡 Portfolio Ideas', or open 📂 My Application Portfolio."
         )
         return
@@ -4779,7 +4946,8 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=ielts_writing_keyboard(),
             image_key="ielts_writing",
         )
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "For evaluation, click '✅ Writing Evaluation' then send your answer as text, PDF/DOCX, or a clear photo.\n\n"
             "After evaluation, you can ask ANY follow-up question about your writing."
         )
@@ -4788,26 +4956,30 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ---- FEATURE BUTTONS ----
     if q == BTN_BRAINSTORM:
         set_pending_feature(context, "brainstorm")
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "🧠 Brainstorm mode ON.\n\nBriefly tell me about yourself, your target major, and what you want to write about."
         )
         return
 
     if q == BTN_REWRITE:
         set_pending_feature(context, "rewrite")
-        await update.message.reply_text("✍️ Rewrite mode ON.\n\nSend me the paragraph or essay you want me to improve.")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text("✍️ Rewrite mode ON.\n\nSend me the paragraph or essay you want me to improve.")
         return
 
     if q == BTN_REC_PACKET:
         set_pending_feature(context, "recpacket")
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "✉️ Rec Letter Packet mode ON.\n\nTell me which teacher will write your rec, what classes you took, your achievements, and what you want highlighted."
         )
         return
 
     if q == BTN_PORTFOLIO_IDEAS:
         set_pending_feature(context, "portfolioideas")
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "💡 Portfolio Ideas mode ON.\n\nTell me your field (CS, design, art, film, etc.), your skills, and target programs."
         )
         return
@@ -4833,7 +5005,8 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=portfolio_keyboard(),
             image_key="portfolio",
         )
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "You can upload PDF/DOCX for detailed feedback (✅ Portfolio Evaluation), tap '💡 Portfolio Ideas', or open 📂 My Application Portfolio."
         )
         return
@@ -4857,7 +5030,8 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         track_topic(context, "portfolio")
         clear_pending_feature(context)
         set_pending_feature(context, "advisor_mode")
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "🧭 Advisor Mode ON.\n\n"
             "Tell me: target countries, intended major, budget/need aid, and a rough school list (optional).\n"
             "If you want, just type: `use saved portfolio`.",
@@ -4905,7 +5079,8 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         persist_user_memory(update, context)
 
         why = ("; ".join(reasons) if reasons else "Not enough saved yet.")
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "✅ READINESS CHECK (Portfolio)\n\n"
             f"Score: {_progress_bar(score)}\n"
             f"Based on: {why}\n\n"
@@ -4920,7 +5095,8 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["topic"] = "essays_personal"
         context.user_data["eval_active"] = True
         context.user_data["last_eval_topic"] = "essays_personal"
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "Personal Statement Evaluation mode ON ✅\n\nNow paste your Personal Statement (100+ words) or upload PDF/DOCX.\n"
             "After I evaluate, you can ask ANY follow-up question about your essay (grammar, clarity, structure, etc.).\n"
             "If you say things like 'apply this feedback' or 'rewrite the conclusion', I will revise the text."
@@ -4932,7 +5108,8 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["topic"] = "essays_supplemental"
         context.user_data["eval_active"] = True
         context.user_data["last_eval_topic"] = "essays_supplemental"
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "Supplemental Essay Evaluation mode ON ✅\n\nNow paste your essay (100+ words) or upload PDF/DOCX.\n"
             "After I evaluate, you can ask ANY follow-up question about your essay.\n"
             "If you say 'apply this feedback' or 'rewrite the ending', I will revise the text."
@@ -4944,7 +5121,8 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["topic"] = "extracurriculars"
         context.user_data["eval_active"] = True
         context.user_data["last_eval_topic"] = "extracurriculars"
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "Extracurricular Evaluation mode ON ✅\n\nNow paste your EC descriptions or upload PDF/DOCX.\n"
             "After I evaluate, you can ask ANY follow-up question."
         )
@@ -4955,7 +5133,8 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["topic"] = "recommendations"
         context.user_data["eval_active"] = True
         context.user_data["last_eval_topic"] = "recommendations"
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "Rec Letter Evaluation mode ON ✅\n\nNow paste the draft letter or upload PDF/DOCX.\n"
             "After I evaluate, you can ask ANY follow-up question."
         )
@@ -4966,7 +5145,8 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["topic"] = "ielts_writing"
         context.user_data["eval_active"] = True
         context.user_data["last_eval_topic"] = "ielts_writing"
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "IELTS Writing Evaluation mode ON ✅\n\nSend your answer as text, PDF/DOCX, or a clear photo.\n"
             "After I evaluate, you can ask ANY follow-up question."
         )
@@ -4977,7 +5157,8 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["topic"] = "portfolio"
         context.user_data["eval_active"] = True
         context.user_data["last_eval_topic"] = "portfolio"
-        await update.message.reply_text(
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
             "Portfolio Evaluation mode ON ✅\n\nNow paste your portfolio description or upload PDF/DOCX.\n"
             "After I evaluate, you can ask ANY follow-up question."
         )
@@ -4994,7 +5175,8 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # eval mode ON but no submission yet
         if not last_text:
-            await update.message.reply_text(
+            await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text(
                 "✅ Evaluation mode is ON.\n\n"
                 "Paste your full text here (100+ words) or upload a PDF/DOCX.\n"
                 "After I evaluate, you can ask ANY follow-up question about your text."
@@ -5007,12 +5189,14 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         # ✅ Otherwise: answer ANY follow-up question using saved text + feedback
-        await update.message.reply_text("Got it! Thinking about your question…")
+        await update.message.chat.send_action(ChatAction.TYPING)
+    await update.message.reply_text("Got it! Thinking about your question…")
         await run_eval_qa(update, context, q)
         return
 
     # ---- NORMAL Q&A WITH RAG ----
     await show_typing(update, context)
+    await update.message.chat.send_action(ChatAction.TYPING)
     await update.message.reply_text("Got it! Thinking about your question…")
 
     topic = get_current_topic(context)
@@ -5128,3 +5312,6 @@ if __name__ == "__main__":
     threading.Thread(target=start_dummy_server, daemon=True).start()
     print("✅ Bot starting...")
     app.run_polling()
+
+
+# NOTE: Use UptimeRobot or cron ping every 5–10 min to avoid Railway cold starts
