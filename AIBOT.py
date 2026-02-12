@@ -130,7 +130,7 @@ PAID_DB_PATH = os.getenv("PAID_DB_PATH", os.path.join(DATA_DIR, "paid_users.json
 DEFAULT_SUB_DAYS = int(os.getenv("DEFAULT_SUB_DAYS", "30"))
 
 # Payment instructions (set these in Railway Variables)
-PAYMENT_PRICE_UZS = os.getenv("PAYMENT_PRICE_UZS", "399,990")
+PAYMENT_PRICE_UZS = os.getenv("PAYMENT_PRICE_UZS", "49000")
 PAYMENT_CARD = os.getenv("PAYMENT_CARD", "")        # e.g. "8600 1234 5678 9012"
 PAYMENT_CLICK = os.getenv("PAYMENT_CLICK", "")      # e.g. "+998901234567"
 PAYMENT_PAYME = os.getenv("PAYMENT_PAYME", "")      # e.g. "+998901234567"
@@ -1132,6 +1132,14 @@ BTN_IELTS_SPEAKING = "🗣️ IELTS Speaking"
 
 # Back button
 BTN_BACK = "⬅️ Back"
+
+# Build a dynamic set of all known button texts (for safe navigation while in pending modes)
+def is_ui_button(text: str) -> bool:
+    return any(
+        k.startswith("BTN_") and isinstance(v, str) and v == text
+        for k, v in globals().items()
+    )
+
 
 # -------- Keyboards --------
 def main_menu_keyboard():
@@ -4906,8 +4914,12 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    pending = context.user_data.get("pending_feature")
-    if pending:
+        pending = context.user_data.get("pending_feature")
+    # If the user clicks a UI button while in a pending mode, treat it as navigation
+    # (do NOT treat the button label as the user's input).
+    if pending and is_ui_button(q):
+        clear_pending_feature(context)
+    elif pending:
         clear_pending_feature(context)
         if pending == "brainstorm":
             await run_brainstorm(update, context, q)
