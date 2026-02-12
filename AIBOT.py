@@ -15,6 +15,7 @@ from telegram.ext import (
     CommandHandler,
     MessageHandler,
     ContextTypes,
+    ApplicationHandlerStop,
     filters,
 )
 from dotenv import load_dotenv
@@ -43,6 +44,10 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 # -------- Model routing (speed vs depth) --------
 FAST_MODEL = os.getenv("OPENAI_FAST_MODEL", "gpt-4.1-mini")
 STRONG_MODEL = os.getenv("OPENAI_STRONG_MODEL", "gpt-4.1")
+
+# Evaluation speed UX: send a short "quick feedback" first, then full feedback.
+ENABLE_EVAL_QUICK_PREVIEW = os.getenv("ENABLE_EVAL_QUICK_PREVIEW", "1") == "1"
+EVAL_QUICK_MAX_TOKENS = int(os.getenv("EVAL_QUICK_MAX_TOKENS", "280"))
 if not TELEGRAM_TOKEN:
     raise RuntimeError("Missing TELEGRAM_BOT_TOKEN in environment.")
 if not OPENAI_API_KEY:
@@ -110,6 +115,350 @@ def require_admin(update: Update) -> bool:
 # -------- Data / storage config (for Railway/Render volume etc.) --------
 DATA_DIR = os.getenv("DATA_DIR", "./data")
 os.makedirs(DATA_DIR, exist_ok=True)
+
+# =============================================================================
+# Paid access (Manual verification — Option 3)
+# - 30-day subscription with auto-expiry
+# - Admin activation (/activate <user_id> [days]) and deactivation
+# - User check expiry (/mysub)
+# - Automatic block for unpaid/expired users
+# - Auto reminders (3 days before expiry + after expiry)
+# - Payment proof: users send screenshot to bot; bot forwards to ADMIN and replies
+# =============================================================================
+
+PAID_DB_PATH = os.getenv("PAID_DB_PATH", os.path.join(DATA_DIR, "paid_users.json"))
+DEFAULT_SUB_DAYS = int(os.getenv("DEFAULT_SUB_DAYS", "30"))
+
+# Payment instructions (set these in Railway Variables)
+PAYMENT_PRICE_UZS = os.getenv("PAYMENT_PRICE_UZS", "399,990")
+PAYMENT_CARD = os.getenv("PAYMENT_CARD", "")        # e.g. "8600 1234 5678 9012"
+PAYMENT_CLICK = os.getenv("PAYMENT_CLICK", "")      # e.g. "+998901234567"
+PAYMENT_PAYME = os.getenv("PAYMENT_PAYME", "")      # e.g. "+998901234567"
+PAYMENT_NOTE = os.getenv("PAYMENT_NOTE", "")        # optional extra line
+
+_paid_lock = threading.Lock()
+
+def _paid_load() -> dict:
+    try:
+        if not os.path.exists(PAID_DB_PATH):
+            return {}
+        with _paid_lock:
+            with open(PAID_DB_PATH, "r", encoding="utf-8") as f:
+                return json.load(f) or {}
+    except Exception as e:
+        logging.error(f"Failed to load paid DB: {e}")
+        return {}
+
+def _paid_save(db: dict) -> None:
+    try:
+        os.makedirs(os.path.dirname(PAID_DB_PATH), exist_ok=True)
+        with _paid_lock:
+            with open(PAID_DB_PATH, "w", encoding="utf-8") as f:
+                json.dump(db, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logging.error(f"Failed to save paid DB: {e}")
+
+def _parse_iso(dt_str: str) -> datetime | None:
+    try:
+        return datetime.fromisoformat(dt_str)
+    except Exception:
+        return None
+
+def get_paid_record(user_id: int) -> dict | None:
+    db = _paid_load()
+    return db.get(str(user_id))
+
+def is_paid_user(user_id: int) -> bool:
+    rec = get_paid_record(user_id)
+    if not rec:
+        return False
+    exp = _parse_iso(rec.get("expires_at", ""))
+    if not exp:
+        return False
+    return datetime.utcnow() <= exp
+
+def remaining_days(user_id: int) -> int | None:
+    rec = get_paid_record(user_id)
+    if not rec:
+        return None
+    exp = _parse_iso(rec.get("expires_at", ""))
+    if not exp:
+        return None
+    return (exp - datetime.utcnow()).days
+
+def activate_paid(user_id: int, days: int = DEFAULT_SUB_DAYS, activated_by: int | None = None) -> None:
+    db = _paid_load()
+    now = datetime.utcnow()
+    exp = now + timedelta(days=int(days))
+    db[str(user_id)] = {
+        "activated_at": now.isoformat(),
+        "expires_at": exp.isoformat(),
+        "activated_by": activated_by,
+        # reminder flags (reset on renew)
+        "reminded_3day": False,
+        "expired_notified": False,
+    }
+    _paid_save(db)
+
+def deactivate_paid(user_id: int) -> bool:
+    db = _paid_load()
+    if str(user_id) in db:
+        db.pop(str(user_id), None)
+        _paid_save(db)
+        return True
+    return False
+
+def _payment_instructions_text(user_id: int) -> str:
+    parts = [
+        "🔒 Paid access required.",
+        "",
+        f"💳 Price: {PAYMENT_PRICE_UZS} UZS (valid for {DEFAULT_SUB_DAYS} days)",
+        "",
+        "Pay using any of these methods and then send a screenshot here:",
+    ]
+    if PAYMENT_CLICK:
+        parts.append(f"• Click: {PAYMENT_CLICK}")
+    if PAYMENT_PAYME:
+        parts.append(f"• Payme: {PAYMENT_PAYME}")
+    if PAYMENT_CARD:
+        parts.append(f"• Card (Uzcard/HUMO): {PAYMENT_CARD}")
+    if PAYMENT_NOTE:
+        parts.append(PAYMENT_NOTE)
+
+    if not (PAYMENT_CLICK or PAYMENT_PAYME or PAYMENT_CARD):
+        parts.append("• Contact admin for payment details.")
+
+    parts.extend([
+        "",
+        f"🆔 Your user ID: {user_id}",
+        "After you send the screenshot, an admin will verify and activate your access.",
+        "",
+        "Commands:",
+        "• /pay — show payment details",
+        "• /id — show your user ID",
+        "• /mysub — check subscription status",
+    ])
+    return "\n".join(parts)
+
+async def pay_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await show_typing(update, context)
+    uid = update.effective_user.id
+    await update.message.reply_text(_payment_instructions_text(uid))
+
+async def id_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    username = update.effective_user.username or ""
+    await update.message.reply_text(f"🆔 Your user ID: {uid}" + (f"\n👤 Username: @{username}" if username else ""))
+
+async def mysub_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await show_typing(update, context)
+    uid = update.effective_user.id
+    rec = get_paid_record(uid)
+    if not rec:
+        await update.message.reply_text("❌ You do not have an active subscription. Use /pay to unlock.")
+        return
+    exp = _parse_iso(rec.get("expires_at", ""))
+    if not exp:
+        await update.message.reply_text("❌ Subscription record is corrupted. Contact admin.")
+        return
+    now = datetime.utcnow()
+    if now > exp:
+        await update.message.reply_text(f"⚠️ Your subscription has expired (expired on {exp.date()}). Use /pay to renew.")
+        return
+    days_left = (exp - now).days
+    await update.message.reply_text(
+        "💎 Active subscription\n\n"
+        f"Days remaining: {days_left}\n"
+        f"Expires on: {exp.date()}"
+    )
+
+async def activate_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not require_admin(update):
+        await update.message.reply_text("⛔ Admin only.")
+        return
+    if not context.args:
+        await update.message.reply_text("Usage: /activate <user_id> [days]")
+        return
+    try:
+        uid = int(context.args[0])
+        days = int(context.args[1]) if len(context.args) > 1 else DEFAULT_SUB_DAYS
+    except Exception:
+        await update.message.reply_text("Usage: /activate <user_id> [days]")
+        return
+
+    activate_paid(uid, days=days, activated_by=update.effective_user.id)
+    await update.message.reply_text(f"✅ Activated user {uid} for {days} days.")
+
+async def deactivate_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not require_admin(update):
+        await update.message.reply_text("⛔ Admin only.")
+        return
+    if not context.args:
+        await update.message.reply_text("Usage: /deactivate <user_id>")
+        return
+    try:
+        uid = int(context.args[0])
+    except Exception:
+        await update.message.reply_text("Usage: /deactivate <user_id>")
+        return
+
+    ok = deactivate_paid(uid)
+    await update.message.reply_text(f"❌ Deactivated user {uid}." if ok else "User not found.")
+
+async def paidusers_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not require_admin(update):
+        await update.message.reply_text("⛔ Admin only.")
+        return
+
+    db = _paid_load()
+    if not db:
+        await update.message.reply_text("No paid users found.")
+        return
+
+    now = datetime.utcnow()
+    lines = ["💎 Paid users (user_id → expires_at)\n"]
+    # sort by expiry
+    items = []
+    for uid_str, rec in db.items():
+        exp = _parse_iso(rec.get("expires_at", "")) or datetime(1970, 1, 1)
+        items.append((exp, uid_str, rec))
+    items.sort(key=lambda x: x[0])
+
+    for exp, uid_str, rec in items:
+        days_left = (exp - now).days
+        status = "Active" if days_left >= 0 else "Expired"
+        lines.append(f"• {uid_str} — {exp.date()} ({days_left}d) — {status}")
+
+    await send_long(update, "\n".join(lines))
+
+async def _forward_payment_proof_to_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Forward the user's screenshot/document to all admins + send a helper message
+    msg = update.effective_message
+    if not msg:
+        return
+    uid = update.effective_user.id
+    username = update.effective_user.username or ""
+    chat_id = update.effective_chat.id
+
+    for admin_id in ADMIN_IDS:
+        try:
+            await context.bot.forward_message(
+                chat_id=admin_id,
+                from_chat_id=chat_id,
+                message_id=msg.message_id,
+            )
+            await context.bot.send_message(
+                chat_id=admin_id,
+                text=(
+                    "🧾 Payment proof received\n"
+                    f"User ID: {uid}\n"
+                    + (f"Username: @{username}\n" if username else "")
+                    + f"Activate: /activate {uid} 30"
+                ),
+            )
+        except Exception as e:
+            logging.error(f"Failed to forward payment proof to admin {admin_id}: {e}")
+
+async def payment_proof_received_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # user-facing confirmation (always)
+    uid = update.effective_user.id
+    await update.message.reply_text(
+        "📸 Screenshot received.\n"
+        "✅ Please wait for admin verification.\n\n"
+        f"🆔 Your user ID: {uid}"
+    )
+
+async def paid_access_gate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Global paid-access guard. Runs BEFORE all other handlers."""
+    try:
+        if update is None or update.effective_user is None or update.effective_message is None:
+            return
+        # Admin always allowed
+        if require_admin(update):
+            return
+
+        uid = update.effective_user.id
+        msg = update.effective_message
+
+        # Allow some commands for everyone
+        cmd = ""
+        if getattr(msg, "text", None) and msg.text.startswith("/"):
+            cmd = msg.text.split()[0].lower()
+
+        WHITELIST = {"/start", "/pay", "/id", "/mysub"}
+        if cmd in WHITELIST:
+            return
+
+        # Allow user to send payment proof even if unpaid (photo/document)
+        is_photo = bool(getattr(msg, "photo", None))
+        is_doc = bool(getattr(msg, "document", None))
+        if (is_photo or is_doc) and (not is_paid_user(uid)):
+            await _forward_payment_proof_to_admin(update, context)
+            await payment_proof_received_reply(update, context)
+            raise ApplicationHandlerStop()
+
+        # If user not paid/expired: block everything else
+        if not is_paid_user(uid):
+            await show_typing(update, context)
+            await msg.reply_text(_payment_instructions_text(uid))
+            raise ApplicationHandlerStop()
+
+        # Paid user: let it continue
+        return
+
+    except ApplicationHandlerStop:
+        raise
+    except Exception as e:
+        logging.error(f"paid_access_gate error: {e}")
+
+async def subscription_reminder_job(context: ContextTypes.DEFAULT_TYPE):
+    """Runs daily: reminds users 3 days before expiry and after expiry (once)."""
+    db = _paid_load()
+    if not db:
+        return
+
+    now = datetime.utcnow()
+    changed = False
+
+    for uid_str, rec in db.items():
+        try:
+            uid = int(uid_str)
+        except Exception:
+            continue
+
+        exp = _parse_iso(rec.get("expires_at", ""))
+        if not exp:
+            continue
+
+        days_left = (exp - now).days
+
+        # 3-day reminder
+        if days_left == 3 and not rec.get("reminded_3day", False):
+            try:
+                await context.bot.send_message(
+                    chat_id=uid,
+                    text="⏳ Your subscription expires in 3 days.\n\nRenew to keep access: /pay",
+                )
+                rec["reminded_3day"] = True
+                changed = True
+            except Exception as e:
+                logging.error(f"Failed to send 3-day reminder to {uid}: {e}")
+
+        # Expired reminder (only once, after expiry)
+        if days_left < 0 and not rec.get("expired_notified", False):
+            try:
+                await context.bot.send_message(
+                    chat_id=uid,
+                    text="⚠️ Your subscription has expired.\n\nRenew to regain access: /pay",
+                )
+                rec["expired_notified"] = True
+                changed = True
+            except Exception as e:
+                logging.error(f"Failed to send expiry reminder to {uid}: {e}")
+
+    if changed:
+        _paid_save(db)
+
 
 CHROMA_PATH = os.getenv("CHROMA_PATH", os.path.join(DATA_DIR, "chroma_store"))
 COLLECTION_PREFIX = os.getenv("CHROMA_COLLECTION_PREFIX", "global")
@@ -717,7 +1066,7 @@ BTN_EC = "🎯 Extracurricular activities"
 BTN_REC = "✉️ Recommendation Letters"
 BTN_SAT = "📈 SAT"
 BTN_IELTS = "🗣️ IELTS"
-BTN_PORT = "🖼️ Portfolio Check"
+BTN_PORT = "🖼️ Portfolio"
 BTN_PLAN_MAIN = "📅 Application Plan"
 BTN_SF_MAIN = "🏫 School Finder"
 
@@ -2269,6 +2618,21 @@ async def _coach_evaluate_common(
         {"role": "system", "content": f"Guidelines + examples (may be empty):\n{context_block}"},
         {"role": "user", "content": f"Here is the student's {pretty_topic}. Evaluate it:\n\n{student_text_for_eval}"},
     ]
+
+    # Optional speed UX: send a short quick feedback first (users perceive faster response)
+    if ENABLE_EVAL_QUICK_PREVIEW:
+        quick_messages = [
+            {"role": "system", "content": "You are an admissions coach. Give quick, high-signal feedback in 5 bullet points. Be concise."},
+            {"role": "user", "content": f"Quick feedback for the student's {pretty_topic}:\n\n{student_text_for_eval}"},
+        ]
+        quick_out = openai_chat(
+            model=FAST_MODEL,
+            messages=quick_messages,
+            temperature=0.2,
+            max_tokens=EVAL_QUICK_MAX_TOKENS,
+        )
+        if (quick_out or "").strip():
+            await send_long(update, "⚡ Quick feedback (full review is coming next):\n\n" + quick_out.strip())
 
     raw_out = openai_chat(model=FAST_MODEL, messages=messages, temperature=0.3)
     user_text, mem_update = split_memory_block(raw_out)
@@ -4811,7 +5175,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         track_topic(context, "portfolio")
         await send_with_image(
             update,
-            "You're now in Portfolio Check.\nAsk about structure and how to present your work.",
+            "You're now in Portfolio.\nAsk about structure and how to present your work.",
             reply_markup=portfolio_keyboard(),
             image_key="portfolio",
         )
@@ -4908,7 +5272,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         track_topic(context, "portfolio")
         await send_with_image(
             update,
-            "You're now in Portfolio Check.\nAsk about structure and how to present your work.",
+            "You're now in Portfolio.\nAsk about structure and how to present your work.",
             reply_markup=portfolio_keyboard(),
             image_key="portfolio",
         )
@@ -5183,8 +5547,17 @@ async def error_handler(update, context):
 app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 app.add_error_handler(error_handler)
 
+# ===== GROUP -1: PAID ACCESS GATE (RUNS FIRST) =====
+app.add_handler(MessageHandler(filters.ALL, paid_access_gate), group=-1)
+
 # ===== GROUP 0: COMMANDS ONLY =====
 app.add_handler(CommandHandler("start", start), group=0)
+app.add_handler(CommandHandler("pay", pay_cmd), group=0)
+app.add_handler(CommandHandler("id", id_cmd), group=0)
+app.add_handler(CommandHandler("mysub", mysub_cmd), group=0)
+app.add_handler(CommandHandler("activate", activate_cmd), group=0)
+app.add_handler(CommandHandler("deactivate", deactivate_cmd), group=0)
+app.add_handler(CommandHandler("paidusers", paidusers_cmd), group=0)
 app.add_handler(CommandHandler("teach", teach), group=0)
 app.add_handler(CommandHandler("teachrubric", teachrubric), group=0)
 app.add_handler(CommandHandler("teachfile", teachfile), group=0)
@@ -5212,6 +5585,13 @@ app.add_handler(MessageHandler(filters.PHOTO, photo_router), group=1)
 
 # ===== GROUP 2: NORMAL TEXT (ABSOLUTELY LAST) =====
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, answer), group=2)
+
+# ===== Daily subscription reminders (3-day + expired) =====
+try:
+    app.job_queue.run_repeating(subscription_reminder_job, interval=86400, first=120)
+except Exception as e:
+    logging.error(f"Failed to schedule subscription reminders: {e}")
+
 
 print(
     "\n" + "="*80 + "\n"
