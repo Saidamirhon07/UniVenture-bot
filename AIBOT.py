@@ -1066,7 +1066,7 @@ BTN_EC = "🎯 Extracurricular activities"
 BTN_REC = "✉️ Recommendation Letters"
 BTN_SAT = "📈 SAT"
 BTN_IELTS = "🗣️ IELTS"
-BTN_PORT = "🖼️ Portfolio Check"
+BTN_PORT = "🖼️ Portfolio"
 BTN_PLAN_MAIN = "📅 Application Plan"
 BTN_SF_MAIN = "🏫 School Finder"
 
@@ -5193,7 +5193,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         track_topic(context, "portfolio")
         await send_with_image(
             update,
-            "You're now in Portfolio Check.\nAsk about structure and how to present your work.",
+            "You're now in Portfolio.\nAsk about structure and how to present your work.",
             reply_markup=portfolio_keyboard(),
             image_key="portfolio",
         )
@@ -5290,7 +5290,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         track_topic(context, "portfolio")
         await send_with_image(
             update,
-            "You're now in Portfolio Check.\nAsk about structure and how to present your work.",
+            "You're now in Portfolio.\nAsk about structure and how to present your work.",
             reply_markup=portfolio_keyboard(),
             image_key="portfolio",
         )
