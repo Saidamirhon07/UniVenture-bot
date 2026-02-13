@@ -1393,12 +1393,20 @@ def get_current_topic(context: ContextTypes.DEFAULT_TYPE) -> str:
     return context.user_data.get("topic", DEFAULT_TOPIC)
 
 def track_topic(context: ContextTypes.DEFAULT_TYPE, topic: str):
-    """Track which topic menus the user has opened (per-user, stored in user_data)."""
+    """Track which topic menus the user has opened and remember the last used section."""
     if not topic:
         return
+
+    # Keep a history of opened topics (useful for analytics / UX).
     seen = set(context.user_data.get("topics_seen", []))
     seen.add(topic)
     context.user_data["topics_seen"] = sorted(seen)
+
+    # Remember what the user last used so Boost Tools can adapt properly.
+    context.user_data["last_used_section"] = topic
+    # Keep topic in sync in case some callers only use track_topic.
+    context.user_data["topic"] = topic
+
 
 def track_tool_use(context: ContextTypes.DEFAULT_TYPE, tool: str):
     if not tool:
@@ -1599,13 +1607,11 @@ def looks_like_submission(q: str) -> bool:
     return False
 
 def clear_eval_context(context: ContextTypes.DEFAULT_TYPE):
-    for k in [
-        "last_eval_topic",
-        "last_eval_text",
-        "last_eval_text_original",
-        "last_eval_feedback",
-    ]:
-        context.user_data.pop(k, None)
+    """Exit evaluation follow-up mode but keep the last evaluated text/feedback.
+
+    Some Boost Tools (e.g., WOW Factor Finder) rely on the most recent evaluated text even if the
+    user navigates to other menus.
+    """
     context.user_data.pop("eval_active", None)
 
 
@@ -5153,6 +5159,8 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if q == BTN_EC:
         clear_eval_context(context)
         context.user_data["topic"] = "extracurriculars"
+
+        track_topic(context, "extracurriculars")
         track_topic(context, "extracurriculars")
         await send_with_image(
             update,
@@ -5175,6 +5183,8 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if q == BTN_REC:
         clear_eval_context(context)
         context.user_data["topic"] = "recommendations"
+
+        track_topic(context, "recommendations")
         track_topic(context, "recommendations")
         await send_with_image(
             update,
@@ -5190,6 +5200,8 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if q == BTN_PORT:
         clear_eval_context(context)
         context.user_data["topic"] = "portfolio"
+
+        track_topic(context, "portfolio")
         track_topic(context, "portfolio")
         await send_with_image(
             update,
@@ -5233,6 +5245,8 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if q == BTN_IELTS_WRITING:
         clear_eval_context(context)
         context.user_data["topic"] = "ielts_writing"
+
+        track_topic(context, "ielts_writing")
         track_topic(context, "ielts_writing")
         await send_with_image(
             update,
@@ -5379,6 +5393,8 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if q == BTN_PS_EVAL:
         clear_eval_context(context)
         context.user_data["topic"] = "essays_personal"
+
+        track_topic(context, "essays_personal")
         context.user_data["eval_active"] = True
         context.user_data["last_eval_topic"] = "essays_personal"
         await update.message.reply_text(
@@ -5391,6 +5407,8 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if q == BTN_SUPP_EVAL:
         clear_eval_context(context)
         context.user_data["topic"] = "essays_supplemental"
+
+        track_topic(context, "essays_supplemental")
         context.user_data["eval_active"] = True
         context.user_data["last_eval_topic"] = "essays_supplemental"
         await update.message.reply_text(
@@ -5403,6 +5421,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if q == BTN_EC_EVAL:
         clear_eval_context(context)
         context.user_data["topic"] = "extracurriculars"
+        track_topic(context, "extracurriculars")
         context.user_data["eval_active"] = True
         context.user_data["last_eval_topic"] = "extracurriculars"
         await update.message.reply_text(
@@ -5414,6 +5433,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if q == BTN_REC_EVAL:
         clear_eval_context(context)
         context.user_data["topic"] = "recommendations"
+        track_topic(context, "recommendations")
         context.user_data["eval_active"] = True
         context.user_data["last_eval_topic"] = "recommendations"
         await update.message.reply_text(
@@ -5425,6 +5445,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if q == BTN_IW_EVAL:
         clear_eval_context(context)
         context.user_data["topic"] = "ielts_writing"
+        track_topic(context, "ielts_writing")
         context.user_data["eval_active"] = True
         context.user_data["last_eval_topic"] = "ielts_writing"
         await update.message.reply_text(
@@ -5436,6 +5457,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if q == BTN_PORT_EVAL:
         clear_eval_context(context)
         context.user_data["topic"] = "portfolio"
+        track_topic(context, "portfolio")
         context.user_data["eval_active"] = True
         context.user_data["last_eval_topic"] = "portfolio"
         await update.message.reply_text(
