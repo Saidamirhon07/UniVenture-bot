@@ -1066,7 +1066,7 @@ BTN_EC = "🎯 Extracurricular activities"
 BTN_REC = "✉️ Recommendation Letters"
 BTN_SAT = "📈 SAT"
 BTN_IELTS = "🗣️ IELTS"
-BTN_PORT = "🖼️ Portfolio"
+BTN_PORT = "🖼️ Portfolio Check"
 BTN_PLAN_MAIN = "📅 Application Plan"
 BTN_SF_MAIN = "🏫 School Finder"
 
@@ -4750,6 +4750,12 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     q = text
     
+
+    # ✅ FIX: If user is in a pending mode and clicks a UI button, clear pending first
+    # This prevents the "first click does nothing" bug in menus like Boost Tools.
+    if context.user_data.get("pending_feature") and is_ui_button(q):
+        clear_pending_feature(context)
+
     if is_back_message(q):
 
     # ⬅️ Back from Boost Tools
@@ -4914,7 +4920,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-        pending = context.user_data.get("pending_feature")
+    pending = context.user_data.get("pending_feature")
     # If the user clicks a UI button while in a pending mode, treat it as navigation
     # (do NOT treat the button label as the user's input).
     if pending and is_ui_button(q):
@@ -5187,7 +5193,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         track_topic(context, "portfolio")
         await send_with_image(
             update,
-            "You're now in Portfolio.\nAsk about structure and how to present your work.",
+            "You're now in Portfolio Check.\nAsk about structure and how to present your work.",
             reply_markup=portfolio_keyboard(),
             image_key="portfolio",
         )
@@ -5284,7 +5290,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         track_topic(context, "portfolio")
         await send_with_image(
             update,
-            "You're now in Portfolio.\nAsk about structure and how to present your work.",
+            "You're now in Portfolio Check.\nAsk about structure and how to present your work.",
             reply_markup=portfolio_keyboard(),
             image_key="portfolio",
         )
