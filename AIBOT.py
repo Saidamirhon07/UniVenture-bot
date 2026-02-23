@@ -130,7 +130,7 @@ PAID_DB_PATH = os.getenv("PAID_DB_PATH", os.path.join(DATA_DIR, "paid_users.json
 DEFAULT_SUB_DAYS = int(os.getenv("DEFAULT_SUB_DAYS", "30"))
 
 # Payment instructions (set these in Railway Variables)
-PAYMENT_PRICE_UZS = os.getenv("PAYMENT_PRICE_UZS", "49000")
+PAYMENT_PRICE_USD = os.getenv("PAYMENT_PRICE_USD", "$29")
 PAYMENT_CARD = os.getenv("PAYMENT_CARD", "")        # e.g. "8600 1234 5678 9012"
 PAYMENT_CLICK = os.getenv("PAYMENT_CLICK", "")      # e.g. "+998901234567"
 PAYMENT_PAYME = os.getenv("PAYMENT_PAYME", "")      # e.g. "+998901234567"
@@ -210,12 +210,15 @@ def deactivate_paid(user_id: int) -> bool:
 
 def _payment_instructions_text(user_id: int) -> str:
     parts = [
-        "🔒 Paid access required.",
+        "🔒 <b>Paid access required</b>",
         "",
-        f"💳 Price: {PAYMENT_PRICE_UZS} UZS (valid for {DEFAULT_SUB_DAYS} days)",
+        "💳 <b>Limited Offer</b>",
+        "Old price: <s>$75</s>",
+        f"Now: <b>$29</b> (valid for {DEFAULT_SUB_DAYS} days)",
         "",
         "Pay using any of these methods and then send a screenshot here:",
     ]
+
     if PAYMENT_CLICK:
         parts.append(f"• Click: {PAYMENT_CLICK}")
     if PAYMENT_PAYME:
@@ -230,20 +233,80 @@ def _payment_instructions_text(user_id: int) -> str:
 
     parts.extend([
         "",
-        f"🆔 Your user ID: {user_id}",
+        f"🆔 Your user ID: <code>{user_id}</code>",
         "After you send the screenshot, an admin will verify and activate your access.",
         "",
-        "Commands:",
+        "<b>Commands:</b>",
         "• /pay — show payment details",
         "• /id — show your user ID",
         "• /mysub — check subscription status",
     ])
+
     return "\n".join(parts)
+
+async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "🤖 UniVentureAI Help\n\n"
+        "Main commands:\n"
+        "/start - Open main menu\n"
+        "/profile - View your saved profile\n"
+        "/pay - Payment instructions\n"
+        "/status - Check subscription status\n"
+        "/feedback - Send feedback\n\n"
+        "Or simply use the menu buttons to navigate."
+    )
+    
+async def profile_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    mem = get_user_memory_cached(update, context)
+    merge_usage_into_memory(context, mem)
+
+    profile = mem.get("profile", {}) or {}
+
+    msg = (
+        "👤 Your Profile\n\n"
+        f"Grade: {profile.get('grade') or '—'}\n"
+        f"Country: {profile.get('country') or '—'}\n"
+        f"Intended Major: {profile.get('major') or '—'}\n"
+        f"GPA: {profile.get('gpa') or '—'}\n"
+        f"SAT: {profile.get('sat') or '—'}\n"
+        f"IELTS: {profile.get('ielts') or '—'}\n"
+        f"Needs Financial Aid: {profile.get('needs_aid') if profile.get('needs_aid') is not None else '—'}\n"
+    )
+
+    await update.message.reply_text(msg)
+
+async def feedback_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+
+    parts = text.split(maxsplit=1)
+    if len(parts) < 2:
+        await update.message.reply_text(
+            "💬 Send feedback like this:\n\n"
+            "/feedback Your message here"
+        )
+        return
+
+    feedback_text = parts[1]
+
+    # Optional: forward to admin
+    for admin_id in ADMIN_IDS:
+        try:
+            await context.bot.send_message(
+                chat_id=admin_id,
+                text=f"💬 New feedback:\n\nFrom: {update.effective_user.id}\n\n{feedback_text}"
+            )
+        except Exception:
+            pass
+
+    await update.message.reply_text("✅ Thank you for your feedback!")
 
 async def pay_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_typing(update, context)
     uid = update.effective_user.id
-    await update.message.reply_text(_payment_instructions_text(uid))
+    await update.message.reply_text(
+        _payment_instructions_text(uid),
+        parse_mode="HTML"
+    )
 
 async def id_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
@@ -5618,6 +5681,9 @@ app.add_handler(CommandHandler("schoolfinder", schoolfinder_cmd), group=0)
 app.add_handler(CommandHandler("portfolioideas", portfolioideas_cmd), group=0)
 app.add_handler(CommandHandler("backup_sources", backup_sources), group=0)
 app.add_handler(CommandHandler("health", health), group=0)
+app.add_handler(CommandHandler("help", help_cmd))
+app.add_handler(CommandHandler("profile", profile_cmd))
+app.add_handler(CommandHandler("feedback", feedback_cmd))
 
 # ===== GROUP 1: FILES / PHOTOS =====
 app.add_handler(MessageHandler(filters.Document.ALL, document_router), group=1)
