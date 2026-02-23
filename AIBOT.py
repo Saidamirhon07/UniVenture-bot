@@ -224,7 +224,7 @@ def _payment_instructions_text(user_id: int) -> str:
     if PAYMENT_PAYME:
         parts.append(f"• Payme: {PAYMENT_PAYME}")
     if PAYMENT_CARD:
-        parts.append(f"• Card (Uzcard/HUMO): {PAYMENT_CARD}")
+        parts.append(f"• Card (HUMO):\n {PAYMENT_CARD}")
     if PAYMENT_NOTE:
         parts.append(PAYMENT_NOTE)
 
