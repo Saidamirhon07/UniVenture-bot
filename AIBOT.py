@@ -244,6 +244,49 @@ def _payment_instructions_text(user_id: int) -> str:
 
     return "\n".join(parts)
 
+async def how_to_use_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "🤖 *UniVentureAI — Help Guide*\n\n"
+        "I help you build a stronger university application step by step.\n\n"
+        "━━━━━━━━━━━━━━━\n"
+        "📚 MAIN SECTIONS\n"
+        "━━━━━━━━━━━━━━━\n"
+        "📝 Essays — Personal Statement & Supplementals\n"
+        "🎯 Extracurriculars — Structure & impact\n"
+        "✉️ Recommendation Letters — Strategy & evaluation\n"
+        "📈 SAT / 🗣 IELTS — Prep & Writing feedback\n"
+        "🖼 Portfolio — Structure & project ideas\n"
+        "📅 Application Plan — Timeline & strategy\n"
+        "🏫 School Finder — Reach / Match / Safety suggestions\n\n"
+        "━━━━━━━━━━━━━━━\n"
+        "⚡ BOOST TOOLS\n"
+        "━━━━━━━━━━━━━━━\n"
+        "📊 My Progress — Track readiness\n"
+        "🤫 Insider Tips — Section-specific secrets\n"
+        "⚡ Power Words — Upgrade vocabulary\n"
+        "🎯 Predict My Chances — Readiness indicator\n"
+        "🔍 Find Wow Factor — Detect your strongest hook\n\n"
+        "━━━━━━━━━━━━━━━\n"
+        "🧠 HOW TO USE ME\n"
+        "━━━━━━━━━━━━━━━\n"
+        "1️⃣ Choose a section from the menu\n"
+        "2️⃣ Tap the Evaluation button\n"
+        "3️⃣ Upload your draft (text / PDF / image)\n"
+        "4️⃣ Ask follow-up questions like:\n"
+        "   • \"Rewrite the ending\"\n"
+        "   • \"Make transitions smoother\"\n"
+        "   • \"Fix grammar\"\n\n"
+        "━━━━━━━━━━━━━━━\n"
+        "💎 SUBSCRIPTION\n"
+        "━━━━━━━━━━━━━━━\n"
+        "This platform requires paid access.\n"
+        "Use /pay to unlock full features.\n"
+        "Use /mysub to check your subscription.\n\n"
+        "Need help? Just type your question.\n"
+        "I'll guide you step by step 🚀",
+        parse_mode="Markdown"
+    )
+
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🤖 UniVentureAI Help\n\n"
@@ -5684,6 +5727,8 @@ app.add_handler(CommandHandler("health", health), group=0)
 app.add_handler(CommandHandler("help", help_cmd))
 app.add_handler(CommandHandler("profile", profile_cmd))
 app.add_handler(CommandHandler("feedback", feedback_cmd))
+app.add_handler(CommandHandler("how_to_use", how_to_use_cmd))
+
 
 # ===== GROUP 1: FILES / PHOTOS =====
 app.add_handler(MessageHandler(filters.Document.ALL, document_router), group=1)
