@@ -2771,9 +2771,16 @@ async def _coach_evaluate_common(
     # Optional speed UX: send a short quick feedback first (users perceive faster response)
     if ENABLE_EVAL_QUICK_PREVIEW:
         quick_messages = [
-            {"role": "system", "content": "You are a senior admissions strategist. Give a short strategic preview in 3 bullet points focusing on differentiation, competitive risk, and depth gaps. Do NOT use 'Overall' or 'What works' headings."},
-            {"role": "user", "content": f"Quick feedback for the student's {pretty_topic}:\n\n{student_text_for_eval}"},
-        ]
+        {"role": "system", "content":
+            "QUICK DIAGNOSTIC (STRICT):\n"
+            "- Output EXACTLY 3 bullet points.\n"
+            "- Each bullet must start with one of these labels exactly: "
+            "DIFFERENTIATION:, RISK:, DEPTH:.\n"
+            "- No other text, no headings, no 'Overall', no 'What works', no 'Next step'.\n"
+            "- Keep each bullet to 1 sentence."
+        },
+        {"role": "user", "content": f"Quick feedback for the student's {pretty_topic}:\n\n{student_text_for_eval}"},
+    ]
         quick_out = openai_chat(
             model=FAST_MODEL,
             messages=quick_messages,
