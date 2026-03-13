@@ -39,7 +39,7 @@ nest_asyncio.apply()
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
+CODE_VERSION = "2026-03-14_ELITE_V3"
 
 # -------- Model routing (speed vs depth) --------
 FAST_MODEL = os.getenv("OPENAI_FAST_MODEL", "gpt-4.1-mini")
@@ -5827,7 +5827,8 @@ def start_dummy_server():
     server.serve_forever()
 
 
-
+async def version_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(f"Version: {CODE_VERSION}")
 # -------- Global error handler (prevents silent no-reply bugs) --------
 async def error_handler(update, context):
     logging.exception("Unhandled exception while handling an update: %s", getattr(context, 'error', None))
@@ -5844,6 +5845,7 @@ app.add_error_handler(error_handler)
 app.add_handler(MessageHandler(filters.ALL, paid_access_gate), group=-1)
 
 # ===== GROUP 0: COMMANDS ONLY =====
+app.add_handler(CommandHandler("version", version_cmd), group=0)
 app.add_handler(CommandHandler("start", start), group=0)
 app.add_handler(CommandHandler("pay", pay_cmd), group=0)
 app.add_handler(CommandHandler("id", id_cmd), group=0)
