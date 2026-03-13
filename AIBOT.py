@@ -2771,7 +2771,7 @@ async def _coach_evaluate_common(
     # Optional speed UX: send a short quick feedback first (users perceive faster response)
     if ENABLE_EVAL_QUICK_PREVIEW:
         quick_messages = [
-            {"role": "system", "content": "You are an admissions coach. Give quick, high-signal feedback in 5 bullet points. Be concise."},
+            {"role": "system", "content": "You are a senior admissions strategist. Give a short strategic preview in 3 bullet points focusing on differentiation, competitive risk, and depth gaps. Do NOT use 'Overall' or 'What works' headings."},
             {"role": "user", "content": f"Quick feedback for the student's {pretty_topic}:\n\n{student_text_for_eval}"},
         ]
         quick_out = openai_chat(
