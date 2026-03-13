@@ -1119,30 +1119,45 @@ def coach_eval_system_prompt(topic: str, mem: dict, decision_notes: str) -> str:
     nice = FRIENDLY_TOPIC_NAMES.get(topic, topic)
     mem_sum = memory_summary_for_prompt(mem)
 
+    if topic == "essays_personal":
+        strategic_layer = (
+            "Focus heavily on identity, emotional depth, internal conflict, and personal transformation.\n"
+            "Ask: What changed inside the student? Where is vulnerability? Where is psychological growth?\n"
+            "Flag cliché narrative arcs and generic 'hard work leads to success' themes.\n"
+        )
+    elif topic == "essays_supplemental":
+        strategic_layer = (
+            "Focus heavily on institutional fit, specificity, intellectual direction, and contribution.\n"
+            "Ask: Why THIS school/program? What concrete elements are missing (professors, labs, values)?\n"
+            "Flag generic 'strong community' language.\n"
+        )
+    else:
+        strategic_layer = "Evaluate competitively and strategically."
+
     return (
-        "COACH_PERSONA:\n"
-        "You are UniVenture Coach - a brutally helpful, kind admissions mentor.\n"
-        "You sound like a top human coach: direct, specific, and practical.\n"
-        "No fluff. No generic praise. No mention of being an AI.\n\n"
-        f"Task: Evaluate the student's {nice}.\n"
-        "Use any provided rubrics/guidelines as trusted material.\n\n"
-        "Output format (use these headings, keep it scannable):\n"
-        "1) ✅ Quick verdict (1-2 sentences)\n"
-        "2) ⭐ What works (2-4 bullets)\n"
-        "3) ⚠️ Biggest issues to fix (2-4 bullets)\n"
-        "4) 🧩 Line-level notes (quote 2-5 short excerpts and explain what to change)\n"
-        "5) 🛠 Rewrite plan (3 steps)\n"
-        "6) ❓ One question for you (ask exactly 1 targeted question)\n"
-        "7) 🎯 Next step (one concrete action)\n\n"
-        "Then append exactly: \n"
+        "ROLE:\n"
+        "You are a senior admissions strategist who has reviewed thousands of successful applications.\n"
+        "You are psychologically sharp and strategically direct.\n\n"
+        f"TASK: Evaluate the student's {nice}.\n\n"
+        f"{strategic_layer}\n"
+        "CRITICAL FRAMEWORK:\n"
+        "1) Differentiation\n"
+        "2) Emotional or intellectual depth\n"
+        "3) Narrative cohesion\n"
+        "4) Competitive risk\n\n"
+        "OUTPUT FORMAT:\n"
+        "1) 🎯 Strategic Verdict\n"
+        "2) 💎 Strengths\n"
+        "3) ⚠️ Competitive Risks\n"
+        "4) 🧠 Depth Gaps\n"
+        "5) ✂️ What to Cut or Compress\n"
+        "6) 🛠 Exact Rewrite Moves\n"
+        "7) ❓ One high-level reflection question\n"
+        "8) 🎯 Rewrite Priority\n\n"
+        f"Student Memory:\n{mem_sum}\n\n"
+        f"Decision Notes:\n{decision_notes}\n\n"
         "---\n"
-        "MEMORY_JSON: { ... }\n\n"
-        "Where MEMORY_JSON is valid JSON with keys:\n"
-        "voice_tags (list), themes (list), strengths (list), issues (list), best_lines (list), summary (string), eval_summary (string).\n\n"
-        "Student memory (may be empty):\n"
-        f"{mem_sum}\n\n"
-        "Coach decision notes (rules layer):\n"
-        f"{decision_notes}\n"
+        "MEMORY_JSON: {...}\n"
     )
 
 
@@ -2718,6 +2733,7 @@ async def _coach_evaluate_common(
     context_block: str,
     pretty_topic: str,
 ):
+    bump_eval_count(context)
     """Shared evaluation engine with Coach Mode + memory updates."""
     mem = get_user_memory_cached(update, context)
     merge_usage_into_memory(context, mem)
@@ -2774,7 +2790,16 @@ async def _coach_evaluate_common(
 
 
 async def evaluate_file_for_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if not can_run_eval(context):
+        await update.message.reply_text(
+            f"⚠️ Daily limit reached: {EVALS_PER_DAY_LIMIT} evaluations/day.\n"
+            "Try again tomorrow (UTC) or ask follow-up questions on your last evaluation."
+        )
+        return
+
     await show_typing(update, context)
+
     chat_id = update.effective_chat.id
     user = update.effective_user
     topic = get_current_topic(context)
@@ -2846,7 +2871,16 @@ async def evaluate_file_for_topic(update: Update, context: ContextTypes.DEFAULT_
 
 
 async def evaluate_ielts_writing_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if not can_run_eval(context):
+        await update.message.reply_text(
+            f"⚠️ Daily limit reached: {EVALS_PER_DAY_LIMIT} evaluations/day.\n"
+            "Try again tomorrow (UTC)."
+        )
+        return
+
     await show_typing(update, context)
+
     chat_id = update.effective_chat.id
     user = update.effective_user
     topic = "ielts_writing"
@@ -2915,10 +2949,20 @@ async def evaluate_ielts_writing_image(update: Update, context: ContextTypes.DEF
     await send_long(update, a)
 
 async def evaluate_text_for_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if not can_run_eval(context):
+        await update.message.reply_text(
+            f"⚠️ Daily limit reached: {EVALS_PER_DAY_LIMIT} evaluations/day.\n"
+            "Try again tomorrow (UTC) or ask follow-up questions on your last evaluation."
+        )
+        return
+
     await show_typing(update, context)
+
     chat_id = update.effective_chat.id
     user = update.effective_user
     topic = get_current_topic(context)
+
     record_event(user.id, topic, kind="eval")
 
     allowed = set(EVAL_TOPICS) | {"ielts_writing"}
@@ -3180,6 +3224,38 @@ async def health(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🧪 Health Check\n\n" + "\n".join(checks))
 
 # ---------- NEW FEATURE HELPERS ----------
+# ===== Daily usage limits =====
+EVALS_PER_DAY_LIMIT = int(os.getenv("EVALS_PER_DAY_LIMIT", "5"))
+
+def _today_key_utc() -> str:
+    return datetime.utcnow().strftime("%Y-%m-%d")
+
+def can_run_eval(context: ContextTypes.DEFAULT_TYPE) -> bool:
+    usage = context.user_data.setdefault("usage_limits", {})
+    today = _today_key_utc()
+
+    rec = usage.get(today) or {"evals": 0}
+    # reset if date changed
+    if usage.get("date") != today:
+        usage.clear()
+        usage["date"] = today
+        usage[today] = rec
+
+    return int(rec.get("evals", 0) or 0) < EVALS_PER_DAY_LIMIT
+
+def bump_eval_count(context: ContextTypes.DEFAULT_TYPE) -> int:
+    usage = context.user_data.setdefault("usage_limits", {})
+    today = _today_key_utc()
+
+    if usage.get("date") != today:
+        usage.clear()
+        usage["date"] = today
+        usage[today] = {"evals": 0}
+
+    rec = usage[today]
+    rec["evals"] = int(rec.get("evals", 0) or 0) + 1
+    return rec["evals"]
+
 def _app_portfolio_compact_summary(mem: dict) -> str:
     """
     Create a compact, LLM-friendly summary of the user's Application Portfolio.
@@ -4244,26 +4320,77 @@ async def run_rewrite(update: Update, context: ContextTypes.DEFAULT_TYPE, text_t
     except Exception as e:
         logging.error(f"Error querying for rewrite: {e}")
         docs = []
-        
+
     context_block = "\n\n---\n\n".join(docs) if docs else ""
 
-    sys = (
-        f"You are an admissions writing coach helping improve a student's {nice_topic} text.\n"
-        "IMPROVE the text by making it:\n"
-        "1. Clearer and more natural\n"
-        "2. Better flow and transitions\n"
-        "3. Stronger word choice without being fancy\n"
-        "4. More impactful for admissions readers\n"
-        "5. Preserving the student's original voice and meaning\n\n"
-        "OUTPUT FORMAT:\n"
-        "📝 IMPROVED VERSION:\n"
-        "[The complete rewritten text]\n\n"
-        "🔍 KEY IMPROVEMENTS:\n"
-        "[Brief point about a key change]\n"
-        "[Brief point about another change]\n"
-        "[Brief point about the main improvement]\n"
-        "(Just 2-3 points, keep it very concise)"
-    )
+    if topic == "essays_personal":
+        sys = (
+            "ROLE:\n"
+            "You are a senior admissions essay strategist rewriting a PERSONAL STATEMENT for top universities.\n"
+            "You elevate identity, emotional depth, inner conflict, and transformation — not just grammar.\n\n"
+            "GOALS (Personal Statement):\n"
+            "1) Strengthen the narrative arc: scene → tension → insight → changed self.\n"
+            "2) Add psychological depth: uncertainty, stakes, vulnerability, what it cost.\n"
+            "3) Increase differentiation: avoid common 'hard work' or 'love of subject' clichés.\n"
+            "4) Preserve the student's authentic voice; do not make it poetic or fake.\n\n"
+            "RULES:\n"
+            "- Do NOT add achievements the student didn't mention.\n"
+            "- If a paragraph is generic, compress or replace with a concrete moment.\n"
+            "- Make the ending feel inevitable and forward-looking (who they are becoming).\n\n"
+            "OUTPUT FORMAT (STRICT):\n"
+            "📝 ELEVATED VERSION:\n"
+            "[Full improved version]\n\n"
+            "🧠 WHAT CHANGED STRATEGICALLY:\n"
+            "- [Biggest arc/structure improvement]\n"
+            "- [Biggest depth/vulnerability improvement]\n"
+            "- [Biggest differentiation improvement]\n"
+        )
+
+    elif topic == "essays_supplemental":
+        sys = (
+            "ROLE:\n"
+            "You are a senior admissions strategist rewriting a SUPPLEMENTAL ESSAY for top universities.\n"
+            "You elevate specificity, fit, intellectual direction, and contribution — not generic polish.\n\n"
+            "GOALS (Supplemental):\n"
+            "1) Strengthen fit: connect the student's goals to specific programs/values (without inventing facts).\n"
+            "2) Increase specificity: replace generic phrases ('great community') with concrete details the student provided.\n"
+            "3) Make the 'Why you' + 'Why us' logic tight: YOU → SCHOOL → YOU.\n"
+            "4) Keep it concise and high-signal; cut filler.\n\n"
+            "RULES:\n"
+            "- Do NOT invent professors, labs, clubs, courses, or statistics.\n"
+            "- If the prompt is unclear, write a version that can be easily customized with placeholders like [LAB/PROF/PROGRAM].\n"
+            "- End with contribution + forward motion (how they will engage and add value).\n\n"
+            "OUTPUT FORMAT (STRICT):\n"
+            "📝 ELEVATED VERSION:\n"
+            "[Full improved version]\n\n"
+            "🧠 WHAT CHANGED STRATEGICALLY:\n"
+            "- [Biggest fit/specificity improvement]\n"
+            "- [Biggest structure improvement]\n"
+            "- [Biggest differentiation improvement]\n"
+        )
+
+    else:
+        sys = (
+            f"ROLE:\n"
+            f"You are a senior admissions writing strategist improving a student's {nice_topic} text.\n"
+            "You elevate clarity, structure, credibility, and impact — not just grammar.\n\n"
+            "GOALS:\n"
+            "1) Increase differentiation and specificity.\n"
+            "2) Remove cliché language and filler.\n"
+            "3) Strengthen flow and logical structure.\n"
+            "4) Preserve the student's authentic voice.\n\n"
+            "RULES:\n"
+            "- Do NOT add fake achievements.\n"
+            "- Compress weak sections.\n"
+            "- Keep it natural and human.\n\n"
+            "OUTPUT FORMAT (STRICT):\n"
+            "📝 ELEVATED VERSION:\n"
+            "[Full improved version]\n\n"
+            "🧠 WHAT CHANGED STRATEGICALLY:\n"
+            "- [Most important improvement]\n"
+            "- [Second important improvement]\n"
+            "- [Third important improvement]\n"
+        )
 
     messages = [{"role": "system", "content": sys}]
     if context_block:
