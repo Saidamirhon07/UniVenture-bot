@@ -2745,8 +2745,17 @@ async def _coach_evaluate_common(
     context_block: str,
     pretty_topic: str,
 ):
-    bump_eval_count(context)
     """Shared evaluation engine with Coach Mode + memory updates."""
+    # ===== Daily eval limit =====
+    if not can_run_eval(context):
+        await update.message.reply_text(
+            f"⚠️ Daily limit reached: {EVALS_PER_DAY_LIMIT} evaluations/day.\n"
+            "Try again tomorrow (UTC) or ask follow-up questions on your last evaluation."
+        )
+        return
+
+    bump_eval_count(context)
+
     mem = get_user_memory_cached(update, context)
     merge_usage_into_memory(context, mem)
 
@@ -2770,16 +2779,15 @@ async def _coach_evaluate_common(
     # Optional speed UX: send a short quick feedback first (users perceive faster response)
     if ENABLE_EVAL_QUICK_PREVIEW:
         quick_messages = [
-        {"role": "system", "content":
-            "QUICK DIAGNOSTIC (STRICT):\n"
-            "- Output EXACTLY 3 bullet points.\n"
-            "- Each bullet must start with one of these labels exactly: "
-            "DIFFERENTIATION:, RISK:, DEPTH:.\n"
-            "- No other text, no headings, no 'Overall', no 'What works', no 'Next step'.\n"
-            "- Keep each bullet to 1 sentence."
-        },
-        {"role": "user", "content": f"Quick feedback for the student's {pretty_topic}:\n\n{student_text_for_eval}"},
-    ]
+            {"role": "system", "content":
+                "QUICK DIAGNOSTIC (STRICT):\n"
+                "- Output EXACTLY 3 bullet points.\n"
+                "- Each bullet must start with one of these labels exactly: DIFFERENTIATION:, RISK:, DEPTH:.\n"
+                "- No other text, no headings, no 'Overall', no 'What works', no 'Next step'.\n"
+                "- Keep each bullet to 1 sentence."
+            },
+            {"role": "user", "content": f"Quick feedback for the student's {pretty_topic}:\n\n{student_text_for_eval}"},
+        ]
         quick_out = openai_chat(
             model=FAST_MODEL,
             messages=quick_messages,
@@ -2899,6 +2907,15 @@ async def evaluate_ielts_writing_image(update: Update, context: ContextTypes.DEF
         return
 
     await show_typing(update, context)
+    # ===== Daily eval limit =====
+    if not can_run_eval(context):
+        await update.message.reply_text(
+            f"⚠️ Daily limit reached: {EVALS_PER_DAY_LIMIT} evaluations/day.\n"
+            "Try again tomorrow (UTC) or ask follow-up questions on your last evaluation."
+        )
+        return
+    
+    bump_eval_count(context)
 
     chat_id = update.effective_chat.id
     user = update.effective_user
