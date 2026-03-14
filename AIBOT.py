@@ -5865,7 +5865,7 @@ async def error_handler(update, context):
     except Exception:
         pass
 # ===== Setup Application =====
-app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+app = ApplicationBuilder().token(TELEGRAM_TOKEN).concurrent_updates(True).build()
 app.add_error_handler(error_handler)
 
 # ===== GROUP -1: PAID ACCESS GATE (RUNS FIRST) =====
