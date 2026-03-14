@@ -33,6 +33,8 @@ import trafilatura
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
+import asyncio
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 load_dotenv()
 nest_asyncio.apply()
@@ -2776,7 +2778,7 @@ async def _coach_evaluate_common(
         {"role": "user", "content": f"Here is the student's {pretty_topic}. Evaluate it:\n\n{student_text_for_eval}"},
     ]
 
-    # Optional speed UX: send a short quick feedback first (users perceive faster response)
+# Optional speed UX: send a short quick feedback first
     if ENABLE_EVAL_QUICK_PREVIEW:
         quick_messages = [
             {"role": "system", "content":
@@ -2788,16 +2790,27 @@ async def _coach_evaluate_common(
             },
             {"role": "user", "content": f"Quick feedback for the student's {pretty_topic}:\n\n{student_text_for_eval}"},
         ]
-        quick_out = openai_chat(
-            model=FAST_MODEL,
-            messages=quick_messages,
-            temperature=0.2,
-            max_tokens=EVAL_QUICK_MAX_TOKENS,
+    
+        quick_out = await asyncio.to_thread(
+            openai_chat,
+            FAST_MODEL,
+            quick_messages,
+            0.2,
+            EVAL_QUICK_MAX_TOKENS
         )
+    
         if (quick_out or "").strip():
             await send_long(update, "⚡ Quick feedback (full review is coming next):\n\n" + quick_out.strip())
-
-    raw_out = openai_chat(model=STRONG_MODEL, messages=messages, temperature=0.3)
+    
+    
+    # Full strategic evaluation (non-blocking)
+    raw_out = await asyncio.to_thread(
+        openai_chat,
+        STRONG_MODEL,
+        messages,
+        0.3
+    )
+    
     user_text, mem_update = split_memory_block(raw_out)
 
     # Save eval context for follow-ups
