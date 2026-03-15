@@ -551,7 +551,10 @@ async def paid_access_gate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # If user not paid/expired: block everything else
         if not is_paid_user(uid):
             await show_typing(update, context)
-            await msg.reply_text(_payment_instructions_text(uid))
+            await msg.reply_text(
+                _payment_instructions_text(uid),
+                parse_mode="HTML"
+            )
             raise ApplicationHandlerStop()
 
         # Paid user: let it continue
