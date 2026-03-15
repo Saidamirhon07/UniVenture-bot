@@ -34,7 +34,11 @@ import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 import asyncio
-from openai import RateLimitError
+
+try:
+    from openai import RateLimitError
+except ImportError:
+    from openai.error import RateLimitError
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 load_dotenv()
