@@ -34,6 +34,7 @@ import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 import asyncio
+from openai import RateLimitError
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 load_dotenv()
@@ -74,35 +75,53 @@ except Exception as e:
     USE_NEW_OPENAI = False
     logging.info("Using OpenAI SDK v0.28.x or earlier")
 
-def openai_chat(
+async def openai_chat(
     model: str,
     messages: list,
     temperature: float = 0.4,
     max_tokens: int | None = None,
 ) -> str:
-    """Unified chat completion across old/new OpenAI python SDKs."""
-    try:
-        if USE_NEW_OPENAI:
-            resp = _client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
-            return (resp.choices[0].message.content or "").strip()
-        else:
-            import openai as _openai  # type: ignore
+    """Async OpenAI chat completion with retry + graceful wait message."""
 
-            resp = _openai.ChatCompletion.create(
-                model=model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
-            return (resp["choices"][0]["message"]["content"] or "").strip()
-    except Exception as e:
-        logging.exception(f"OpenAI error in model {model}")
-        return f"Error: {str(e)[:200]}"
+    max_retries = 3
+    attempt = 0
+
+    while attempt < max_retries:
+        try:
+            if USE_NEW_OPENAI:
+                resp = await asyncio.wait_for(
+                    _client.chat.completions.create(
+                        model=model,
+                        messages=messages,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                    ),
+                    timeout=60
+                )
+                return (resp.choices[0].message.content or "").strip()
+            else:
+                import openai as _openai
+                resp = await _openai.ChatCompletion.acreate(
+                    model=model,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+                return (resp["choices"][0]["message"]["content"] or "").strip()
+
+        except (RateLimitError, asyncio.TimeoutError):
+            attempt += 1
+            logging.warning(f"OpenAI retry (attempt {attempt}/{max_retries})")
+
+            if attempt < max_retries:
+                await asyncio.sleep(10)
+                continue
+            else:
+                return "⚠️ I'm a bit busy right now! Please try again in 60 seconds."
+
+        except Exception:
+            logging.exception("OpenAI unexpected error")
+            return "⚠️ I'm a bit busy right now! Please try again in 60 seconds."
 
 # -------- Admin config --------
 ADMIN_IDS = {
@@ -1726,7 +1745,7 @@ async def send_with_image(
     await update.message.reply_text(caption, reply_markup=reply_markup)
 
 # -------- Vision helper --------
-def extract_text_from_image_bytes(image_bytes: bytes) -> str:
+async def extract_text_from_image_bytes(image_bytes: bytes) -> str:
     try:
         b64 = base64.b64encode(image_bytes).decode("utf-8")
         data_url = f"data:image/jpeg;base64,{b64}"
@@ -1747,7 +1766,7 @@ def extract_text_from_image_bytes(image_bytes: bytes) -> str:
             }
         ]
 
-        out = openai_chat(model="gpt-4o-mini", messages=messages, temperature=0.0)
+        out = await openai_chat(model="gpt-4o-mini", messages=messages, temperature=0.0)
         return out or ""
     except Exception as e:
         logging.error(f"Error extracting text from image: {e}")
@@ -2403,7 +2422,7 @@ async def teachimage(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     try:
-        extracted = extract_text_from_image_bytes(img_bytes)
+        extracted = await extract_text_from_image_bytes(img_bytes)
     except Exception as e:
         await update.message.reply_text(f"Could not extract text from image: {e}")
         return
@@ -2717,7 +2736,7 @@ async def run_eval_followup(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         {"role": "user", "content": f"User request:\n{user_request}"},
     ]
 
-    revised = openai_chat(model=FAST_MODEL, messages=messages, temperature=0.35)
+    revised = await openai_chat(model=FAST_MODEL, messages=messages, temperature=0.35)
 
     if revised and not revised.lower().startswith("error"):
         context.user_data["last_eval_text"] = revised
@@ -2781,7 +2800,7 @@ async def run_eval_qa(update: Update, context: ContextTypes.DEFAULT_TYPE, user_q
         {"role": "user", "content": user_question},
     ]
 
-    a = openai_chat(model=FAST_MODEL, messages=messages, temperature=0.35)
+    a = await openai_chat(model=FAST_MODEL, messages=messages, temperature=0.35)
     await send_long(update, a)
 
 
@@ -2838,8 +2857,7 @@ async def _coach_evaluate_common(
             {"role": "user", "content": f"Quick feedback for the student's {pretty_topic}:\n\n{student_text_for_eval}"},
         ]
     
-        quick_out = await asyncio.to_thread(
-            openai_chat,
+        quick_out = await openai_chat(
             FAST_MODEL,
             quick_messages,
             0.2,
@@ -2851,8 +2869,7 @@ async def _coach_evaluate_common(
     
     
     # Full strategic evaluation (non-blocking)
-    raw_out = await asyncio.to_thread(
-        openai_chat,
+    raw_out = await openai_chat(
         STRONG_MODEL,
         messages,
         0.3
@@ -2958,15 +2975,6 @@ async def evaluate_file_for_topic(update: Update, context: ContextTypes.DEFAULT_
 
 
 async def evaluate_ielts_writing_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    if not can_run_eval(context):
-        await update.message.reply_text(
-            f"⚠️ Daily limit reached: {EVALS_PER_DAY_LIMIT} evaluations/day.\n"
-            "Try again tomorrow (UTC)."
-        )
-        return
-
-    await show_typing(update, context)
     # ===== Daily eval limit =====
     if not can_run_eval(context):
         await update.message.reply_text(
@@ -3003,7 +3011,7 @@ async def evaluate_ielts_writing_image(update: Update, context: ContextTypes.DEF
         return
 
     try:
-        extracted = extract_text_from_image_bytes(img_bytes)
+        extracted = await extract_text_from_image_bytes(img_bytes)
     except Exception as e:
         await update.message.reply_text(f"Could not extract text from image: {e}")
         return
@@ -3040,7 +3048,7 @@ async def evaluate_ielts_writing_image(update: Update, context: ContextTypes.DEF
         {"role": "user", "content": f"Here is the student's IELTS Writing answer (from an image):\n\n{student_text_for_eval}"},
     ]
 
-    a = openai_chat(model=FAST_MODEL, messages=messages, temperature=0.3)
+    a = await openai_chat(model=FAST_MODEL, messages=messages, temperature=0.3)
     set_eval_context(context, topic, student_text_for_followup, a)
     await send_long(update, a)
 
@@ -3286,7 +3294,7 @@ async def health(update: Update, context: ContextTypes.DEFAULT_TYPE):
     checks = []
 
     try:
-        _ = openai_chat(
+        _ = await openai_chat(
             model=FAST_MODEL,
             messages=[{"role": "user", "content": "ping"}],
             temperature=0.0,
@@ -4329,7 +4337,7 @@ async def run_advisor_mode(update: Update, context: ContextTypes.DEFAULT_TYPE, u
         {"role": "user", "content": user_text or "Use the saved portfolio only and give my fit analysis."},
     ]
 
-    out = openai_chat(model=FAST_MODEL, messages=messages, temperature=0.45, max_tokens=550)
+    out = await openai_chat(model=FAST_MODEL, messages=messages, temperature=0.45, max_tokens=550)
     await send_long(update, out)
     await update.message.reply_text("Want to update scores/essays or run Advisor Mode again?", reply_markup=app_portfolio_keyboard())
 
@@ -4385,7 +4393,7 @@ async def run_brainstorm(update: Update, context: ContextTypes.DEFAULT_TYPE, des
         })
     messages.append({"role": "user", "content": "Here is the student's situation:\n\n" + q_local})
 
-    a = openai_chat(model=FAST_MODEL, messages=messages, temperature=0.5)
+    a = await openai_chat(model=FAST_MODEL, messages=messages, temperature=0.5)
     await send_long(update, a)
 
 
@@ -4495,7 +4503,7 @@ async def run_rewrite(update: Update, context: ContextTypes.DEFAULT_TYPE, text_t
         )
     messages.append({"role": "user", "content": f"Here is the text to improve:\n\n{text_to_fix}"})
 
-    a = openai_chat(model=FAST_MODEL, messages=messages, temperature=0.4)
+    a = await openai_chat(model=FAST_MODEL, messages=messages, temperature=0.4)
     await send_long(update, a)
 
 async def rewrite_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -4537,7 +4545,7 @@ async def run_plan(update: Update, context: ContextTypes.DEFAULT_TYPE, descripti
         messages.append({"role": "system", "content": f"Program-specific planning notes (may be empty):\n{context_block}"})
     messages.append({"role": "user", "content": "Here is my situation:\n\n" + description})
 
-    a = openai_chat(model=FAST_MODEL, messages=messages, temperature=0.5)
+    a = await openai_chat(model=FAST_MODEL, messages=messages, temperature=0.5)
     await send_long(update, a)
 
 
@@ -4615,7 +4623,7 @@ async def run_plan_from_portfolio(update: Update, context: ContextTypes.DEFAULT_
         messages.append({"role": "system", "content": f"Planning notes (may be empty):\n{context_block}"})
     messages.append({"role": "user", "content": f"Use this application portfolio:\n\n{portfolio_block}"})
 
-    a = openai_chat(model=FAST_MODEL, messages=messages, temperature=0.5)
+    a = await openai_chat(model=FAST_MODEL, messages=messages, temperature=0.5)
     await send_long(update, a)
 
 async def plan_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -4648,7 +4656,7 @@ async def run_recpacket(update: Update, context: ContextTypes.DEFAULT_TYPE, desc
     )
 
     messages = [{"role": "system", "content": sys}, {"role": "user", "content": description}]
-    a = openai_chat(model=FAST_MODEL, messages=messages, temperature=0.5)
+    a = await openai_chat(model=FAST_MODEL, messages=messages, temperature=0.5)
     await send_long(update, a)
 
 async def recpacket_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -4694,7 +4702,7 @@ async def run_schoolfinder(update: Update, context: ContextTypes.DEFAULT_TYPE, d
         )
     messages.append({"role": "user", "content": description})
 
-    a = openai_chat(model=FAST_MODEL, messages=messages, temperature=0.6)
+    a = await openai_chat(model=FAST_MODEL, messages=messages, temperature=0.6)
     await send_long(update, a)
 
 
@@ -4776,7 +4784,7 @@ async def run_schoolfinder_from_portfolio(update: Update, context: ContextTypes.
         {"role": "system", "content": sys_prompt},
         {"role": "user", "content": portfolio_block},
     ]
-    a = openai_chat(model=FAST_MODEL, messages=messages, temperature=0.5)
+    a = await openai_chat(model=FAST_MODEL, messages=messages, temperature=0.5)
     await send_long(update, a)
 
 async def schoolfinder_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -4809,7 +4817,7 @@ async def run_portfolioideas(update: Update, context: ContextTypes.DEFAULT_TYPE,
     )
 
     messages = [{"role": "system", "content": sys}, {"role": "user", "content": description}]
-    a = openai_chat(model=FAST_MODEL, messages=messages, temperature=0.6)
+    a = await openai_chat(model=FAST_MODEL, messages=messages, temperature=0.6)
     await send_long(update, a)
 
 async def portfolioideas_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -5025,7 +5033,7 @@ async def run_wowfactor(update: Update, context: ContextTypes.DEFAULT_TYPE, text
         preview = (text or '')[:400]
         if len(preview.strip()) >= 120:
             await show_typing(update, context)
-            mini = openai_chat(
+            mini = await openai_chat(
                 model=FAST_MODEL,
                 messages=[
                     {'role': 'system', 'content': 'Give ONE sentence: what is the most unique hook in this text? Be specific.'},
@@ -5055,7 +5063,7 @@ async def run_wowfactor(update: Update, context: ContextTypes.DEFAULT_TYPE, text
     content = (text or "").strip()
     content = content[:2500]
 
-    a = openai_chat(
+    a = await openai_chat(
         model=FAST_MODEL,
         messages=[{"role": "system", "content": sys}, {"role": "user", "content": content}],
         temperature=0.4,
@@ -5490,7 +5498,6 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["topic"] = "extracurriculars"
 
         track_topic(context, "extracurriculars")
-        track_topic(context, "extracurriculars")
         await send_with_image(
             update,
             "Great, let's talk about your Extracurricular activities.\nAsk how to present impact, leadership, and long-term involvement.",
@@ -5514,7 +5521,6 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["topic"] = "recommendations"
 
         track_topic(context, "recommendations")
-        track_topic(context, "recommendations")
         await send_with_image(
             update,
             "Great, let's work on Recommendation Letters.\nAsk how to request them and what makes a strong letter.",
@@ -5530,7 +5536,6 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         clear_eval_context(context)
         context.user_data["topic"] = "portfolio"
 
-        track_topic(context, "portfolio")
         track_topic(context, "portfolio")
         await send_with_image(
             update,
@@ -5881,7 +5886,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         {"role": "user", "content": q},
     ]
 
-    a = openai_chat(model=FAST_MODEL, messages=messages, temperature=0.4)
+    a = await openai_chat(model=FAST_MODEL, messages=messages, temperature=0.4)
     await send_long(update, a)
 
 # -------- Dummy HTTP server for Render/Railway --------
