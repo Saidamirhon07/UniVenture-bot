@@ -187,18 +187,27 @@ def remaining_days(user_id: int) -> int | None:
         return None
     return (exp - datetime.utcnow()).days
 
-def activate_paid(user_id: int, days: int = DEFAULT_SUB_DAYS, activated_by: int | None = None) -> None:
+def activate_paid(user_id: int,
+                  days: int = DEFAULT_SUB_DAYS,
+                  activated_by: int | None = None,
+                  username: str | None = None,
+                  first_name: str | None = None) -> None:
+
     db = _paid_load()
     now = datetime.utcnow()
     exp = now + timedelta(days=int(days))
+
     db[str(user_id)] = {
+        "user_id": user_id,
+        "username": username,
+        "first_name": first_name,
         "activated_at": now.isoformat(),
         "expires_at": exp.isoformat(),
         "activated_by": activated_by,
-        # reminder flags (reset on renew)
         "reminded_3day": False,
         "expired_notified": False,
     }
+
     _paid_save(db)
 
 def deactivate_paid(user_id: int) -> bool:
@@ -393,7 +402,13 @@ async def activate_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Usage: /activate <user_id> [days]")
         return
 
-    activate_paid(uid, days=days, activated_by=update.effective_user.id)
+    activate_paid(
+    uid,
+    days=days,
+    activated_by=update.effective_user.id,
+    username=None,
+    first_name=None
+    )
     await update.message.reply_text(f"✅ Activated user {uid} for {days} days.")
 
 async def deactivate_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -434,8 +449,21 @@ async def paidusers_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for exp, uid_str, rec in items:
         days_left = (exp - now).days
         status = "Active" if days_left >= 0 else "Expired"
-        lines.append(f"• {uid_str} — {exp.date()} ({days_left}d) — {status}")
-
+    
+        username = rec.get("username")
+        first_name = rec.get("first_name")
+    
+        identity = ""
+        if username:
+            identity = f"@{username}"
+        elif first_name:
+            identity = first_name
+    
+        lines.append(
+            f"• {uid_str} {f'({identity})' if identity else ''}"
+            f" — {exp.date()} ({days_left}d) — {status}"
+        )
+        
     await send_long(update, "\n".join(lines))
 
 async def _forward_payment_proof_to_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -443,8 +471,10 @@ async def _forward_payment_proof_to_admin(update: Update, context: ContextTypes.
     msg = update.effective_message
     if not msg:
         return
+
     uid = update.effective_user.id
     username = update.effective_user.username or ""
+    first_name = update.effective_user.first_name or ""
     chat_id = update.effective_chat.id
 
     for admin_id in ADMIN_IDS:
@@ -466,6 +496,20 @@ async def _forward_payment_proof_to_admin(update: Update, context: ContextTypes.
         except Exception as e:
             logging.error(f"Failed to forward payment proof to admin {admin_id}: {e}")
 
+    # ===== ADD THIS PART HERE =====
+    # Save basic identity info even before activation
+    db = _paid_load()
+    uid_str = str(uid)
+
+    if uid_str not in db:
+        db[uid_str] = {}
+
+    db[uid_str]["user_id"] = uid
+    db[uid_str]["username"] = username
+    db[uid_str]["first_name"] = first_name
+
+    _paid_save(db)
+    
 async def payment_proof_received_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # user-facing confirmation (always)
     uid = update.effective_user.id
