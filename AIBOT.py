@@ -5886,7 +5886,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     messages = [
         {"role": "system", "content": sys},
-        {"role": "system", "content": f"Context (may be empty):\n{context_block}"},
+        {"role": "system", "content": f"Reference knowledge (do not copy formatting):\n{context_block}"},
         {"role": "user", "content": q},
     ]
 
