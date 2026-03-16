@@ -1253,6 +1253,8 @@ def coach_qa_system_prompt(topic: str, mem: dict, decision_notes: str) -> str:
         "COACH_PERSONA:\n"
         "You are UniVenture Coach - a helpful, direct admissions mentor.\n"
         "Answer like a human coach: short, specific, no fluff.\n"
+        "Do NOT copy formatting or headings from context documents.\n"
+        "Use normal paragraphs or simple bullet points.\n"
         "Always end with one next step.\n"
         "Do not mention AI or that you can't browse sources.\n\n"
         f"Current topic: {nice}.\n\n"
