@@ -1190,58 +1190,121 @@ def coach_eval_system_prompt(topic: str, mem: dict, decision_notes: str) -> str:
     nice = FRIENDLY_TOPIC_NAMES.get(topic, topic)
     mem_sum = memory_summary_for_prompt(mem)
 
+    base_intro = (
+        "ROLE:\n"
+        "You are a senior admissions strategist who has reviewed thousands of successful applications.\n"
+        "You are psychologically sharp, strategically direct, and brutally honest.\n\n"
+        f"TASK: Evaluate the student's {nice}.\n\n"
+        f"Student Memory:\n{mem_sum}\n\n"
+        f"Decision Notes:\n{decision_notes}\n\n"
+    )
+
     if topic == "essays_personal":
         strategic_layer = (
             "Focus heavily on identity, emotional depth, internal conflict, and personal transformation.\n"
             "Ask: What changed inside the student? Where is vulnerability? Where is psychological growth?\n"
-            "Flag cliché narrative arcs and generic 'hard work leads to success' themes.\n"
+            "Flag cliché narrative arcs and generic 'hard work leads to success' themes.\n\n"
+        )
+        output_format = (
+            "OUTPUT FORMAT (STRICT — FOLLOW EXACTLY OR THE ANSWER IS INVALID):\n"
+            "Use EXACTLY these section headers in this exact order.\n"
+            "Do NOT use alternative headings like 'Overall' or 'What works'.\n"
+            "Do NOT summarize the essay.\n\n"
+            "🎯 Strategic Positioning Verdict\n"
+            "💎 Strengths\n"
+            "⚠️ Competitive Risks\n"
+            "🧠 Depth Gaps\n"
+            "✂️ Surgical Cuts\n"
+            "🛠 Exact Rewrite Moves\n"
+            "❓ One High-Level Reflection Question\n"
+            "🎯 Rewrite Priority\n\n"
         )
     elif topic == "essays_supplemental":
         strategic_layer = (
             "Focus heavily on institutional fit, specificity, intellectual direction, and contribution.\n"
             "Ask: Why THIS school/program? What concrete elements are missing (professors, labs, values)?\n"
-            "Flag generic 'strong community' language.\n"
+            "Flag generic 'strong community' language.\n\n"
+        )
+        output_format = (
+            "OUTPUT FORMAT (STRICT — FOLLOW EXACTLY OR THE ANSWER IS INVALID):\n"
+            "Use EXACTLY these section headers in this exact order.\n"
+            "Do NOT use alternative headings like 'Overall' or 'What works'.\n"
+            "Do NOT summarize the essay.\n\n"
+            "🎯 Strategic Positioning Verdict\n"
+            "💎 Strengths\n"
+            "⚠️ Competitive Risks\n"
+            "🧠 Depth Gaps\n"
+            "✂️ Surgical Cuts\n"
+            "🛠 Exact Rewrite Moves\n"
+            "❓ One High-Level Reflection Question\n"
+            "🎯 Rewrite Priority\n\n"
+        )
+    elif topic == "extracurriculars":
+        strategic_layer = (
+            "Focus on competitive extracurricular storytelling for selective universities.\n"
+            "Judge the submission like an activities strategist: impact, leadership, initiative, continuity, and evidence.\n"
+            "Penalize generic role descriptions, passive wording, and missing quantification.\n\n"
+        )
+        output_format = (
+            "OUTPUT FORMAT (STRICT — FOLLOW EXACTLY OR THE ANSWER IS INVALID):\n"
+            "Use EXACTLY these section headers in this exact order.\n"
+            "Do NOT use alternative headings.\n"
+            "Do NOT summarize the activities list.\n\n"
+            "🎯 Activity Positioning Verdict\n"
+            "📈 Impact Evidence\n"
+            "👑 Leadership & Initiative\n"
+            "🔢 Quantification Gaps\n"
+            "🧩 Activity List Optimization\n"
+            "✂️ Surgical Cuts\n"
+            "🛠 Exact Rewrite Moves\n"
+            "❓ One High-Leverage Question\n"
+            "🎯 Rewrite Priority\n\n"
+        )
+    elif topic == "portfolio":
+        strategic_layer = (
+            "Focus on how compelling the portfolio feels to a selective admissions committee.\n"
+            "Judge originality, technical quality, cohesion, curation, presentation, and whether the portfolio signals future promise.\n"
+            "Penalize scattered work, weak framing, thin process explanation, and unclear authorship.\n\n"
+        )
+        output_format = (
+            "OUTPUT FORMAT (STRICT — FOLLOW EXACTLY OR THE ANSWER IS INVALID):\n"
+            "Use EXACTLY these section headers in this exact order.\n"
+            "Do NOT use alternative headings.\n"
+            "Do NOT summarize the portfolio.\n\n"
+            "🎯 Portfolio Positioning Verdict\n"
+            "🎨 Originality & Voice\n"
+            "🛠 Technical Quality\n"
+            "🧵 Cohesion & Curation\n"
+            "🖼 Presentation Strategy\n"
+            "⚠️ Competitive Risks\n"
+            "🛠 Exact Upgrade Moves\n"
+            "❓ One Curator-Level Question\n"
+            "🎯 Upgrade Priority\n\n"
         )
     else:
-        strategic_layer = "Evaluate competitively and strategically."
+        strategic_layer = "Evaluate competitively and strategically.\n\n"
+        output_format = (
+            "OUTPUT FORMAT (STRICT — FOLLOW EXACTLY OR THE ANSWER IS INVALID):\n"
+            "Use EXACTLY these section headers in this exact order.\n"
+            "Do NOT use alternative headings like 'Overall' or 'What works'.\n\n"
+            "🎯 Strategic Positioning Verdict\n"
+            "💎 Strengths\n"
+            "⚠️ Competitive Risks\n"
+            "🧠 Depth Gaps\n"
+            "✂️ Surgical Cuts\n"
+            "🛠 Exact Rewrite Moves\n"
+            "❓ One High-Level Reflection Question\n"
+            "🎯 Rewrite Priority\n\n"
+        )
 
     return (
-        "ROLE:\n"
-        "You are a senior admissions strategist who has reviewed thousands of successful applications.\n"
-        "You are psychologically sharp, strategically direct, and brutally honest.\n\n"
-    
-        f"TASK: Evaluate the student's {nice}.\n\n"
-    
-        f"{strategic_layer}\n"
-    
-        "CRITICAL FRAMEWORK:\n"
-        "1) Differentiation — Does this stand out from 10,000 similar applicants?\n"
-        "2) Depth — Is there emotional or intellectual growth?\n"
-        "3) Narrative Cohesion — Does the structure feel intentional?\n"
-        "4) Competitive Risk — What might hurt at top schools?\n\n"
-    
-        "OUTPUT FORMAT (STRICT — FOLLOW EXACTLY OR THE ANSWER IS INVALID):\n"
-        "Use EXACTLY these section headers in this exact order.\n"
-        "Do NOT use alternative headings like 'Overall' or 'What works'.\n"
-        "Do NOT summarize the essay.\n\n"
-    
-        "🎯 Strategic Positioning Verdict\n"
-        "💎 Strengths\n"
-        "⚠️ Competitive Risks\n"
-        "🧠 Depth Gaps\n"
-        "✂️ Surgical Cuts\n"
-        "🛠 Exact Rewrite Moves\n"
-        "❓ One High-Level Reflection Question\n"
-        "🎯 Rewrite Priority\n\n"
-    
-        "Be specific. Be concrete. Give surgical advice, not generic suggestions.\n\n"
-    
-        f"Student Memory:\n{mem_sum}\n\n"
-        f"Decision Notes:\n{decision_notes}\n\n"
-    
-        "After the evaluation, append EXACTLY:\n"
-        "---\n"
-        "MEMORY_JSON: { ... }\n"
+        base_intro
+        + strategic_layer
+        + "Be specific. Be concrete. Give surgical advice, not generic suggestions.\n\n"
+        + output_format
+        + "After the evaluation, append EXACTLY:\n"
+        + "---\n"
+        + "MEMORY_JSON: { ... }\n"
     )
 
 
@@ -1848,6 +1911,51 @@ def _pretty_topic_for_eval(topic: str) -> str:
         "extracurriculars": "Extracurricular activities description",
         "ielts_writing": "IELTS Writing answer",
     }.get(topic, "document")
+
+def _save_last_retrieval(context: ContextTypes.DEFAULT_TYPE, topic: str, mode: str, query: str, items: list[dict]):
+    """Store the last retrieved sources for debugging."""
+    context.user_data["last_retrieval_debug"] = {
+        "topic": topic,
+        "mode": mode,
+        "query": query,
+        "items": items[:12],
+        "saved_at": datetime.utcnow().isoformat(),
+    }
+
+
+async def debugsources_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not require_admin(update):
+        await update.message.reply_text("⛔ Admin only.")
+        return
+
+    data = context.user_data.get("last_retrieval_debug") or {}
+    if not data:
+        await update.message.reply_text(
+            "No retrieval debug info saved yet. Ask a question or run an evaluation first."
+        )
+        return
+
+    items = data.get("items") or []
+    lines = [
+        "🧪 LAST RETRIEVAL DEBUG",
+        f"Topic: {data.get('topic') or 'unknown'}",
+        f"Mode: {data.get('mode') or 'unknown'}",
+        f"Query: {data.get('query') or '—'}",
+        f"Saved at (UTC): {data.get('saved_at') or '—'}",
+        "",
+    ]
+
+    if not items:
+        lines.append("No source chunks were retrieved.")
+    else:
+        lines.append("Retrieved source chunks:")
+        for idx, item in enumerate(items, start=1):
+            lines.append(
+                f"{idx}. [{item.get('bucket', '?')}] {item.get('title', 'Untitled')} | "
+                f"type={item.get('type', '?')} | part={item.get('part', '?')}"
+            )
+
+    await send_long(update, "\n".join(lines))
 
 def _sys_role_for_eval(topic: str) -> str:
     if topic in {"essays_personal", "essays_supplemental"}:
@@ -2661,30 +2769,97 @@ async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 # ---------- EVALUATION HELPERS ----------
-def _eval_context_from_collection(col, extra_query: str = ""):
+def _eval_context_queries(topic: str, extra_query: str = "") -> tuple[list[str], list[str]]:
+    extra = (extra_query or "").strip()
+    topic_map = {
+        "essays_personal": (
+            ["personal statement rubric", "essay evaluation criteria", "voice reflection vulnerability", extra],
+            ["personal statement examples", "essay tips authenticity reflection", extra],
+        ),
+        "essays_supplemental": (
+            ["supplemental essay rubric", "why us evaluation criteria", "fit specificity contribution", extra],
+            ["supplemental essay examples", "why us tips specificity", extra],
+        ),
+        "extracurriculars": (
+            ["extracurricular evaluation rubric", "activities list impact leadership initiative", "activity description quantification", extra],
+            ["extracurricular examples", "activities list tips action verbs impact", extra],
+        ),
+        "portfolio": (
+            ["portfolio review rubric", "originality technical quality curation presentation", "creative portfolio evaluation", extra],
+            ["portfolio examples", "portfolio presentation tips process cohesion", extra],
+        ),
+        "recommendations": (
+            ["recommendation letter rubric", "specificity credibility comparison evidence", extra],
+            ["recommendation examples", "teacher recommendation tips specificity", extra],
+        ),
+        "ielts_writing": (
+            ["IELTS writing rubric", "task response coherence lexical grammar", extra],
+            ["IELTS writing examples", "IELTS writing tips band descriptors", extra],
+        ),
+    }
+    eval_queries, qa_queries = topic_map.get(
+        topic,
+        (["evaluation criteria", "guidelines", "rubric", extra], ["tips", "examples", "advice", extra]),
+    )
+    return [q for q in eval_queries if q], [q for q in qa_queries if q]
+
+
+def _eval_context_from_collection(col, topic: str, extra_query: str = "", context: ContextTypes.DEFAULT_TYPE | None = None):
     eval_docs = []
     qa_docs = []
+    debug_items = []
+    eval_queries, qa_queries = _eval_context_queries(topic, extra_query)
+
     try:
         res_eval = col.query(
-            query_texts=["evaluation criteria", "guidelines", "rubric", extra_query],
+            query_texts=eval_queries,
             where={"type": "evaluation"},
             n_results=6,
         )
         eval_docs = res_eval.get("documents", [[]])[0]
+        eval_metas = res_eval.get("metadatas", [[]])[0]
+        for doc, meta in zip(eval_docs or [], eval_metas or []):
+            meta = meta or {}
+            debug_items.append({
+                "bucket": "evaluation",
+                "title": meta.get("title", "Untitled"),
+                "type": meta.get("type", "evaluation"),
+                "part": meta.get("part", "—"),
+                "preview": (doc or "")[:160],
+            })
     except Exception as e:
         logging.error(f"Error querying evaluation docs: {e}")
         eval_docs = []
 
     try:
         res_qa = col.query(
-            query_texts=["tips", "examples", "advice", extra_query],
+            query_texts=qa_queries,
             where={"type": "qa"},
             n_results=6,
         )
         qa_docs = res_qa.get("documents", [[]])[0]
+        qa_metas = res_qa.get("metadatas", [[]])[0]
+        for doc, meta in zip(qa_docs or [], qa_metas or []):
+            meta = meta or {}
+            debug_items.append({
+                "bucket": "qa",
+                "title": meta.get("title", "Untitled"),
+                "type": meta.get("type", "qa"),
+                "part": meta.get("part", "—"),
+                "preview": (doc or "")[:160],
+            })
     except Exception as e:
         logging.error(f"Error querying QA docs: {e}")
         qa_docs = []
+
+    if context is not None:
+        _save_last_retrieval(
+            context,
+            topic=topic,
+            mode="evaluation_context",
+            query=f"eval_queries={eval_queries} | qa_queries={qa_queries}",
+            items=debug_items,
+        )
 
     docs = (eval_docs or []) + (qa_docs or [])
     return "\n\n---\n\n".join(docs) if docs else ""
@@ -2712,7 +2887,7 @@ async def run_eval_followup(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
     try:
         col = get_collection(chat_id, topic)
-        context_block = _eval_context_from_collection(col, extra_query=pretty_topic)
+        context_block = _eval_context_from_collection(col, topic=topic, extra_query=pretty_topic, context=context)
     except Exception as e:
         logging.error(f"Error getting collection for eval followup: {e}")
         context_block = ""
@@ -2774,7 +2949,7 @@ async def run_eval_qa(update: Update, context: ContextTypes.DEFAULT_TYPE, user_q
 
     try:
         col = get_collection(chat_id, topic)
-        context_block = _eval_context_from_collection(col, extra_query=pretty_topic)
+        context_block = _eval_context_from_collection(col, topic=topic, extra_query=pretty_topic, context=context)
     except Exception as e:
         logging.error(f"Error getting collection for eval QA: {e}")
         context_block = ""
@@ -2964,7 +3139,7 @@ async def evaluate_file_for_topic(update: Update, context: ContextTypes.DEFAULT_
 
     try:
         col = get_collection(chat_id, topic)
-        context_block = _eval_context_from_collection(col, extra_query=pretty_topic)
+        context_block = _eval_context_from_collection(col, topic=topic, extra_query=pretty_topic, context=context)
     except Exception as e:
         logging.error(f"Error getting collection for evaluation: {e}")
         context_block = ""
@@ -3036,7 +3211,7 @@ async def evaluate_ielts_writing_image(update: Update, context: ContextTypes.DEF
 
     try:
         col = get_collection(chat_id, topic)
-        context_block = _eval_context_from_collection(col, extra_query="IELTS Writing")
+        context_block = _eval_context_from_collection(col, topic=topic, extra_query="IELTS Writing", context=context)
     except Exception as e:
         logging.error(f"Error getting collection for IELTS evaluation: {e}")
         context_block = ""
@@ -3103,7 +3278,7 @@ async def evaluate_text_for_topic(update: Update, context: ContextTypes.DEFAULT_
 
     try:
         col = get_collection(chat_id, topic)
-        context_block = _eval_context_from_collection(col, extra_query=pretty_topic)
+        context_block = _eval_context_from_collection(col, topic=topic, extra_query=pretty_topic, context=context)
     except Exception as e:
         logging.error(f"Error getting collection for evaluation: {e}")
         context_block = ""
@@ -5859,6 +6034,23 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 results = col.query(query_texts=[q], where={"type": "qa"}, n_results=4)
 
             docs = results.get("documents", [[]])[0]
+            metas = results.get("metadatas", [[]])[0]
+            _save_last_retrieval(
+                context,
+                topic=topic,
+                mode="qa_primary",
+                query=q,
+                items=[
+                    {
+                        "bucket": "qa",
+                        "title": (m or {}).get("title", "Untitled"),
+                        "type": (m or {}).get("type", "qa"),
+                        "part": (m or {}).get("part", "—"),
+                        "preview": (d or "")[:160],
+                    }
+                    for d, m in zip(docs or [], metas or [])
+                ],
+            )
         except Exception as e:
             logging.error(f"Error querying collection: {e}")
             docs = []
@@ -5872,9 +6064,29 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 else:
                     results = col.query(query_texts=[q], n_results=4)
                 docs = results.get("documents", [[]])[0]
+                metas = results.get("metadatas", [[]])[0]
+                _save_last_retrieval(
+                    context,
+                    topic=topic,
+                    mode="qa_fallback",
+                    query=q,
+                    items=[
+                        {
+                            "bucket": (m or {}).get("type", "unknown"),
+                            "title": (m or {}).get("title", "Untitled"),
+                            "type": (m or {}).get("type", "unknown"),
+                            "part": (m or {}).get("part", "—"),
+                            "preview": (d or "")[:160],
+                        }
+                        for d, m in zip(docs or [], metas or [])
+                    ],
+                )
             except Exception as e:
                 logging.error(f"Error querying collection (fallback): {e}")
                 docs = []
+
+    if use_rag and not docs:
+        _save_last_retrieval(context, topic=topic, mode="qa_none", query=q, items=[])
 
     context_block = "\n\n---\n\n".join(docs or [])
     nice_topic = FRIENDLY_TOPIC_NAMES.get(topic, topic)
@@ -5957,6 +6169,7 @@ app.add_handler(CommandHandler("schoolfinder", schoolfinder_cmd), group=0)
 app.add_handler(CommandHandler("portfolioideas", portfolioideas_cmd), group=0)
 app.add_handler(CommandHandler("backup_sources", backup_sources), group=0)
 app.add_handler(CommandHandler("health", health), group=0)
+app.add_handler(CommandHandler("debugsources", debugsources_cmd), group=0)
 app.add_handler(CommandHandler("help", help_cmd))
 app.add_handler(CommandHandler("profile", profile_cmd))
 app.add_handler(CommandHandler("feedback", feedback_cmd))
