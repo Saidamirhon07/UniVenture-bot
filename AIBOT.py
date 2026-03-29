@@ -3459,7 +3459,7 @@ async def backup_sources(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         try:
             col = chroma.get_collection(col_name)
-            payload = col.get(include=["documents", "metadatas", "ids"])
+            payload = col.get(include=["documents", "metadatas"])
             data[col_name] = payload
             exported += 1
         except Exception as e:
