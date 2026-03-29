@@ -3519,6 +3519,129 @@ async def backup_sources(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logging.error(f"Error saving/sending backup: {e}")
         await update.message.reply_text(f"❌ Failed to save/send backup: {e}")
+# ---------- RESET ----------
+async def resetchroma(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not require_admin(update):
+        await update.message.reply_text("⛔ Admin only.")
+        return
+
+    try:
+        collections = chroma.list_collections()
+        deleted = 0
+
+        for col in collections:
+            name = col.name if hasattr(col, "name") else str(col)
+            if not name:
+                continue
+            chroma.delete_collection(name)
+            deleted += 1
+
+        await update.message.reply_text(f"🔥 Chroma reset complete. Deleted {deleted} collections.")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error resetting Chroma: {e}")
+
+
+async def restore_sources(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not require_admin(update):
+        await update.message.reply_text("⛔ Admin only.")
+        return
+
+    path = os.path.join(DATA_DIR, "backup_sources.json")
+    if not os.path.exists(path):
+        await update.message.reply_text("❌ backup_sources.json not found in DATA_DIR.")
+        return
+
+    await update.message.reply_text("♻️ Restoring sources from backup...")
+
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        total_restored = 0
+        collections_restored = 0
+
+        for col_name, payload in data.items():
+            docs = payload.get("documents") or []
+            metas = payload.get("metadatas") or []
+            ids = payload.get("ids") or []
+
+            if not docs:
+                continue
+
+            if len(ids) != len(docs):
+                ids = [uuid.uuid4().hex for _ in docs]
+
+            if len(metas) != len(docs):
+                metas = [{} for _ in docs]
+
+            col = chroma.get_or_create_collection(
+                name=col_name,
+                embedding_function=emb_fn,
+            )
+
+            col.add(
+                ids=ids,
+                documents=docs,
+                metadatas=metas,
+            )
+
+            total_restored += len(docs)
+            collections_restored += 1
+
+        await update.message.reply_text(
+            f"✅ Restore complete.\nCollections restored: {collections_restored}\nItems restored: {total_restored}"
+        )
+
+    except Exception as e:
+        await update.message.reply_text(f"❌ Restore failed: {e}")
+
+# ---------- RESTORE ----------
+async def restore_from_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not require_admin(update):
+        await update.message.reply_text("⛔ Admin only.")
+        return
+
+    doc = update.message.document
+    if not doc:
+        await update.message.reply_text("❌ Please send backup_sources.json file.")
+        return
+
+    await update.message.reply_text("📥 Receiving backup file...")
+
+    try:
+        tgfile = await doc.get_file()
+        file_bytes = await tgfile.download_as_bytearray()
+        data = json.loads(file_bytes.decode("utf-8"))
+    except Exception as e:
+        await update.message.reply_text(f"❌ Failed to read file: {e}")
+        return
+
+    await update.message.reply_text("♻️ Restoring data...")
+
+    total = 0
+
+    for col_name, payload in data.items():
+        try:
+            col = chroma.get_or_create_collection(
+                name=col_name,
+                embedding_function=emb_fn
+            )
+
+            docs = payload.get("documents", [])
+            metas = payload.get("metadatas", [])
+            ids = payload.get("ids", [])
+
+            if not ids or len(ids) != len(docs):
+                ids = [uuid.uuid4().hex for _ in docs]
+
+            if docs:
+                col.add(ids=ids, documents=docs, metadatas=metas)
+                total += len(docs)
+
+        except Exception as e:
+            logging.error(f"Restore failed for {col_name}: {e}")
+
+    await update.message.reply_text(f"✅ Restore complete. {total} items restored.")
 
 # ---------- HEALTH CHECK ----------
 async def health(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -6234,6 +6357,9 @@ app.add_handler(CommandHandler("profile", profile_cmd))
 app.add_handler(CommandHandler("feedback", feedback_cmd))
 app.add_handler(CommandHandler("how_to_use", how_to_use_cmd))
 app.add_handler(CommandHandler("resethealth", reset_health_collection), group=0)
+app.add_handler(CommandHandler("resetchroma", resetchroma), group=0)
+app.add_handler(CommandHandler("restore_sources", restore_sources), group=0)
+app.add_handler(MessageHandler(filters.Document.ALL, restore_from_file), group=0)
 
 # ===== GROUP 1: FILES / PHOTOS =====
 app.add_handler(MessageHandler(filters.Document.ALL, document_router), group=1)
