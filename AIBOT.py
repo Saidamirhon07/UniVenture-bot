@@ -3450,7 +3450,7 @@ async def backup_sources(update: Update, context: ContextTypes.DEFAULT_TYPE):
         col_name = col_info.name if hasattr(col_info, "name") else str(col_info)
         if not col_name:
             continue
-            
+
         try:
             col = chroma.get_collection(col_name)
             payload = col.get(include=["documents", "metadatas", "ids"])
@@ -3463,12 +3463,17 @@ async def backup_sources(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
-        await update.message.reply_text(
-            f"✅ Backup completed.\nSaved to:\n{path}\n\nYou can download it from your server volume."
-        )
+
+        with open(path, "rb") as f:
+            await update.message.reply_document(
+                document=f,
+                filename="backup_sources.json",
+                caption="✅ Backup completed. Here is your backup file."
+            )
+
     except Exception as e:
-        logging.error(f"Error saving backup: {e}")
-        await update.message.reply_text(f"❌ Failed to save backup: {e}")
+        logging.error(f"Error saving/sending backup: {e}")
+        await update.message.reply_text(f"❌ Failed to save/send backup: {e}")
 
 # ---------- HEALTH CHECK ----------
 async def health(update: Update, context: ContextTypes.DEFAULT_TYPE):
