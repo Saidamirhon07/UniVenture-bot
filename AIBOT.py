@@ -3440,10 +3440,14 @@ async def backup_sources(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("📦 Backing up all sources…")
 
     data = {}
+    errors = []
+    found = 0
+    exported = 0
+
     try:
         collections = chroma.list_collections()
     except Exception as e:
-        await update.message.reply_text(f"Error accessing database: {e}")
+        await update.message.reply_text(f"❌ Error accessing database: {e}")
         return
 
     for col_info in collections:
@@ -3451,25 +3455,66 @@ async def backup_sources(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not col_name:
             continue
 
+        found += 1
+
         try:
             col = chroma.get_collection(col_name)
             payload = col.get(include=["documents", "metadatas", "ids"])
             data[col_name] = payload
+            exported += 1
         except Exception as e:
+            err = f"{col_name}: {e}"
             logging.error(f"Error backing up collection {col_name}: {e}")
-            continue
+            errors.append(err)
 
     path = os.path.join(DATA_DIR, "backup_sources.json")
+    errors_path = os.path.join(DATA_DIR, "backup_sources_errors.txt")
+
     try:
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
+
+        with open(errors_path, "w", encoding="utf-8") as f:
+            if errors:
+                f.write("\n".join(errors))
+            else:
+                f.write("No errors.")
+
+        if not data:
+            await update.message.reply_text(
+                f"⚠️ Backup file was created but it is empty.\n"
+                f"Collections found: {found}\n"
+                f"Collections exported: {exported}\n"
+                f"Errors: {len(errors)}"
+            )
+
+            with open(errors_path, "rb") as f:
+                await update.message.reply_document(
+                    document=f,
+                    filename="backup_sources_errors.txt",
+                    caption="Backup errors report"
+                )
+            return
 
         with open(path, "rb") as f:
             await update.message.reply_document(
                 document=f,
                 filename="backup_sources.json",
-                caption="✅ Backup completed. Here is your backup file."
+                caption=(
+                    f"✅ Backup completed.\n"
+                    f"Collections found: {found}\n"
+                    f"Collections exported: {exported}\n"
+                    f"Errors: {len(errors)}"
+                )
             )
+
+        if errors:
+            with open(errors_path, "rb") as f:
+                await update.message.reply_document(
+                    document=f,
+                    filename="backup_sources_errors.txt",
+                    caption="Some collections failed to export"
+                )
 
     except Exception as e:
         logging.error(f"Error saving/sending backup: {e}")
