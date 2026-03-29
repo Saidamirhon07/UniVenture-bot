@@ -3601,9 +3601,24 @@ async def restore_from_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⛔ Admin only.")
         return
 
-    doc = update.message.document
+    msg = update.effective_message
+
+    # Case 1: command sent with attached document
+    doc = msg.document
+
+    # Case 2: command sent as reply to a document
+    if not doc and msg.reply_to_message and msg.reply_to_message.document:
+        doc = msg.reply_to_message.document
+
     if not doc:
-        await update.message.reply_text("❌ Please send backup_sources.json file.")
+        await update.message.reply_text(
+            "📎 Send /restorefile together with backup_sources.json,\n"
+            "or reply to the backup_sources.json file with /restorefile."
+        )
+        return
+
+    if doc.file_name and doc.file_name != "backup_sources.json":
+        await update.message.reply_text("❌ Please use backup_sources.json file.")
         return
 
     await update.message.reply_text("📥 Receiving backup file...")
@@ -3619,6 +3634,7 @@ async def restore_from_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("♻️ Restoring data...")
 
     total = 0
+    restored_collections = 0
 
     for col_name, payload in data.items():
         try:
@@ -3627,22 +3643,29 @@ async def restore_from_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 embedding_function=emb_fn
             )
 
-            docs = payload.get("documents", [])
-            metas = payload.get("metadatas", [])
-            ids = payload.get("ids", [])
+            docs = payload.get("documents", []) or []
+            metas = payload.get("metadatas", []) or []
+            ids = payload.get("ids", []) or []
 
             if not ids or len(ids) != len(docs):
                 ids = [uuid.uuid4().hex for _ in docs]
 
+            if len(metas) != len(docs):
+                metas = [{} for _ in docs]
+
             if docs:
                 col.add(ids=ids, documents=docs, metadatas=metas)
                 total += len(docs)
+                restored_collections += 1
 
         except Exception as e:
             logging.error(f"Restore failed for {col_name}: {e}")
 
-    await update.message.reply_text(f"✅ Restore complete. {total} items restored.")
-
+    await update.message.reply_text(
+        f"✅ Restore complete.\n"
+        f"Collections restored: {restored_collections}\n"
+        f"Items restored: {total}"
+    )
 # ---------- HEALTH CHECK ----------
 async def health(update: Update, context: ContextTypes.DEFAULT_TYPE):
     checks = []
@@ -6359,7 +6382,7 @@ app.add_handler(CommandHandler("how_to_use", how_to_use_cmd))
 app.add_handler(CommandHandler("resethealth", reset_health_collection), group=0)
 app.add_handler(CommandHandler("resetchroma", resetchroma), group=0)
 app.add_handler(CommandHandler("restore_sources", restore_sources), group=0)
-app.add_handler(MessageHandler(filters.Document.ALL, restore_from_file), group=0)
+app.add_handler(CommandHandler("restorefile", restore_from_file), group=0)
 
 # ===== GROUP 1: FILES / PHOTOS =====
 app.add_handler(MessageHandler(filters.Document.ALL, document_router), group=1)
