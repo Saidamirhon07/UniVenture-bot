@@ -3508,6 +3508,15 @@ async def health(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("🧪 Health Check\n\n" + "\n".join(checks))
 
+async def reset_health_collection(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not require_admin(update):
+        await update.message.reply_text("⛔ Admin only.")
+        return
+    try:
+        chroma.delete_collection("health_check")
+        await update.message.reply_text("✅ Deleted old health_check collection.")
+    except Exception as e:
+        await update.message.reply_text(f"Could not delete health_check: {e}")
 # ---------- NEW FEATURE HELPERS ----------
 # ===== Daily usage limits =====
 EVALS_PER_DAY_LIMIT = int(os.getenv("EVALS_PER_DAY_LIMIT", "5"))
@@ -6174,7 +6183,7 @@ app.add_handler(CommandHandler("help", help_cmd))
 app.add_handler(CommandHandler("profile", profile_cmd))
 app.add_handler(CommandHandler("feedback", feedback_cmd))
 app.add_handler(CommandHandler("how_to_use", how_to_use_cmd))
-
+app.add_handler(CommandHandler("resethealth", reset_health_collection), group=0)
 
 # ===== GROUP 1: FILES / PHOTOS =====
 app.add_handler(MessageHandler(filters.Document.ALL, document_router), group=1)
