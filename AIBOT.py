@@ -142,6 +142,8 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 # =============================================================================
 # Paid access (Manual verification — Option 3)
+# - 1-day free trial for every new user
+# - Then paid access with admin activation
 # - 30-day subscription with auto-expiry
 # - Admin activation (/activate <user_id> [days]) and deactivation
 # - User check expiry (/mysub)
@@ -152,6 +154,7 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 PAID_DB_PATH = os.getenv("PAID_DB_PATH", os.path.join(DATA_DIR, "paid_users.json"))
 DEFAULT_SUB_DAYS = int(os.getenv("DEFAULT_SUB_DAYS", "30"))
+FREE_TRIAL_HOURS = int(os.getenv("FREE_TRIAL_HOURS", "24"))
 
 # Payment instructions (set these in Railway Variables)
 PAYMENT_PRICE_USD = os.getenv("PAYMENT_PRICE_USD", "$29")
@@ -188,6 +191,66 @@ def _parse_iso(dt_str: str) -> datetime | None:
     except Exception:
         return None
 
+def _ensure_user_trial_record(
+    user_id: int,
+    username: str | None = None,
+    first_name: str | None = None,
+) -> dict:
+    """
+    Ensure every user has a record with first_seen_at.
+    This is used for the 24h free trial.
+    """
+    db = _paid_load()
+    uid_str = str(user_id)
+    now = datetime.utcnow().isoformat()
+
+    rec = db.get(uid_str)
+    if not rec:
+        rec = {
+            "user_id": user_id,
+            "username": username,
+            "first_name": first_name,
+            "first_seen_at": now,
+            "activated_at": None,
+            "expires_at": None,
+            "activated_by": None,
+            "reminded_3day": False,
+            "expired_notified": False,
+        }
+        db[uid_str] = rec
+        _paid_save(db)
+        return rec
+
+    changed = False
+    if not rec.get("first_seen_at"):
+        rec["first_seen_at"] = now
+        changed = True
+    if username and rec.get("username") != username:
+        rec["username"] = username
+        changed = True
+    if first_name and rec.get("first_name") != first_name:
+        rec["first_name"] = first_name
+        changed = True
+
+    if changed:
+        db[uid_str] = rec
+        _paid_save(db)
+
+    return rec
+
+
+def has_free_trial_access(user_id: int) -> bool:
+    rec = get_paid_record(user_id)
+    if not rec:
+        return False
+
+    first_seen = _parse_iso(rec.get("first_seen_at", ""))
+    if not first_seen:
+        return False
+
+    trial_until = first_seen + timedelta(hours=FREE_TRIAL_HOURS)
+    return datetime.utcnow() <= trial_until
+
 def get_paid_record(user_id: int) -> dict | None:
     db = _paid_load()
     return db.get(str(user_id))
@@ -196,19 +259,29 @@ def is_paid_user(user_id: int) -> bool:
     rec = get_paid_record(user_id)
     if not rec:
         return False
+
     exp = _parse_iso(rec.get("expires_at", ""))
-    if not exp:
-        return False
-    return datetime.utcnow() <= exp
+    if exp and datetime.utcnow() <= exp:
+        return True
+
+    return has_free_trial_access(user_id)
 
 def remaining_days(user_id: int) -> int | None:
     rec = get_paid_record(user_id)
     if not rec:
         return None
+
     exp = _parse_iso(rec.get("expires_at", ""))
-    if not exp:
-        return None
-    return (exp - datetime.utcnow()).days
+    if exp and datetime.utcnow() <= exp:
+        return (exp - datetime.utcnow()).days
+
+    first_seen = _parse_iso(rec.get("first_seen_at", ""))
+    if first_seen:
+        trial_until = first_seen + timedelta(hours=FREE_TRIAL_HOURS)
+        if datetime.utcnow() <= trial_until:
+            return max(0, (trial_until - datetime.utcnow()).days)
+
+    return None
 
 def activate_paid(user_id: int,
                   days: int = DEFAULT_SUB_DAYS,
@@ -219,11 +292,15 @@ def activate_paid(user_id: int,
     db = _paid_load()
     now = datetime.utcnow()
     exp = now + timedelta(days=int(days))
+    uid_str = str(user_id)
 
-    db[str(user_id)] = {
+    old = db.get(uid_str, {})
+
+    db[uid_str] = {
         "user_id": user_id,
-        "username": username,
-        "first_name": first_name,
+        "username": username or old.get("username"),
+        "first_name": first_name or old.get("first_name"),
+        "first_seen_at": old.get("first_seen_at") or now.isoformat(),
         "activated_at": now.isoformat(),
         "expires_at": exp.isoformat(),
         "activated_by": activated_by,
@@ -392,23 +469,39 @@ async def id_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def mysub_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_typing(update, context)
     uid = update.effective_user.id
-    rec = get_paid_record(uid)
-    if not rec:
-        await update.message.reply_text("❌ You do not have an active subscription. Use /pay to unlock.")
-        return
-    exp = _parse_iso(rec.get("expires_at", ""))
-    if not exp:
-        await update.message.reply_text("❌ Subscription record is corrupted. Contact admin.")
-        return
+
+    rec = _ensure_user_trial_record(
+        uid,
+        username=update.effective_user.username or "",
+        first_name=update.effective_user.first_name or "",
+    )
+
     now = datetime.utcnow()
-    if now > exp:
-        await update.message.reply_text(f"⚠️ Your subscription has expired (expired on {exp.date()}). Use /pay to renew.")
+
+    exp = _parse_iso(rec.get("expires_at", ""))
+    if exp and now <= exp:
+        days_left = (exp - now).days
+        await update.message.reply_text(
+            "💎 Active paid subscription\n\n"
+            f"Days remaining: {days_left}\n"
+            f"Expires on: {exp.date()}"
+        )
         return
-    days_left = (exp - now).days
+
+    first_seen = _parse_iso(rec.get("first_seen_at", ""))
+    if first_seen:
+        trial_until = first_seen + timedelta(hours=FREE_TRIAL_HOURS)
+        if now <= trial_until:
+            hours_left = int((trial_until - now).total_seconds() // 3600)
+            await update.message.reply_text(
+                "🎁 Free trial active\n\n"
+                f"Time remaining: {hours_left} hours\n"
+                "After that, paid access will be required."
+            )
+            return
+
     await update.message.reply_text(
-        "💎 Active subscription\n\n"
-        f"Days remaining: {days_left}\n"
-        f"Expires on: {exp.date()}"
+        "⚠️ Your free trial has ended and you do not have an active paid subscription.\n\nUse /pay to unlock access."
     )
 
 async def activate_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -543,18 +636,22 @@ async def payment_proof_received_reply(update: Update, context: ContextTypes.DEF
     )
 
 async def paid_access_gate(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Global paid-access guard. Runs BEFORE all other handlers."""
+    """Global access guard. First 24h free, then paid access required."""
     try:
         if update is None or update.effective_user is None or update.effective_message is None:
             return
-        # Admin always allowed
+
         if require_admin(update):
             return
 
         uid = update.effective_user.id
         msg = update.effective_message
+        username = update.effective_user.username or ""
+        first_name = update.effective_user.first_name or ""
 
-        # Allow some commands for everyone
+        # ensure user has a first_seen_at record for free trial
+        _ensure_user_trial_record(uid, username=username, first_name=first_name)
+
         cmd = ""
         if getattr(msg, "text", None) and msg.text.startswith("/"):
             cmd = msg.text.split()[0].lower()
@@ -563,15 +660,14 @@ async def paid_access_gate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if cmd in WHITELIST:
             return
 
-        # Allow user to send payment proof even if unpaid (photo/document)
         is_photo = bool(getattr(msg, "photo", None))
         is_doc = bool(getattr(msg, "document", None))
+
         if (is_photo or is_doc) and (not is_paid_user(uid)):
             await _forward_payment_proof_to_admin(update, context)
             await payment_proof_received_reply(update, context)
             raise ApplicationHandlerStop()
 
-        # If user not paid/expired: block everything else
         if not is_paid_user(uid):
             await show_typing(update, context)
             await msg.reply_text(
@@ -580,7 +676,6 @@ async def paid_access_gate(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             raise ApplicationHandlerStop()
 
-        # Paid user: let it continue
         return
 
     except ApplicationHandlerStop:
