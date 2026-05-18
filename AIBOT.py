@@ -142,7 +142,7 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 # =============================================================================
 # Paid access (Manual verification — Option 3)
-# - 1-day free trial for every new user
+# - 30-day free trial for every new user
 # - Then paid access with admin activation
 # - 30-day subscription with auto-expiry
 # - Admin activation (/activate <user_id> [days]) and deactivation
@@ -154,7 +154,7 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 PAID_DB_PATH = os.getenv("PAID_DB_PATH", os.path.join(DATA_DIR, "paid_users.json"))
 DEFAULT_SUB_DAYS = int(os.getenv("DEFAULT_SUB_DAYS", "30"))
-FREE_TRIAL_HOURS = int(os.getenv("FREE_TRIAL_HOURS", "24"))
+FREE_TRIAL_DAYS = int(os.getenv("FREE_TRIAL_DAYS", "30"))
 
 # Payment instructions (set these in Railway Variables)
 PAYMENT_PRICE_USD = os.getenv("PAYMENT_PRICE_USD", "$29")
@@ -198,7 +198,7 @@ def _ensure_user_trial_record(
 ) -> dict:
     """
     Ensure every user has a record with first_seen_at.
-    This is used for the 24h free trial.
+    This is used for the 30-day free trial.
     """
     db = _paid_load()
     uid_str = str(user_id)
@@ -248,7 +248,7 @@ def has_free_trial_access(user_id: int) -> bool:
     if not first_seen:
         return False
 
-    trial_until = first_seen + timedelta(hours=FREE_TRIAL_HOURS)
+    trial_until = first_seen + timedelta(days=FREE_TRIAL_DAYS)
     return datetime.utcnow() <= trial_until
 
 def get_paid_record(user_id: int) -> dict | None:
@@ -277,7 +277,7 @@ def remaining_days(user_id: int) -> int | None:
 
     first_seen = _parse_iso(rec.get("first_seen_at", ""))
     if first_seen:
-        trial_until = first_seen + timedelta(hours=FREE_TRIAL_HOURS)
+        trial_until = first_seen + timedelta(days=FREE_TRIAL_DAYS)
         if datetime.utcnow() <= trial_until:
             return max(0, (trial_until - datetime.utcnow()).days)
 
@@ -490,12 +490,12 @@ async def mysub_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     first_seen = _parse_iso(rec.get("first_seen_at", ""))
     if first_seen:
-        trial_until = first_seen + timedelta(hours=FREE_TRIAL_HOURS)
+        trial_until = first_seen + timedelta(days=FREE_TRIAL_DAYS)
         if now <= trial_until:
-            hours_left = int((trial_until - now).total_seconds() // 3600)
+            days_left = max(0, (trial_until - now).days)
             await update.message.reply_text(
                 "🎁 Free trial active\n\n"
-                f"Time remaining: {hours_left} hours\n"
+                f"Days remaining: {days_left} days\n"
                 "After that, paid access will be required."
             )
             return
@@ -636,7 +636,7 @@ async def payment_proof_received_reply(update: Update, context: ContextTypes.DEF
     )
 
 async def paid_access_gate(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Global access guard. First 24h free, then paid access required."""
+    """Global access guard. First 30 days free, then paid access required."""
     try:
         if update is None or update.effective_user is None or update.effective_message is None:
             return
