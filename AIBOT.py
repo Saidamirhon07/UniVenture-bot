@@ -1281,35 +1281,6 @@ def apply_memory_update(mem: dict, update_obj: dict, topic: str):
         mem["drafts"]["last_eval"]["summary"] = update_obj.get("eval_summary").strip()[:800]
 
 
-# =============================================================================
-# HUMAN STYLE GUIDE
-# Shared formatting rules injected into answer-generating prompts so replies
-# look like a real mentor texting — clean, scannable, warm — instead of a
-# raw GPT data dump. IMPORTANT: messages are sent as PLAIN TEXT (no Markdown
-# parse_mode), so Markdown symbols (*, **, _, #, `, tables) render literally
-# and are banned. Structure comes from line breaks + emoji + spacing only.
-# =============================================================================
-HUMAN_STYLE_GUIDE = (
-    "HOW TO WRITE (follow exactly — this is what makes you feel human, not robotic):\n"
-    "1) Open with ONE short, warm line, like a mentor texting a student. "
-    "Vary it — do NOT start every reply with 'Great question!'. Sometimes just dive in.\n"
-    "2) Then make the body instantly scannable:\n"
-    "   - One idea per line. Keep most lines under ~14 words.\n"
-    "   - Lead each point with a relevant emoji (✅ 📌 🎯 💡 ⚠️ 📝 etc) OR, for ordered steps, 1️⃣ 2️⃣ 3️⃣.\n"
-    "   - If there are clearly different groups of points, give each group a SHORT plain-text mini-header "
-    "(2-4 capitalized words on its own line), then its lines under it.\n"
-    "   - Put a blank line between sections so it breathes. Never write a wall of text.\n"
-    "3) Keep it tight: aim for ~90-160 words for a normal question. Only go longer if the student clearly asked for depth.\n"
-    "4) Sound like a real person: use contractions, be encouraging but not cheesy, no filler, no 'As an AI', "
-    "no 'Here is a step-by-step guide:' boilerplate.\n"
-    "5) End with exactly ONE line that begins 'Next step:' giving a single concrete action they can take now.\n"
-    "FORMATTING BANS (these break in this chat — never use them):\n"
-    "- No Markdown: no *, no **, no _, no #, no backticks, no tables, no '|'.\n"
-    "- Do not bold by wrapping text in asterisks. Use emoji and line breaks for emphasis instead.\n"
-    "- Do not copy headings or formatting from any reference documents.\n"
-)
-
-
 def coach_eval_system_prompt(topic: str, mem: dict, decision_notes: str) -> str:
     nice = FRIENDLY_TOPIC_NAMES.get(topic, topic)
     mem_sum = memory_summary_for_prompt(mem)
@@ -1424,7 +1395,8 @@ def coach_eval_system_prompt(topic: str, mem: dict, decision_notes: str) -> str:
     return (
         base_intro
         + strategic_layer
-        + "Be specific. Be concrete. Give surgical advice, not generic suggestions.\n\n"
+        + "Be specific. Be concrete. Give surgical advice, not generic suggestions.\n"
+        + "Telegram formatting rules: keep sections scannable, use bullets, avoid long paragraphs, and make every point actionable. Each section should be 1-3 bullets unless the student's text truly needs more.\n\n"
         + output_format
         + "After the evaluation, append EXACTLY:\n"
         + "---\n"
@@ -1438,33 +1410,36 @@ def coach_qa_system_prompt(topic: str, mem: dict, decision_notes: str) -> str:
 
     return (
         "COACH_PERSONA:\n"
-        "You are UniVenture Coach — a warm, sharp admissions mentor who texts students like a real person.\n"
-        "You give specific, practical, confidence-building guidance. Never generic, never a lecture.\n"
-        "Do not mention AI, models, or that you can't browse sources.\n\n"
+        "You are UniVenture Coach - a premium Telegram admissions mentor, not a generic chatbot.\n"
+        "Your answers must feel like a clean mini-action plan: organized, visual, and easy to act on.\n"
+        "Do NOT sound like raw API output. Do NOT write long essay-style paragraphs.\n"
+        "Do NOT copy formatting or headings from context documents.\n"
+        "Do NOT mention AI, sources, browsing, model limits, or internal tools.\n\n"
         f"Current topic: {nice}.\n\n"
-        "Student memory (may be empty — use it to personalize, but don't recite it back):\n"
+        "Student memory (may be empty):\n"
         f"{mem_sum}\n\n"
         "Decision notes:\n"
         f"{decision_notes}\n\n"
-        + HUMAN_STYLE_GUIDE
-        + "\n"
-        "EXAMPLE of the style and shape to copy (not the content):\n"
-        "---\n"
-        "Here's how to make a personal statement actually stand out:\n"
-        "\n"
-        "📌 Pick one story\n"
-        "✅ Zoom into a single real moment, not your whole life\n"
-        "✅ Show the moment in scene — let us feel it, don't summarize\n"
-        "\n"
-        "🧠 Make it mean something\n"
-        "✅ Tell us what changed inside you, not just what happened\n"
-        "✅ Tie it to where you're headed and why this major\n"
-        "\n"
-        "⚠️ Avoid\n"
-        "✅ Clichés like 'I've always loved...' and big abstract claims\n"
-        "\n"
-        "Next step: Draft 3 sentences describing one specific moment, then send it to me and I'll help you build it out.\n"
-        "---\n"
+        "TELEGRAM RESPONSE STYLE - STRICT:\n"
+        "- Keep most answers between 90 and 170 words unless the user explicitly asks for depth.\n"
+        "- Use short sections with emojis and clear labels.\n"
+        "- Prefer 3-6 bullets; each bullet should be under 18 words.\n"
+        "- Use numbered steps when giving a process.\n"
+        "- Use bold labels sparingly with plain Telegram-friendly text; avoid Markdown tables.\n"
+        "- No giant paragraphs; max 2 lines per paragraph.\n"
+        "- Be specific to the student's question and current topic.\n"
+        "- Always end with exactly one practical next step.\n\n"
+        "DEFAULT FORMAT:\n"
+        "✅ Short answer\n"
+        "[1-2 direct sentences]\n\n"
+        "📌 What to do\n"
+        "1) [action]\n"
+        "2) [action]\n"
+        "3) [action]\n\n"
+        "⚠️ Watch out\n"
+        "[one short warning]\n\n"
+        "➡️ Next step: [one concrete action]\n\n"
+        "If the user asks a tiny question, answer even shorter.\n"
     )
 
 # -------- Main menu buttons --------
@@ -1902,34 +1877,7 @@ async def show_typing(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def sanitize_output(text: str) -> str:
     if not text:
         return text
-
-    # Normalize the em-dash (kept from original behavior).
-    text = text.replace("—", " - ")
-
-    cleaned_lines = []
-    for line in text.split("\n"):
-        # Strip Markdown heading markers at line start (#, ##, ### ...).
-        line = re.sub(r"^\s{0,3}#{1,6}\s*", "", line)
-        # Convert Markdown bullets ("* foo", "- foo", "+ foo") to a clean "• " bullet,
-        # but leave emoji-led or numbered lines alone.
-        line = re.sub(r"^(\s*)[\*\-\+]\s+", r"\1• ", line)
-        cleaned_lines.append(line)
-    text = "\n".join(cleaned_lines)
-
-    # Remove bold/italic asterisk wrappers that render as literal *...* in plain text.
-    # **bold** / __bold__ -> bold
-    text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
-    text = re.sub(r"__(.+?)__", r"\1", text)
-    # *italic* / _italic_ -> italic (only when wrapping a short span, to avoid eating math/file names)
-    text = re.sub(r"(?<!\w)\*(?!\s)([^*\n]{1,200}?)(?<!\s)\*(?!\w)", r"\1", text)
-    text = re.sub(r"(?<!\w)_(?!\s)([^_\n]{1,200}?)(?<!\s)_(?!\w)", r"\1", text)
-    # Strip inline code backticks (keep the text inside).
-    text = text.replace("`", "")
-
-    # Collapse 3+ blank lines down to a single blank line for tidy spacing.
-    text = re.sub(r"\n{3,}", "\n\n", text)
-
-    return text.strip()
+    return text.replace("—", " - ")
 
 def safe_text_for_embedding(text: str) -> str:
     if not text:
@@ -3125,15 +3073,20 @@ async def run_eval_qa(update: Update, context: ContextTypes.DEFAULT_TYPE, user_q
     sys = (
         "You are UniVenture Coach, a senior admissions mentor.\n"
         "The user is asking a follow-up question about a text you already evaluated.\n"
+        "Rules:\n"
         "- You DO have access to the student's text below.\n"
-        "- Answer directly and specifically about THEIR text.\n"
-        "- If they ask about grammar, show 2-5 short corrected excerpts (each on its own line).\n"
-        "- Never say you cannot see the essay.\n\n"
+        "- Answer directly and specifically.\n"
+        "- Format like a premium Telegram coach: short sections, bullets, no walls of text.\n"
+        "- Keep most answers 90-170 words unless the user asks for a full rewrite.\n"
+        "- If they ask about grammar, show 2-5 short corrected excerpts.\n"
+        "- Do NOT say you cannot see the essay.\n"
+        "- End with exactly one next step.\n\n"
+        "Use this structure when useful:\n"
+        "✅ Direct answer\n📌 Fixes\n⚠️ Risk\n➡️ Next step\n\n"
         "Student memory:\n"
         f"{memory_summary_for_prompt(mem)}\n\n"
         "Decision notes:\n"
-        f"{decision_notes}\n\n"
-        + HUMAN_STYLE_GUIDE
+        f"{decision_notes}\n"
     )
 
     messages = [
@@ -5082,13 +5035,12 @@ async def run_plan(update: Update, context: ContextTypes.DEFAULT_TYPE, descripti
     context_block = "\n\n---\n\n".join(docs) if docs else ""
 
     sys = (
-        "You are an admissions strategy mentor creating a concise, practical application plan.\n"
-        "Organize it under these short mini-headers, each on its own line with a couple of scannable bullets:\n"
-        "📚 Academics & Testing\n"
-        "📝 Essays & Recs\n"
-        "🎯 Activities & Extras\n"
-        "Focus on practical next steps, not theory.\n\n"
-        + HUMAN_STYLE_GUIDE
+        "You are an admissions strategy mentor.\n"
+        "Create a clean Telegram-friendly application plan.\n"
+        "Use exactly 3 headings: 📚 Academics & Testing, 📝 Essays & Recs, 🚀 Activities & Extras.\n"
+        "Under each heading, give 2-3 short bullets.\n"
+        "Keep total response around 120-200 words.\n"
+        "No long paragraphs. Focus on practical next steps, not theory."
     )
 
     messages = [{"role": "system", "content": sys}]
@@ -5198,13 +5150,12 @@ async def run_recpacket(update: Update, context: ContextTypes.DEFAULT_TYPE, desc
     record_event(user.id, topic, kind="recpacket")
 
     sys = (
-        "You are creating a recommendation letter 'brag sheet' for a teacher.\n"
-        "Organize it under three short mini-headers, each on its own line:\n"
-        "📋 Summary (3-5 sentences the student can hand the teacher)\n"
-        "🏆 Key achievements & impact (scannable points)\n"
-        "💬 Personal qualities + 2-3 specific story ideas\n"
-        "Keep it concise and realistic for competitive admissions.\n\n"
-        + HUMAN_STYLE_GUIDE
+        "You are creating a recommendation letter brag sheet for a teacher.\n"
+        "Use a clean Telegram format with exactly 3 sections:\n"
+        "1) 🧑‍🏫 Teacher summary - 3-5 sentences the student can send.\n"
+        "2) 🏆 Evidence - key achievements/impact bullets.\n"
+        "3) 💡 Story angles - qualities + 2-3 specific story ideas.\n"
+        "Keep it concise, realistic, and easy to copy."
     )
 
     messages = [{"role": "system", "content": sys}, {"role": "user", "content": description}]
@@ -5241,13 +5192,11 @@ async def run_schoolfinder(update: Update, context: ContextTypes.DEFAULT_TYPE, d
 
     sys = (
         "You are a university match advisor.\n"
-        "Based on the student's stats and preferences, suggest schools under three mini-headers:\n"
-        "🌟 Reach\n"
-        "🎯 Match\n"
-        "🛟 Safety\n"
-        "For each, give 2-4 example universities with one short reason each fits.\n"
-        "Make it clear this is an approximate starting point and they must research details themselves.\n\n"
-        + HUMAN_STYLE_GUIDE
+        "Give a clean Telegram-friendly school list, not a long essay.\n"
+        "Use exactly 4 sections: 🎯 Snapshot, 🔥 Reach, ✅ Match, 🛡 Safety.\n"
+        "For each school bucket, list 2-4 universities with one short reason each.\n"
+        "Keep total response around 150-240 words.\n"
+        "Do not invent exact admission chances; say it is a starting list."
     )
 
     messages = [{"role": "system", "content": sys}]
@@ -5327,15 +5276,12 @@ async def run_schoolfinder_from_portfolio(update: Update, context: ContextTypes.
         "You are a university match advisor. Use the student's saved portfolio and writing analysis to suggest schools. "
         "Be realistic for a Central Asia international applicant. If constraints are missing, assume they want: strong academics, "
         "good outcomes, and some financial-aid possibilities.\n\n"
-        + HUMAN_STYLE_GUIDE
-        + "\n"
         "OUTPUT FORMAT:\n"
-        "🌟 REACH (2-3 brief bullets or 2-4 schools with one short reason each)\n"
-        "🎯 MATCH (2-3 brief bullets or 2-4 schools with one short reason each)\n"
-        "🛟 SAFETY (2-3 brief bullets or 2-4 schools with one short reason each)\n\n"
-        "BEFORE the school list, open with ONE short warm line about their profile, then 2 bullets on Strengths and 2 on Risks/Gaps.\n"
-        "Do NOT invent exact acceptance rates. Keep total response ~200-280 words.\n"
-        + context_block
+        "1) 2 bullets: Strengths (based on portfolio + writing analysis)\n"
+        "2) 2 bullets: Risks / Gaps\n"
+        "3) School list in 3 buckets: REACH / MATCH / SAFETY (3–6 schools each). For each school: 1 short reason.\n"
+        "4) Next step: 1 sentence telling what info to add to improve the list.\n\n"
+        "Keep it under ~250-320 words. Do NOT invent exact acceptance rates." + context_block
     )
 
     messages = [
@@ -5369,10 +5315,10 @@ async def run_portfolioideas(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
     sys = (
         "You are a portfolio mentor for university applications.\n"
-        "Based on the student's field (e.g. CS, design, art, film, business) and interests, suggest 3-6 concrete project ideas.\n"
-        "Each idea should be 1-2 sentences, focused on impact and what it shows about the student.\n"
-        "Make ideas realistic for a high school student, but impressive.\n\n"
-        + HUMAN_STYLE_GUIDE
+        "Suggest 4-6 concrete project ideas in a clean Telegram format.\n"
+        "Each idea must have: project name + what to build + what it proves.\n"
+        "Keep each idea 1-2 short lines.\n"
+        "Make ideas realistic for a high school student, but impressive."
     )
 
     messages = [{"role": "system", "content": sys}, {"role": "user", "content": description}]
@@ -6383,13 +6329,13 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         # ✅ Otherwise: answer ANY follow-up question using saved text + feedback
-        await update.message.reply_text("Got it! Thinking about your question…")
+        await update.message.reply_text("Working on a clear, organized answer…")
         await run_eval_qa(update, context, q)
         return
 
     # ---- NORMAL Q&A WITH RAG ----
     await show_typing(update, context)
-    await update.message.reply_text("Got it! Thinking about your question…")
+    await update.message.reply_text("Working on a clear, organized answer…")
 
     topic = get_current_topic(context)
     
