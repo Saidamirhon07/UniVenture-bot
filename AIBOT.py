@@ -5327,12 +5327,15 @@ async def run_schoolfinder_from_portfolio(update: Update, context: ContextTypes.
         "You are a university match advisor. Use the student's saved portfolio and writing analysis to suggest schools. "
         "Be realistic for a Central Asia international applicant. If constraints are missing, assume they want: strong academics, "
         "good outcomes, and some financial-aid possibilities.\n\n"
+        + HUMAN_STYLE_GUIDE
+        + "\n"
         "OUTPUT FORMAT:\n"
-        "1) 2 bullets: Strengths (based on portfolio + writing analysis)\n"
-        "2) 2 bullets: Risks / Gaps\n"
-        "3) School list in 3 buckets: REACH / MATCH / SAFETY (3–6 schools each). For each school: 1 short reason.\n"
-        "4) Next step: 1 sentence telling what info to add to improve the list.\n\n"
-        "Keep it under ~250-320 words. Do NOT invent exact acceptance rates." + context_block
+        "🌟 REACH (2-3 brief bullets or 2-4 schools with one short reason each)\n"
+        "🎯 MATCH (2-3 brief bullets or 2-4 schools with one short reason each)\n"
+        "🛟 SAFETY (2-3 brief bullets or 2-4 schools with one short reason each)\n\n"
+        "BEFORE the school list, open with ONE short warm line about their profile, then 2 bullets on Strengths and 2 on Risks/Gaps.\n"
+        "Do NOT invent exact acceptance rates. Keep total response ~200-280 words.\n"
+        + context_block
     )
 
     messages = [
@@ -5366,9 +5369,10 @@ async def run_portfolioideas(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
     sys = (
         "You are a portfolio mentor for university applications.\n"
-        "- Based on the student's field (e.g. CS, design, art, film, business) and interests, suggest 3-6 concrete project ideas.\n"
-        "- Each idea should be 1-2 sentences, focused on impact and what it shows about the student.\n"
-        "- Make ideas realistic for a high school student, but impressive."
+        "Based on the student's field (e.g. CS, design, art, film, business) and interests, suggest 3-6 concrete project ideas.\n"
+        "Each idea should be 1-2 sentences, focused on impact and what it shows about the student.\n"
+        "Make ideas realistic for a high school student, but impressive.\n\n"
+        + HUMAN_STYLE_GUIDE
     )
 
     messages = [{"role": "system", "content": sys}, {"role": "user", "content": description}]
