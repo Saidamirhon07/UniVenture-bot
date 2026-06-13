@@ -636,11 +636,12 @@ async def payment_proof_received_reply(update: Update, context: ContextTypes.DEF
     )
 
 async def paid_access_gate(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Global access guard. First 30 days free, then paid access required."""
+    """Global access guard: free trial + paid subscription, or paywall disabled."""
     try:
         if update is None or update.effective_user is None or update.effective_message is None:
             return
 
+        # Admins always pass.
         if require_admin(update):
             return
 
@@ -649,9 +650,14 @@ async def paid_access_gate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         username = update.effective_user.username or ""
         first_name = update.effective_user.first_name or ""
 
-        # ensure user has a first_seen_at record for free trial
+        # Ensure user has a first_seen_at record for free trial tracking.
         _ensure_user_trial_record(uid, username=username, first_name=first_name)
 
+        # Check if user has access via the unified function.
+        if is_pro_user(update):
+            return
+
+        # User does not have access. Check what they're trying to do.
         cmd = ""
         if getattr(msg, "text", None) and msg.text.startswith("/"):
             cmd = msg.text.split()[0].lower()
@@ -660,23 +666,23 @@ async def paid_access_gate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if cmd in WHITELIST:
             return
 
+        # Block access and either forward proof or show payment instructions.
         is_photo = bool(getattr(msg, "photo", None))
         is_doc = bool(getattr(msg, "document", None))
 
-        if (is_photo or is_doc) and (not is_paid_user(uid)):
+        if is_photo or is_doc:
+            # User sent a file (payment proof?). Forward it to admins and confirm.
             await _forward_payment_proof_to_admin(update, context)
             await payment_proof_received_reply(update, context)
             raise ApplicationHandlerStop()
 
-        if not is_paid_user(uid):
-            await show_typing(update, context)
-            await msg.reply_text(
-                _payment_instructions_text(uid),
-                parse_mode="HTML"
-            )
-            raise ApplicationHandlerStop()
-
-        return
+        # User sent text without access. Show payment instructions.
+        await show_typing(update, context)
+        await msg.reply_text(
+            _payment_instructions_text(uid),
+            parse_mode="HTML"
+        )
+        raise ApplicationHandlerStop()
 
     except ApplicationHandlerStop:
         raise
@@ -1019,10 +1025,30 @@ def persist_user_memory(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def is_pro_user(update: Update) -> bool:
+    """Check if user has access (paid, trial, or paywall disabled).
+    Single source of truth for all access decisions.
+    """
+    # If paywall is globally disabled, everyone has access.
     if not PAYWALL_ENABLED:
         return True
+    
+    # Paywall is ON. Check if user is paid or in trial.
     user = update.effective_user
-    return bool(user and int(user.id) in PRO_USER_IDS)
+    if not user:
+        return False
+    
+    uid = int(user.id)
+    
+    # Check paid subscription first.
+    if is_paid_user(uid):
+        return True
+    
+    # Check free trial.
+    if has_free_trial_access(uid):
+        return True
+    
+    # Neither paid nor in trial.
+    return False
 
 
 def _upgrade_pitch() -> str:
@@ -1307,7 +1333,9 @@ HUMAN_STYLE_GUIDE = (
     "   - When points fall into groups, give each group a SHORT plain-text mini-header "
     "(2-4 capitalized words on its own line) with its lines underneath.\n"
     "   - Blank line between sections so it breathes. Never write a wall of text.\n"
-    "3) Keep it tight: ~90-160 words for a normal answer. Go longer only if the student clearly wants depth.\n"
+    "3) Be thorough but scannable: aim for 4-6 labelled sections with ~2 short lines each "
+    "(~150-240 words). Give real depth and specifics - this should read like premium paid advice, "
+    "not a quick tip list. Only go shorter for genuinely simple questions.\n"
     "4) Personalize with what you know about the student (scores, major, goals) instead of reciting it back.\n"
     "5) End with exactly ONE line beginning 'Next step:' giving a single concrete action.\n"
     "FORMATTING BANS (these break in this chat - never use them):\n"
@@ -6472,11 +6500,21 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     sys = coach_qa_system_prompt(topic, mem, decision_notes)
 
-    messages = [
-        {"role": "system", "content": sys},
-        {"role": "system", "content": f"Reference knowledge (do not copy formatting):\n{context_block}"},
-        {"role": "user", "content": q},
-    ]
+    messages = [{"role": "system", "content": sys}]
+    if context_block.strip():
+        # Files were retrieved for this topic — ground the answer in them.
+        messages.append({
+            "role": "system",
+            "content": (
+                "REFERENCE KNOWLEDGE from UniVenture's own admissions library is below.\n"
+                "Ground your advice in this material - it reflects what actually works for these students,\n"
+                "so prefer its substance, specifics, and examples over generic tips.\n"
+                "Reframe it in your own mentor voice and the required format; never copy its wording or headings.\n"
+                "If it doesn't cover part of the question, fill the gap with your own expertise.\n\n"
+                + context_block
+            ),
+        })
+    messages.append({"role": "user", "content": q})
 
     a = await openai_chat(model=FAST_MODEL, messages=messages, temperature=0.4)
     await send_long(update, a)
