@@ -1281,6 +1281,35 @@ def apply_memory_update(mem: dict, update_obj: dict, topic: str):
         mem["drafts"]["last_eval"]["summary"] = update_obj.get("eval_summary").strip()[:800]
 
 
+# =============================================================================
+# HUMAN STYLE GUIDE
+# Shared formatting rules injected into answer-generating prompts so replies
+# look like a real mentor texting — clean, scannable, warm — instead of a
+# raw GPT data dump. IMPORTANT: messages are sent as PLAIN TEXT (no Markdown
+# parse_mode), so Markdown symbols (*, **, _, #, `, tables) render literally
+# and are banned. Structure comes from line breaks + emoji + spacing only.
+# =============================================================================
+HUMAN_STYLE_GUIDE = (
+    "HOW TO WRITE (follow exactly — this is what makes you feel human, not robotic):\n"
+    "1) Open with ONE short, warm line, like a mentor texting a student. "
+    "Vary it — do NOT start every reply with 'Great question!'. Sometimes just dive in.\n"
+    "2) Then make the body instantly scannable:\n"
+    "   - One idea per line. Keep most lines under ~14 words.\n"
+    "   - Lead each point with a relevant emoji (✅ 📌 🎯 💡 ⚠️ 📝 etc) OR, for ordered steps, 1️⃣ 2️⃣ 3️⃣.\n"
+    "   - If there are clearly different groups of points, give each group a SHORT plain-text mini-header "
+    "(2-4 capitalized words on its own line), then its lines under it.\n"
+    "   - Put a blank line between sections so it breathes. Never write a wall of text.\n"
+    "3) Keep it tight: aim for ~90-160 words for a normal question. Only go longer if the student clearly asked for depth.\n"
+    "4) Sound like a real person: use contractions, be encouraging but not cheesy, no filler, no 'As an AI', "
+    "no 'Here is a step-by-step guide:' boilerplate.\n"
+    "5) End with exactly ONE line that begins 'Next step:' giving a single concrete action they can take now.\n"
+    "FORMATTING BANS (these break in this chat — never use them):\n"
+    "- No Markdown: no *, no **, no _, no #, no backticks, no tables, no '|'.\n"
+    "- Do not bold by wrapping text in asterisks. Use emoji and line breaks for emphasis instead.\n"
+    "- Do not copy headings or formatting from any reference documents.\n"
+)
+
+
 def coach_eval_system_prompt(topic: str, mem: dict, decision_notes: str) -> str:
     nice = FRIENDLY_TOPIC_NAMES.get(topic, topic)
     mem_sum = memory_summary_for_prompt(mem)
@@ -1409,20 +1438,33 @@ def coach_qa_system_prompt(topic: str, mem: dict, decision_notes: str) -> str:
 
     return (
         "COACH_PERSONA:\n"
-        "You are UniVenture Coach - a helpful, direct admissions mentor.\n"
-        "Answer like a human coach: short, specific, no fluff.\n"
-        "Do NOT copy formatting or headings from context documents.\n"
-        "Use normal paragraphs or simple bullet points.\n"
-        "Always end with one next step.\n"
-        "Do not mention AI or that you can't browse sources.\n\n"
+        "You are UniVenture Coach — a warm, sharp admissions mentor who texts students like a real person.\n"
+        "You give specific, practical, confidence-building guidance. Never generic, never a lecture.\n"
+        "Do not mention AI, models, or that you can't browse sources.\n\n"
         f"Current topic: {nice}.\n\n"
-        "Student memory (may be empty):\n"
+        "Student memory (may be empty — use it to personalize, but don't recite it back):\n"
         f"{mem_sum}\n\n"
         "Decision notes:\n"
         f"{decision_notes}\n\n"
-        "Constraints:\n"
-        "- 4-8 sentences OR 4-6 bullets (choose what fits).\n"
-        "- Practical and actionable.\n"
+        + HUMAN_STYLE_GUIDE
+        + "\n"
+        "EXAMPLE of the style and shape to copy (not the content):\n"
+        "---\n"
+        "Here's how to make a personal statement actually stand out:\n"
+        "\n"
+        "📌 Pick one story\n"
+        "✅ Zoom into a single real moment, not your whole life\n"
+        "✅ Show the moment in scene — let us feel it, don't summarize\n"
+        "\n"
+        "🧠 Make it mean something\n"
+        "✅ Tell us what changed inside you, not just what happened\n"
+        "✅ Tie it to where you're headed and why this major\n"
+        "\n"
+        "⚠️ Avoid\n"
+        "✅ Clichés like 'I've always loved...' and big abstract claims\n"
+        "\n"
+        "Next step: Draft 3 sentences describing one specific moment, then send it to me and I'll help you build it out.\n"
+        "---\n"
     )
 
 # -------- Main menu buttons --------
@@ -1860,7 +1902,34 @@ async def show_typing(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def sanitize_output(text: str) -> str:
     if not text:
         return text
-    return text.replace("—", " - ")
+
+    # Normalize the em-dash (kept from original behavior).
+    text = text.replace("—", " - ")
+
+    cleaned_lines = []
+    for line in text.split("\n"):
+        # Strip Markdown heading markers at line start (#, ##, ### ...).
+        line = re.sub(r"^\s{0,3}#{1,6}\s*", "", line)
+        # Convert Markdown bullets ("* foo", "- foo", "+ foo") to a clean "• " bullet,
+        # but leave emoji-led or numbered lines alone.
+        line = re.sub(r"^(\s*)[\*\-\+]\s+", r"\1• ", line)
+        cleaned_lines.append(line)
+    text = "\n".join(cleaned_lines)
+
+    # Remove bold/italic asterisk wrappers that render as literal *...* in plain text.
+    # **bold** / __bold__ -> bold
+    text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
+    text = re.sub(r"__(.+?)__", r"\1", text)
+    # *italic* / _italic_ -> italic (only when wrapping a short span, to avoid eating math/file names)
+    text = re.sub(r"(?<!\w)\*(?!\s)([^*\n]{1,200}?)(?<!\s)\*(?!\w)", r"\1", text)
+    text = re.sub(r"(?<!\w)_(?!\s)([^_\n]{1,200}?)(?<!\s)_(?!\w)", r"\1", text)
+    # Strip inline code backticks (keep the text inside).
+    text = text.replace("`", "")
+
+    # Collapse 3+ blank lines down to a single blank line for tidy spacing.
+    text = re.sub(r"\n{3,}", "\n\n", text)
+
+    return text.strip()
 
 def safe_text_for_embedding(text: str) -> str:
     if not text:
@@ -3056,16 +3125,15 @@ async def run_eval_qa(update: Update, context: ContextTypes.DEFAULT_TYPE, user_q
     sys = (
         "You are UniVenture Coach, a senior admissions mentor.\n"
         "The user is asking a follow-up question about a text you already evaluated.\n"
-        "Rules:\n"
         "- You DO have access to the student's text below.\n"
-        "- Answer directly and specifically.\n"
-        "- If they ask about grammar, show 2–5 short corrected excerpts.\n"
-        "- Do NOT say you cannot see the essay.\n"
-        "- End with one next step.\n\n"
+        "- Answer directly and specifically about THEIR text.\n"
+        "- If they ask about grammar, show 2-5 short corrected excerpts (each on its own line).\n"
+        "- Never say you cannot see the essay.\n\n"
         "Student memory:\n"
         f"{memory_summary_for_prompt(mem)}\n\n"
         "Decision notes:\n"
-        f"{decision_notes}\n"
+        f"{decision_notes}\n\n"
+        + HUMAN_STYLE_GUIDE
     )
 
     messages = [
@@ -5014,11 +5082,13 @@ async def run_plan(update: Update, context: ContextTypes.DEFAULT_TYPE, descripti
     context_block = "\n\n---\n\n".join(docs) if docs else ""
 
     sys = (
-        "You are an admissions strategy mentor.\n"
-        "- Based on the student's situation, create a concise application plan.\n"
-        "- Organize it into short bullet points under 3 headings: Academics & Testing, Essays & Recs, Activities & Extras.\n"
-        "- Keep total response around 120-200 words.\n"
-        "- Focus on practical next steps, not theory."
+        "You are an admissions strategy mentor creating a concise, practical application plan.\n"
+        "Organize it under these short mini-headers, each on its own line with a couple of scannable bullets:\n"
+        "📚 Academics & Testing\n"
+        "📝 Essays & Recs\n"
+        "🎯 Activities & Extras\n"
+        "Focus on practical next steps, not theory.\n\n"
+        + HUMAN_STYLE_GUIDE
     )
 
     messages = [{"role": "system", "content": sys}]
@@ -5129,11 +5199,12 @@ async def run_recpacket(update: Update, context: ContextTypes.DEFAULT_TYPE, desc
 
     sys = (
         "You are creating a recommendation letter 'brag sheet' for a teacher.\n"
-        "- Output in 3 short sections:\n"
-        "  1) 3-5 sentence summary the student can give the teacher.\n"
-        "  2) Bullet list of key achievements/impacts.\n"
-        "  3) Bullet list of personal qualities and 2-3 specific story ideas.\n"
-        "- Keep it concise and realistic for competitive admissions."
+        "Organize it under three short mini-headers, each on its own line:\n"
+        "📋 Summary (3-5 sentences the student can hand the teacher)\n"
+        "🏆 Key achievements & impact (scannable points)\n"
+        "💬 Personal qualities + 2-3 specific story ideas\n"
+        "Keep it concise and realistic for competitive admissions.\n\n"
+        + HUMAN_STYLE_GUIDE
     )
 
     messages = [{"role": "system", "content": sys}, {"role": "user", "content": description}]
@@ -5170,10 +5241,13 @@ async def run_schoolfinder(update: Update, context: ContextTypes.DEFAULT_TYPE, d
 
     sys = (
         "You are a university match advisor.\n"
-        "- Based on the student's stats and preferences, suggest Reach, Match, and Safety school types and a few example universities.\n"
-        "- For each category, give 2-4 example schools and 1-2 bullets about why they fit.\n"
-        "- Keep total response concise (around 150-220 words).\n"
-        "- Make it clear this is an approximate starting point and they must research details themselves."
+        "Based on the student's stats and preferences, suggest schools under three mini-headers:\n"
+        "🌟 Reach\n"
+        "🎯 Match\n"
+        "🛟 Safety\n"
+        "For each, give 2-4 example universities with one short reason each fits.\n"
+        "Make it clear this is an approximate starting point and they must research details themselves.\n\n"
+        + HUMAN_STYLE_GUIDE
     )
 
     messages = [{"role": "system", "content": sys}]

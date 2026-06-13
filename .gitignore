@@ -1,0 +1,6 @@
+.env
+.DS_Store
+analytics.json
+chroma_store/
+__pycache__/
+*.pyc
