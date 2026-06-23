@@ -1,8 +1,5 @@
 # AIBOT.py
 # UniVentureAI — Telegram bot with GLOBAL per-topic RAG + metadata separation (qa/evaluation)
-# + eval follow-ups (apply feedback) + eval Q&A (any follow-up question about the evaluated text)
-# + embedded tools + Application Plan & School Finder
-# + analytics + admin locks + backup + health + robust command parsing + UUID doc IDs (no reteach bugs)
 
 import os
 os.environ['TZ'] = 'UTC'  # Set timezone to UTC
