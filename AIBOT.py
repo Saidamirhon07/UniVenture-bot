@@ -453,6 +453,11 @@ async def feedback_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def pay_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_typing(update, context)
     uid = update.effective_user.id
+
+    # After /pay, treat the next photo/document from this user as payment proof.
+    # This works even if the user is still inside free trial or the paywall is disabled.
+    context.user_data["awaiting_payment_proof"] = True
+
     await update.message.reply_text(
         _payment_instructions_text(uid),
         parse_mode="HTML"
@@ -673,7 +678,8 @@ async def paid_access_gate(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await payment_proof_received_reply(update, context)
             raise ApplicationHandlerStop()
 
-        # User sent text without access. Show payment instructions.
+        # User sent text without access. Show payment instructions and wait for proof.
+        context.user_data["awaiting_payment_proof"] = True
         await show_typing(update, context)
         await msg.reply_text(
             _payment_instructions_text(uid),
@@ -3485,6 +3491,10 @@ async def evaluate_text_for_topic(update: Update, context: ContextTypes.DEFAULT_
 # ---------- DOCUMENT & PHOTO ROUTERS ----------
 async def document_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     caption = (update.message.caption or "").strip()
+
+    # If the user recently opened /pay, any document is probably a payment proof.
+    if await maybe_handle_payment_proof(update, context):
+        return
     
     # Check for commands in caption FIRST
     if caption:
@@ -3525,6 +3535,11 @@ async def photo_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     topic = get_current_topic(context)
     user = update.effective_user
     record_event(user.id, topic, kind="photo")
+
+    # If the user recently opened /pay, any photo is probably a payment proof.
+    # This must happen before IELTS/image-learning routes.
+    if await maybe_handle_payment_proof(update, context):
+        return
 
     # Check for commands in caption FIRST
     if caption:
@@ -3983,6 +3998,42 @@ def set_pending_feature(context: ContextTypes.DEFAULT_TYPE, feature: str | None)
 
 def clear_pending_feature(context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop("pending_feature", None)
+
+def reset_to_main_menu_state(context: ContextTypes.DEFAULT_TYPE):
+    """Reset conversational state when the user taps Back to the main menu.
+
+    This prevents stale sections like School Finder / IELTS / Portfolio from
+    shaping normal questions after the user already returned to the main menu.
+    """
+    clear_pending_feature(context)
+    stop_eval_mode(context)
+    context.user_data.pop("in_tools", None)
+    context.user_data["topic"] = DEFAULT_TOPIC
+    context.user_data["last_used_section"] = DEFAULT_TOPIC
+
+async def maybe_handle_payment_proof(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Forward the next photo/document after /pay as payment proof.
+
+    Returns True if this update was handled as payment proof.
+    """
+    if require_admin(update):
+        return False
+
+    msg = update.effective_message
+    if not msg:
+        return False
+
+    has_file = bool(getattr(msg, "photo", None)) or bool(getattr(msg, "document", None))
+    if not has_file:
+        return False
+
+    if not context.user_data.get("awaiting_payment_proof"):
+        return False
+
+    await _forward_payment_proof_to_admin(update, context)
+    await payment_proof_received_reply(update, context)
+    context.user_data.pop("awaiting_payment_proof", None)
+    return True
 
 def _ensure_application_defaults(mem: dict) -> dict:
     """Ensure mem['application'] exists with expected nested structure."""
@@ -5680,23 +5731,10 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         clear_pending_feature(context)
 
     if is_back_message(q):
+        # Always reset to General when user returns to main menu.
+        # Fixes stale School Finder / IELTS / Portfolio formatting leaking into normal Q&A.
+        reset_to_main_menu_state(context)
 
-    # ⬅️ Back from Boost Tools
-        if context.user_data.get("in_tools"):
-            context.user_data.pop("in_tools", None)
-            clear_pending_feature(context)
-            stop_eval_mode(context)
-    
-            await update.message.reply_text(
-                "Back to main menu.",
-                reply_markup=main_menu_keyboard(),
-            )
-            return   # 🔴 THIS RETURN IS CRITICAL
-    
-        # ⬅️ Back from anywhere else
-        clear_pending_feature(context)
-        stop_eval_mode(context)
-    
         await update.message.reply_text(
             "Back to main menu.",
             reply_markup=main_menu_keyboard(),
@@ -5926,6 +5964,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ---- MAIN MENUS ----
     if q == BTN_ESSAY:
         clear_eval_context(context)
+        context.user_data["topic"] = DEFAULT_TOPIC
         await send_with_image(
             update,
             "Essays selected.\nChoose Personal Statement or Supplemental Essays.",
@@ -5936,6 +5975,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if q == BTN_SAT:
         clear_eval_context(context)
+        context.user_data["topic"] = DEFAULT_TOPIC
         await send_with_image(
             update,
             "SAT selected. Choose a section:",
@@ -5946,6 +5986,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if q == BTN_IELTS:
         clear_eval_context(context)
+        context.user_data["topic"] = DEFAULT_TOPIC
         await send_with_image(
             update,
             "IELTS selected. Choose a section.",
