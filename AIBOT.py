@@ -594,6 +594,8 @@ async def _forward_payment_proof_to_admin(update: Update, context: ContextTypes.
     uid = update.effective_user.id
     username = update.effective_user.username or ""
     first_name = update.effective_user.first_name or ""
+    last_name = update.effective_user.last_name or ""
+    full_name = " ".join([x for x in [first_name, last_name] if x]).strip() or "Unknown"
     chat_id = update.effective_chat.id
 
     for admin_id in ADMIN_IDS:
@@ -606,10 +608,11 @@ async def _forward_payment_proof_to_admin(update: Update, context: ContextTypes.
             await context.bot.send_message(
                 chat_id=admin_id,
                 text=(
-                    "🧾 Payment proof received\n"
-                    f"User ID: {uid}\n"
-                    + (f"Username: @{username}\n" if username else "")
-                    + f"Activate: /activate {uid} 30"
+                    "🧾 Payment proof received\n\n"
+                    f"Name: {full_name}\n"
+                    f"Username: @{username if username else 'No username'}\n"
+                    f"User ID: {uid}\n\n"
+                    f"Activate: /activate {uid} 30"
                 ),
             )
         except Exception as e:
@@ -626,6 +629,8 @@ async def _forward_payment_proof_to_admin(update: Update, context: ContextTypes.
     db[uid_str]["user_id"] = uid
     db[uid_str]["username"] = username
     db[uid_str]["first_name"] = first_name
+    db[uid_str]["last_name"] = last_name
+    db[uid_str]["full_name"] = full_name
 
     _paid_save(db)
     
