@@ -5,7 +5,7 @@ import os
 os.environ['TZ'] = 'UTC'  # Set timezone to UTC
 
 from datetime import datetime, timedelta
-from telegram import Update, KeyboardButton, ReplyKeyboardMarkup
+from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ChatAction
 from telegram.ext import (
     ApplicationBuilder,
@@ -13,6 +13,7 @@ from telegram.ext import (
     MessageHandler,
     ContextTypes,
     ApplicationHandlerStop,
+    CallbackQueryHandler,
     filters,
 )
 from dotenv import load_dotenv
@@ -49,7 +50,7 @@ FAST_MODEL = os.getenv("OPENAI_FAST_MODEL", "gpt-4.1-mini")
 STRONG_MODEL = os.getenv("OPENAI_STRONG_MODEL", "gpt-4.1")
 
 # Evaluation speed UX: send a short "quick feedback" first, then full feedback.
-ENABLE_EVAL_QUICK_PREVIEW = os.getenv("ENABLE_EVAL_QUICK_PREVIEW", "1") == "1"
+ENABLE_EVAL_QUICK_PREVIEW = os.getenv("ENABLE_EVAL_QUICK_PREVIEW", "0") == "1"
 EVAL_QUICK_MAX_TOKENS = int(os.getenv("EVAL_QUICK_MAX_TOKENS", "280"))
 if not TELEGRAM_TOKEN:
     raise RuntimeError("Missing TELEGRAM_BOT_TOKEN in environment.")
@@ -1469,6 +1470,144 @@ def coach_eval_system_prompt(topic: str, mem: dict, decision_notes: str) -> str:
         + "MEMORY_JSON: { ... }\n"
     )
 
+
+
+def coach_eval_brief_system_prompt(topic: str, mem: dict, decision_notes: str) -> str:
+    """Short, high-value first evaluation. Each topic has its own product UX.
+
+    The goal is Telegram-friendly: useful in one screen, not a long report.
+    The full strategic review is available by inline button after this response.
+    """
+    nice = FRIENDLY_TOPIC_NAMES.get(topic, topic)
+    mem_sum = memory_summary_for_prompt(mem)
+
+    shared = (
+        COACH_PERSONA_CORE
+        + "You are giving the FIRST evaluation after a student submits work. "
+        + "Be sharp, warm, concrete, and useful in one screen. "
+        + "Do not write a long report. Do not use Markdown symbols. "
+        + "Target length: 170-260 words. Maximum 6 short sections. "
+        + "Every section must contain 1-2 short, specific lines. "
+        + "End with exactly one 'Next step:' line.\n\n"
+        + f"Student memory:\n{mem_sum}\n\n"
+        + f"Decision notes:\n{decision_notes}\n\n"
+    )
+
+    if topic == "essays_personal":
+        structure = (
+            "Evaluate a PERSONAL STATEMENT for admissions storytelling.\n"
+            "Focus on: emotional arc, vulnerability, scene quality, voice, and whether the essay reveals the student beyond achievements.\n\n"
+            "Use exactly these headers:\n"
+            "🎯 Core Diagnosis\n"
+            "🧠 Inner Growth\n"
+            "🎬 Scene Power\n"
+            "⚠️ Main Risk\n"
+            "✍️ Rewrite Move\n"
+            "Next step:\n"
+        )
+    elif topic == "essays_supplemental":
+        structure = (
+            "Evaluate a SUPPLEMENTAL ESSAY.\n"
+            "Focus on: school fit, specificity, contribution, intellectual direction, and whether the answer could only belong to this student.\n\n"
+            "Use exactly these headers:\n"
+            "🎯 Fit Verdict\n"
+            "🔍 Specificity Check\n"
+            "💡 Contribution Angle\n"
+            "⚠️ Generic Risk\n"
+            "✍️ Rewrite Move\n"
+            "Next step:\n"
+        )
+    elif topic == "extracurriculars":
+        structure = (
+            "Evaluate EXTRACURRICULAR descriptions/list.\n"
+            "Focus on: impact, leadership, initiative, evidence, numbers, and whether activities show a clear spike.\n\n"
+            "Use exactly these headers:\n"
+            "🎯 Activity Signal\n"
+            "📈 Impact Proof\n"
+            "👑 Leadership Signal\n"
+            "⚠️ Weakest Line\n"
+            "🛠 Upgrade Move\n"
+            "Next step:\n"
+        )
+    elif topic == "recommendations":
+        structure = (
+            "Evaluate a RECOMMENDATION LETTER draft or brag-sheet material.\n"
+            "Focus on: credibility, specific stories, teacher perspective, comparison to peers, and whether the praise feels earned.\n\n"
+            "Use exactly these headers:\n"
+            "🎯 Credibility Verdict\n"
+            "📌 Best Evidence\n"
+            "💬 Missing Story\n"
+            "⚠️ Generic Praise Risk\n"
+            "🛠 Teacher Packet Move\n"
+            "Next step:\n"
+        )
+    elif topic == "portfolio":
+        structure = (
+            "Evaluate a PORTFOLIO description or portfolio materials.\n"
+            "Focus on: originality, proof of skill, project framing, curation, impact, and whether it signals future promise.\n\n"
+            "Use exactly these headers:\n"
+            "🎯 Portfolio Signal\n"
+            "🛠 Skill Proof\n"
+            "🧵 Story & Curation\n"
+            "⚠️ Missing Evidence\n"
+            "🚀 Upgrade Move\n"
+            "Next step:\n"
+        )
+    elif topic == "ielts_writing":
+        structure = (
+            "Evaluate an IELTS Writing answer.\n"
+            "Focus on: approximate band, Task Response, Coherence and Cohesion, Lexical Resource, Grammar, and the fastest band-improving fix.\n\n"
+            "Use exactly these headers:\n"
+            "🎯 Estimated Band\n"
+            "✅ Strongest Criterion\n"
+            "⚠️ Band-Limiting Issue\n"
+            "📝 Sentence-Level Fix\n"
+            "🚀 Fastest Band Upgrade\n"
+            "Next step:\n"
+        )
+    else:
+        structure = (
+            f"Evaluate the student's {nice}.\n"
+            "Focus on the most useful improvement, not a long report.\n\n"
+            "Use exactly these headers:\n"
+            "🎯 Main Diagnosis\n"
+            "💎 Strongest Part\n"
+            "⚠️ Biggest Issue\n"
+            "🛠 Fix First\n"
+            "Next step:\n"
+        )
+
+    return (
+        shared
+        + structure
+        + "\nRules:\n"
+        + "- Do not summarize the full submission.\n"
+        + "- Do not list many tiny issues. Pick the highest-leverage problem.\n"
+        + "- Be specific enough that the student knows exactly what to edit next.\n"
+        + "- After the visible evaluation, append EXACTLY:\n"
+        + "---\n"
+        + "MEMORY_JSON: { ... }\n"
+    )
+
+
+def detailed_review_button() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton("🔎 Get full detailed review", callback_data="eval_full_review")]]
+    )
+
+
+def is_detailed_review_request(text: str) -> bool:
+    t = (text or "").strip().lower()
+    triggers = {
+        "give full detailed review",
+        "full detailed review",
+        "detailed review",
+        "full review",
+        "deeper feedback",
+        "give deeper feedback",
+        "more detailed feedback",
+    }
+    return t in triggers or ("detailed" in t and "review" in t) or ("full" in t and "review" in t)
 
 def coach_qa_system_prompt(topic: str, mem: dict, decision_notes: str) -> str:
     nice = FRIENDLY_TOPIC_NAMES.get(topic, topic)
@@ -3205,11 +3344,9 @@ async def _coach_evaluate_common(
 
     decision_notes = coach_decision_notes(topic, student_text_for_followup, mem)
 
-    # Choose system prompt
-    if topic in {"essays_personal", "essays_supplemental", "extracurriculars", "recommendations", "portfolio", "ielts_writing"}:
-        sys_role = coach_eval_system_prompt(topic, mem, decision_notes)
-    else:
-        sys_role = coach_eval_system_prompt(topic, mem, decision_notes)
+    # First evaluation = short, topic-specific, Telegram-friendly diagnosis.
+    # Full detailed review is generated only when the user taps the inline button.
+    sys_role = coach_eval_brief_system_prompt(topic, mem, decision_notes)
 
     messages = [
         {"role": "system", "content": sys_role},
@@ -3245,13 +3382,16 @@ async def _coach_evaluate_common(
     raw_out = await openai_chat(
         STRONG_MODEL,
         messages,
-        0.3
+        0.35,
+        max_tokens=850,
     )
     
     user_text, mem_update = split_memory_block(raw_out)
 
-    # Save eval context for follow-ups
+    # Save eval context for follow-ups and optional full review button
     set_eval_context(context, topic, student_text_for_followup, user_text)
+    context.user_data["last_eval_context_block"] = _truncate_for_storage(context_block or "", 8000)
+    context.user_data["last_eval_pretty_topic"] = pretty_topic
     context.user_data["my_eval_count"] = int(context.user_data.get("my_eval_count", 0) or 0) + 1
 
     # Update persistent memory
@@ -3264,7 +3404,85 @@ async def _coach_evaluate_common(
     persist_user_memory(update, context)
 
     await send_long(update, user_text)
+    await update.message.reply_text(
+        "Need the deeper admissions-style breakdown?",
+        reply_markup=detailed_review_button(),
+    )
 
+
+async def send_long_to_message(message, text: str):
+    MAX_LEN = 4000
+    if not text:
+        return
+    text = sanitize_output(text)
+    for i in range(0, len(text), MAX_LEN):
+        try:
+            await message.reply_text(text[i : i + MAX_LEN])
+        except Exception as e:
+            logging.error(f"Failed to send callback message part: {e}")
+
+
+async def run_full_detailed_review(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Generate the long strategic review only after the user asks/clicks."""
+    target_msg = update.effective_message
+    if not target_msg:
+        return
+
+    await show_typing(update, context)
+
+    topic = context.user_data.get("last_eval_topic") or get_current_topic(context)
+    pretty_topic = context.user_data.get("last_eval_pretty_topic") or _pretty_topic_for_eval(topic)
+    student_text = (context.user_data.get("last_eval_text_original") or context.user_data.get("last_eval_text") or "").strip()
+
+    if len(student_text) < 100:
+        await target_msg.reply_text(
+            "I don't have a saved submission for a full review yet. Paste or upload the text first."
+        )
+        return
+
+    mem = get_user_memory_cached(update, context)
+    merge_usage_into_memory(context, mem)
+    decision_notes = coach_decision_notes(topic, student_text, mem)
+
+    context_block = (context.user_data.get("last_eval_context_block") or "").strip()
+    if not context_block:
+        try:
+            col = get_collection(update.effective_chat.id, topic)
+            context_block = _eval_context_from_collection(col, topic=topic, extra_query=pretty_topic, context=context)
+        except Exception as e:
+            logging.error(f"Error retrieving context for full detailed review: {e}")
+            context_block = ""
+
+    sys_role = coach_eval_system_prompt(topic, mem, decision_notes)
+    messages = [
+        {"role": "system", "content": sys_role},
+        {"role": "system", "content": f"Guidelines + examples (may be empty):\n{context_block}"},
+        {"role": "user", "content": f"Here is the student's {pretty_topic}. Give the full detailed review:\n\n{student_text}"},
+    ]
+
+    raw_out = await openai_chat(STRONG_MODEL, messages, 0.3, max_tokens=1800)
+    user_text, mem_update = split_memory_block(raw_out)
+
+    apply_memory_update(mem, mem_update or {}, topic)
+    persist_user_memory(update, context)
+
+    context.user_data["last_eval_full_review"] = user_text
+    await send_long_to_message(target_msg, "🔎 Full detailed review\n\n" + (user_text or ""))
+
+
+async def eval_button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if not query:
+        return
+    await query.answer()
+
+    if query.data == "eval_full_review":
+        try:
+            await query.edit_message_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        await query.message.reply_text("Generating your full detailed review…")
+        await run_full_detailed_review(update, context)
 
 async def evaluate_file_for_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -6439,6 +6657,11 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
+        # Full review can be requested by text too, but the inline button is easier.
+        if is_detailed_review_request(q):
+            await run_full_detailed_review(update, context)
+            return
+
         # ✅ If it looks like a rewrite/apply request -> do rewrite
         if is_followup_intent(q):
             await run_eval_followup(update, context, q)
@@ -6628,6 +6851,7 @@ app.add_handler(CommandHandler("resethealth", reset_health_collection), group=0)
 app.add_handler(CommandHandler("resetchroma", resetchroma), group=0)
 app.add_handler(CommandHandler("restore_sources", restore_sources), group=0)
 app.add_handler(CommandHandler("restorefile", restore_from_file), group=0)
+app.add_handler(CallbackQueryHandler(eval_button_callback, pattern="^eval_full_review$"), group=0)
 
 # ===== GROUP 1: FILES / PHOTOS =====
 app.add_handler(MessageHandler(filters.Document.ALL, document_router), group=1)
