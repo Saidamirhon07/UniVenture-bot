@@ -5,7 +5,15 @@ import os
 os.environ['TZ'] = 'UTC'  # Set timezone to UTC
 
 from datetime import datetime, timedelta
-from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import (
+    Update,
+    KeyboardButton,
+    ReplyKeyboardMarkup,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    WebAppInfo,
+    MenuButtonWebApp,
+)
 from telegram.constants import ChatAction
 from telegram.ext import (
     ApplicationBuilder,
@@ -44,6 +52,7 @@ nest_asyncio.apply()
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+MINI_APP_URL = os.getenv("MINI_APP_URL", "").strip().rstrip("/")
 
 # -------- Model routing (speed vs depth) --------
 FAST_MODEL = os.getenv("OPENAI_FAST_MODEL", "gpt-4.1-mini")
@@ -63,10 +72,10 @@ if not OPENAI_API_KEY:
 USE_NEW_OPENAI = False
 _client = None
 try:
-    # openai>=1.x
-    from openai import OpenAI  # type: ignore
+    # openai>=1.x — use the async client because every caller awaits this wrapper.
+    from openai import AsyncOpenAI  # type: ignore
 
-    _client = OpenAI(api_key=OPENAI_API_KEY)
+    _client = AsyncOpenAI(api_key=OPENAI_API_KEY)
     USE_NEW_OPENAI = True
     logging.info("Using OpenAI SDK v1.x+")
 except Exception as e:
@@ -82,6 +91,7 @@ async def openai_chat(
     messages: list,
     temperature: float = 0.4,
     max_tokens: int | None = None,
+    response_format: dict | None = None,
 ) -> str:
     """Async OpenAI chat completion with retry + graceful wait message."""
 
@@ -91,24 +101,30 @@ async def openai_chat(
     while attempt < max_retries:
         try:
             if USE_NEW_OPENAI:
+                request_kwargs = {
+                    "model": model,
+                    "messages": messages,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                }
+                if response_format:
+                    request_kwargs["response_format"] = response_format
                 resp = await asyncio.wait_for(
-                    _client.chat.completions.create(
-                        model=model,
-                        messages=messages,
-                        temperature=temperature,
-                        max_tokens=max_tokens,
-                    ),
+                    _client.chat.completions.create(**request_kwargs),
                     timeout=60
                 )
                 return (resp.choices[0].message.content or "").strip()
             else:
                 import openai as _openai
-                resp = await _openai.ChatCompletion.acreate(
+                request_kwargs = dict(
                     model=model,
                     messages=messages,
                     temperature=temperature,
                     max_tokens=max_tokens,
                 )
+                if response_format:
+                    request_kwargs["response_format"] = response_format
+                resp = await _openai.ChatCompletion.acreate(**request_kwargs)
                 return (resp["choices"][0]["message"]["content"] or "").strip()
 
         except (RateLimitError, asyncio.TimeoutError):
@@ -161,7 +177,7 @@ PAYMENT_CLICK = os.getenv("PAYMENT_CLICK", "")      # e.g. "+998901234567"
 PAYMENT_PAYME = os.getenv("PAYMENT_PAYME", "")      # e.g. "+998901234567"
 PAYMENT_NOTE = os.getenv("PAYMENT_NOTE", "")        # optional extra line
 
-_paid_lock = threading.Lock()
+_paid_lock = threading.RLock()
 
 def _paid_load() -> dict:
     try:
@@ -177,9 +193,13 @@ def _paid_load() -> dict:
 def _paid_save(db: dict) -> None:
     try:
         os.makedirs(os.path.dirname(PAID_DB_PATH), exist_ok=True)
+        temp_path = f"{PAID_DB_PATH}.tmp"
         with _paid_lock:
-            with open(PAID_DB_PATH, "w", encoding="utf-8") as f:
+            with open(temp_path, "w", encoding="utf-8") as f:
                 json.dump(db, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temp_path, PAID_DB_PATH)
     except Exception as e:
         logging.error(f"Failed to save paid DB: {e}")
 
@@ -883,6 +903,7 @@ DEFAULT_TOPIC = "general"  # defined early (used by memory defaults)
 # -------- User Memory (persistent, per-user; survives restarts) --------
 USER_MEM_DIR = os.path.join(DATA_DIR, "user_memory")
 os.makedirs(USER_MEM_DIR, exist_ok=True)
+_memory_lock = threading.RLock()
 
 PAYWALL_ENABLED = os.getenv("PAYWALL_ENABLED", "0").strip() == "1"
 SUPPORT_HANDLE = os.getenv("SUPPORT_HANDLE", "")  # e.g. @UniVentureSupport
@@ -989,8 +1010,9 @@ def load_user_memory(user_id: int) -> dict:
     if not os.path.exists(path):
         return _default_user_memory()
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
+        with _memory_lock:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
         base = _default_user_memory()
         # shallow merge (keeps schema additions safe)
         for k, v in base.items():
@@ -1007,8 +1029,14 @@ def load_user_memory(user_id: int) -> dict:
 def save_user_memory(user_id: int, mem: dict):
     path = _mem_path(user_id)
     try:
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(mem, f, indent=2, ensure_ascii=False)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        temp_path = f"{path}.tmp"
+        with _memory_lock:
+            with open(temp_path, "w", encoding="utf-8") as f:
+                json.dump(mem, f, indent=2, ensure_ascii=False)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temp_path, path)
     except Exception as e:
         logging.warning(f"Could not save user memory for {user_id}: {e}")
 
@@ -1652,6 +1680,7 @@ BTN_IELTS = "🗣️ IELTS"
 BTN_PORT = "🖼️ Portfolio"
 BTN_PLAN_MAIN = "📅 Application Plan"
 BTN_SF_MAIN = "🏫 School Finder"
+BTN_HUB = "🚀 Open Admissions Hub"
 
 # Application Plan (portfolio-aware) sub-buttons
 BTN_PLAN_FROM_PORT = "📌 Plan from my portfolio"
@@ -1726,12 +1755,20 @@ def is_ui_button(text: str) -> bool:
 
 # -------- Keyboards --------
 def main_menu_keyboard():
-    return ReplyKeyboardMarkup(
+    rows = []
+    if MINI_APP_URL:
+        rows.append(
+            [KeyboardButton(BTN_HUB, web_app=WebAppInfo(url=MINI_APP_URL))]
+        )
+    rows.extend(
         [
             [KeyboardButton(BTN_ESSAY), KeyboardButton(BTN_EC), KeyboardButton(BTN_REC)],
             [KeyboardButton(BTN_SAT), KeyboardButton(BTN_IELTS), KeyboardButton(BTN_PORT)],
             [KeyboardButton(BTN_PLAN_MAIN), KeyboardButton(BTN_SF_MAIN), KeyboardButton(BTN_TOOLS)],
-        ],
+        ]
+    )
+    return ReplyKeyboardMarkup(
+        rows,
         resize_keyboard=True,
         one_time_keyboard=False,
     )
@@ -6812,8 +6849,33 @@ async def error_handler(update, context):
             await update.effective_message.reply_text("⚠️ I hit an internal error while processing that. Please try again.")
     except Exception:
         pass
+
+
+async def telegram_post_init(application):
+    """Expose the Mini App in Telegram's persistent bot menu when configured."""
+    if not MINI_APP_URL:
+        logging.warning("MINI_APP_URL is not set; Admissions Hub buttons are disabled.")
+        return
+    try:
+        await application.bot.set_chat_menu_button(
+            menu_button=MenuButtonWebApp(
+                text="Admissions Hub",
+                web_app=WebAppInfo(url=MINI_APP_URL),
+            )
+        )
+        logging.info("Telegram Admissions Hub menu button configured.")
+    except Exception:
+        logging.exception("Failed to configure the Telegram Mini App menu button.")
+
+
 # ===== Setup Application =====
-app = ApplicationBuilder().token(TELEGRAM_TOKEN).concurrent_updates(True).build()
+app = (
+    ApplicationBuilder()
+    .token(TELEGRAM_TOKEN)
+    .concurrent_updates(True)
+    .post_init(telegram_post_init)
+    .build()
+)
 app.add_error_handler(error_handler)
 
 # ===== GROUP -1: PAID ACCESS GATE (RUNS FIRST) =====
