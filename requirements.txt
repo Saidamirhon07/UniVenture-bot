@@ -2,7 +2,7 @@ fastapi==0.115.6
 uvicorn[standard]==0.34.0
 python-multipart==0.0.20
 python-dotenv==1.0.1
-python-telegram-bot[job-queue]==20.8
+python-telegram-bot[job-queue]==21.10
 openai==1.58.1
 chromadb==0.5.23
 pdfminer.six==20240706
