@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { BookOpenText, CalendarCheck2, Home, LayoutGrid, Sparkles, UserRound } from "lucide-react";
+import { BrainCircuit, Compass, FlaskConical, Home, LayoutGrid, Sparkles, UserRound } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { api } from "./api";
-import { ErrorBanner, LoadingScreen } from "./components/ui";
+import { Button, Card, ErrorBanner, Input, LoadingScreen, Tag } from "./components/ui";
 import type { Navigate, ScreenId, SessionUser } from "./types";
 import ApplicationPlanScreen from "./screens/ApplicationPlanScreen";
 import EssayLabScreen from "./screens/EssayLabScreen";
@@ -10,14 +10,21 @@ import HomeScreen from "./screens/HomeScreen";
 import PortfolioScreen from "./screens/PortfolioScreen";
 import SchoolFinderScreen from "./screens/SchoolFinderScreen";
 import { BoostToolsScreen, ECBuilderScreen, IELTSWritingScreen, PortfolioBuilderScreen, RecommendationScreen } from "./screens/FocusedTools";
+import { AICoachScreen, DiscoverScreen, FeedbackScreen, PrepHubScreen, SATStudioScreen } from "./screens/GrowthScreens";
 
 const primaryNav: Array<{ screen: ScreenId; label: string; icon: typeof Home }> = [
   { screen: "home", label: "Home", icon: Home },
-  { screen: "essay", label: "Essay", icon: BookOpenText },
-  { screen: "plan", label: "Plan", icon: CalendarCheck2 },
+  { screen: "discover", label: "Discover", icon: Compass },
+  { screen: "prep", label: "Prep", icon: FlaskConical },
+  { screen: "coach", label: "AI Coach", icon: BrainCircuit },
   { screen: "portfolio", label: "Portfolio", icon: UserRound },
-  { screen: "boost", label: "Boost", icon: Sparkles },
 ];
+
+function navScreen(screen: ScreenId): ScreenId {
+  if (["sat", "ielts", "school", "plan"].includes(screen)) return "prep";
+  if (["essay", "ec", "recommendation", "portfolio-builder", "boost"].includes(screen)) return "coach";
+  return screen;
+}
 
 function AuthFailure({ message }: { message: string }) {
   return (
@@ -28,6 +35,21 @@ function AuthFailure({ message }: { message: string }) {
       <ErrorBanner message={message} />
     </main>
   );
+}
+
+function NameSetup({ onSaved }: { onSaved: (user: SessionUser) => void }) {
+  const [name, setName] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  async function saveName() {
+    setLoading(true); setError("");
+    try {
+      const data = await api.post<{ user: SessionUser }>("/api/profile/name", { name });
+      onSaved(data.user);
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Could not save your name."); }
+    finally { setLoading(false); }
+  }
+  return <main className="name-setup"><div className="name-orbit"><Sparkles size={28} /></div><Tag tone="cyan">Make it yours</Tag><h1>What should we call you?</h1><p>Enter the name you want UniVentureAI to use. We won’t copy it from Telegram.</p><Card><Input label="Your name" autoFocus autoComplete="name" placeholder="e.g. Saidamirkhon" value={name} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && name.trim().length >= 2) void saveName(); }} />{error ? <ErrorBanner message={error} /> : null}<Button className="w-full mt-4" loading={loading} disabled={name.trim().length < 2} onClick={() => void saveName()}>Continue to my hub</Button></Card><small>You can change this anytime in Academic Profile.</small></main>;
 }
 
 export default function App() {
@@ -64,16 +86,22 @@ export default function App() {
 
   if (authError) return <AuthFailure message={authError} />;
   if (!user) return <LoadingScreen />;
+  if (!user.has_manual_name || !user.name) return <NameSetup onSaved={setUser} />;
 
   const content = (() => {
     switch (screen) {
       case "home": return <HomeScreen navigate={navigate} reloadKey={reloadKey} />;
+      case "discover": return <DiscoverScreen navigate={navigate} />;
+      case "prep": return <PrepHubScreen navigate={navigate} />;
+      case "coach": return <AICoachScreen navigate={navigate} />;
       case "essay": return <EssayLabScreen navigate={navigate} onChanged={markChanged} />;
       case "school": return <SchoolFinderScreen navigate={navigate} onChanged={markChanged} />;
       case "plan": return <ApplicationPlanScreen navigate={navigate} onChanged={markChanged} />;
       case "portfolio": return <PortfolioScreen navigate={navigate} onChanged={markChanged} />;
       case "ec": return <ECBuilderScreen navigate={navigate} onChanged={markChanged} />;
       case "ielts": return <IELTSWritingScreen navigate={navigate} onChanged={markChanged} />;
+      case "sat": return <SATStudioScreen navigate={navigate} />;
+      case "feedback": return <FeedbackScreen navigate={navigate} />;
       case "recommendation": return <RecommendationScreen navigate={navigate} onChanged={markChanged} />;
       case "portfolio-builder": return <PortfolioBuilderScreen navigate={navigate} onChanged={markChanged} />;
       case "boost": return <BoostToolsScreen navigate={navigate} />;
@@ -92,7 +120,7 @@ export default function App() {
       </main>
       <nav className="bottom-nav" aria-label="Primary navigation">
         {primaryNav.map(({ screen: target, label, icon: Icon }) => (
-          <button key={target} className={screen === target ? "active" : ""} onClick={() => navigate(target)}>
+          <button key={target} className={navScreen(screen) === target ? "active" : ""} onClick={() => navigate(target)}>
             <span><Icon size={20} /></span><small>{label}</small>
           </button>
         ))}
@@ -100,4 +128,3 @@ export default function App() {
     </div>
   );
 }
-

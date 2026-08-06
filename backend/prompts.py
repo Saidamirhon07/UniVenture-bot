@@ -57,6 +57,39 @@ EVALUATION_SPECS: dict[str, dict[str, Any]] = {
             ("next_practice_step", "Next Practice Step"),
         ],
     },
+    "ielts_speaking": {
+        "title": "IELTS Speaking response",
+        "focus": "fluency and coherence, lexical resource, grammatical range and accuracy, pronunciation evidence that can be inferred from a transcript, natural examples, and direct answer development",
+        "keys": [
+            ("estimated_band", "Estimated Band"),
+            ("fluency_and_coherence", "Fluency & Coherence"),
+            ("lexical_resource", "Lexical Resource"),
+            ("grammar", "Grammar"),
+            ("stronger_answer", "Stronger Natural Answer"),
+        ],
+    },
+    "ielts_reading": {
+        "title": "IELTS Reading mistake analysis",
+        "focus": "question-type recognition, evidence location, paraphrase matching, distractor diagnosis, timing, and a repeatable solving method",
+        "keys": [
+            ("mistake_type", "Mistake Type"),
+            ("evidence_path", "Evidence Path"),
+            ("distractor_trap", "Distractor Trap"),
+            ("solving_method", "Solving Method"),
+            ("micro_drill", "Micro Drill"),
+        ],
+    },
+    "ielts_listening": {
+        "title": "IELTS Listening mistake analysis",
+        "focus": "prediction before listening, signposting, distractors and corrections, spelling/word-limit accuracy, attention recovery, and targeted practice",
+        "keys": [
+            ("mistake_type", "Mistake Type"),
+            ("signal_words", "Signal Words"),
+            ("distractor_trap", "Distractor Trap"),
+            ("recovery_strategy", "Recovery Strategy"),
+            ("micro_drill", "Micro Drill"),
+        ],
+    },
     "recommendations": {
         "title": "Recommendation Letter",
         "focus": "credibility, specific stories, comparison to peers, academic character, classroom behavior, and evidence",
@@ -325,3 +358,69 @@ def boost_messages(tool: str, content: str, context: str, memory_summary: str) -
         {"role": "user", "content": json.dumps({"student_memory": memory_summary, "context": context, "material": content}, ensure_ascii=False)},
     ]
 
+
+def coach_messages(mode: str, topic: str, content: str, goal: str, memory_summary: str, rag_context: str) -> list[dict[str, str]]:
+    topic_names = {
+        "personal_statement": "personal statement",
+        "supplemental": "supplemental essay",
+        "extracurricular": "activity description",
+        "portfolio": "portfolio or project narrative",
+        "general": "application material",
+    }
+    if mode == "brainstorm":
+        schema = {
+            "headline": "the most promising direction",
+            "profile_signal": "what this could reveal about the student",
+            "ideas": [
+                {"title": "specific angle", "opening_scene": "a real moment to explore", "why_it_works": "strategic reason", "questions": ["question to unlock detail"]}
+            ],
+            "avoid": ["generic or risky direction"],
+            "next_step": "a 10-minute action",
+        }
+        instruction = "Generate 4 genuinely different, evidence-led directions. Ask for missing facts instead of inventing them. Prefer lived moments, tensions, choices, contribution, and reflection over impressive-sounding topics."
+    else:
+        schema = {
+            "headline": "main improvement made",
+            "elevated_version": "complete improved version preserving facts and voice",
+            "changes": ["specific strategic change"],
+            "truth_check": "anything the student must verify or personalize",
+            "next_step": "one final editing action",
+        }
+        instruction = "Rewrite for clarity, specificity, structure, credibility, and impact. Preserve the student's voice and every factual boundary. Never invent achievements, programs, emotions, statistics, professors, labs, or outcomes."
+    return [
+        {"role": "system", "content": f"{VOICE}\n\nYou are working on a student's {topic_names[topic]}. {instruction}\nReturn exactly this JSON shape:\n{json.dumps(schema, ensure_ascii=False, indent=2)}"},
+        {"role": "user", "content": json.dumps({"student_memory": memory_summary, "goal": goal, "reference_notes": rag_context[:10_000], "material": content}, ensure_ascii=False)},
+    ]
+
+
+def sat_coach_messages(payload: dict[str, Any], memory_summary: str) -> list[dict[str, str]]:
+    if payload["mode"] == "mistake_lab":
+        schema = {
+            "headline": "root cause of this mistake",
+            "sections": {
+                "diagnosis": "why the student's reasoning failed",
+                "correct_path": ["ordered reasoning step"],
+                "trap_to_notice": "the distractor or misconception",
+                "one_rule": "compact rule to remember",
+                "next_drill": "a specific practice drill without reproducing copyrighted SAT questions",
+            },
+            "next_step": "one immediate retry action",
+        }
+        instruction = "Diagnose the student's pasted SAT question, attempt, or mistake notes. Teach the reasoning; do not merely give an answer. Do not reproduce or claim to quote official College Board material."
+    else:
+        schema = {
+            "headline": "score-growth focus",
+            "score_gap": "current-to-target interpretation",
+            "sections": {
+                "highest_leverage_skills": ["skill plus reason"],
+                "seven_day_sprint": [{"day": "Day 1", "mission": "specific practice", "minutes": 30, "proof": "observable completion"}],
+                "error_log_method": "how to review mistakes",
+                "test_day_transfer": "how practice becomes points",
+            },
+            "next_step": "today's first 20-minute action",
+        }
+        instruction = "Create a realistic seven-day SAT sprint. Prioritize a few high-leverage skills, spaced review, timed transfer, and an error log. Never promise a score increase."
+    return [
+        {"role": "system", "content": f"{VOICE}\n\n{instruction}\nReturn exactly this JSON shape:\n{json.dumps(schema, ensure_ascii=False, indent=2)}"},
+        {"role": "user", "content": json.dumps({"student_memory": memory_summary, "request": payload}, ensure_ascii=False)},
+    ]

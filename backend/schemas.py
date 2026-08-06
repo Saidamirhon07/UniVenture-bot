@@ -35,6 +35,18 @@ class ProfileUpdateRequest(BaseModel):
     data: dict[str, Any]
 
 
+class NameUpdateRequest(BaseModel):
+    name: str = Field(min_length=2, max_length=80)
+
+    @field_validator("name")
+    @classmethod
+    def clean_name(cls, value: str) -> str:
+        cleaned = " ".join(value.split())
+        if len(cleaned) < 2:
+            raise ValueError("Enter your name.")
+        return cleaned
+
+
 class EssayEvaluationRequest(BaseModel):
     essay_type: Literal["personal_statement", "supplemental"]
     content: str = Field(min_length=80, max_length=30_000)
@@ -50,9 +62,33 @@ class ECEvaluationRequest(BaseModel):
 
 
 class IELTSEvaluationRequest(BaseModel):
-    task_type: Literal["task_1", "task_2"]
-    content: str = Field(min_length=80, max_length=20_000)
+    skill: Literal["writing", "speaking", "reading", "listening"] = "writing"
+    task_type: Literal["task_1", "task_2"] | None = "task_2"
+    content: str = Field(min_length=30, max_length=20_000)
     question: str | None = Field(default=None, max_length=3_000)
+    target_band: str | None = Field(default=None, max_length=20)
+
+
+class CoachRequest(BaseModel):
+    mode: Literal["brainstorm", "rewrite"]
+    topic: Literal["personal_statement", "supplemental", "extracurricular", "portfolio", "general"] = "general"
+    content: str = Field(min_length=20, max_length=30_000)
+    goal: str | None = Field(default=None, max_length=1_000)
+
+
+class SATCoachRequest(BaseModel):
+    section: Literal["math", "reading_writing"]
+    mode: Literal["study_plan", "mistake_lab"] = "study_plan"
+    current_score: int | None = Field(default=None, ge=200, le=800)
+    target_score: int | None = Field(default=None, ge=200, le=800)
+    weak_skills: list[str] = Field(default_factory=list, max_length=8)
+    content: str | None = Field(default=None, max_length=12_000)
+
+
+class FeedbackRequest(BaseModel):
+    category: Literal["idea", "bug", "confusing", "love"] = "idea"
+    rating: int = Field(ge=1, le=5)
+    message: str = Field(min_length=5, max_length=2_000)
 
 
 class RecommendationRequest(BaseModel):
@@ -125,4 +161,3 @@ class BoostRequest(BaseModel):
 class ExtractedFileResponse(BaseModel):
     filename: str
     text: str
-

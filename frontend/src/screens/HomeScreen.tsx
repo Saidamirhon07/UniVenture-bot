@@ -1,29 +1,29 @@
 import { useEffect, useState } from "react";
 import {
   ArrowRight,
+  Award,
   BookOpenText,
   CalendarCheck2,
   ChevronRight,
-  FilePenLine,
   GraduationCap,
   Languages,
   Lightbulb,
-  ListChecks,
   Palette,
   Sparkles,
   Target,
   UsersRound,
+  MessageCircleMore,
 } from "lucide-react";
 import { api } from "../api";
 import type { DashboardData, Navigate } from "../types";
 import { Card, ErrorBanner, LoadingScreen, ProgressRing, Tag } from "../components/ui";
 
 const quickActions = [
-  { label: "Evaluate essay", icon: FilePenLine, screen: "essay" as const, accent: "cyan" },
-  { label: "Find schools", icon: GraduationCap, screen: "school" as const, accent: "violet" },
-  { label: "Build plan", icon: CalendarCheck2, screen: "plan" as const, accent: "green" },
-  { label: "Improve ECs", icon: Target, screen: "ec" as const, accent: "orange" },
-  { label: "IELTS check", icon: Languages, screen: "ielts" as const, accent: "blue" },
+  { label: "Explore opportunities", icon: Award, screen: "discover" as const, accent: "cyan" },
+  { label: "Open Prep Lab", icon: Languages, screen: "prep" as const, accent: "violet" },
+  { label: "Ask AI Coach", icon: Sparkles, screen: "coach" as const, accent: "green" },
+  { label: "Build my plan", icon: CalendarCheck2, screen: "plan" as const, accent: "orange" },
+  { label: "Find universities", icon: GraduationCap, screen: "school" as const, accent: "blue" },
 ];
 
 const modules = [
@@ -59,6 +59,12 @@ export default function HomeScreen({ navigate, reloadKey }: { navigate: Navigate
         </div>
         <div className="avatar-orb">{data.name.slice(0, 1).toUpperCase()}</div>
       </header>
+
+      <button className="opportunity-banner" onClick={() => navigate("discover")}>
+        <span className="opportunity-emblem"><Award size={24} /></span>
+        <span><small>Open to everyone</small><strong>Top Programs & Opportunities</strong><em>Research, competitions, summer programs and official deadlines</em></span>
+        <ArrowRight size={20} />
+      </button>
 
       {!data.subscription.has_access ? (
         <Card tone="light" className="paywall-card">
@@ -123,8 +129,8 @@ export default function HomeScreen({ navigate, reloadKey }: { navigate: Navigate
             </button>
           ))}
         </Card>
+        <button className="feedback-link" onClick={() => navigate("feedback")}><MessageCircleMore size={18} /><span><strong>Help shape UniVentureAI</strong><small>Send an idea, bug or honest feedback</small></span><ChevronRight size={18} /></button>
       </section>
     </div>
   );
 }
-

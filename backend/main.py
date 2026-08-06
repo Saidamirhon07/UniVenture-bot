@@ -31,28 +31,34 @@ from .auth import (
 from .prompts import (
     EVALUATION_SPECS,
     boost_messages,
+    coach_messages,
     compact_evaluation_messages,
     full_review_messages,
     plan_messages,
     recommendation_builder_messages,
     refinement_messages,
+    sat_coach_messages,
     school_finder_messages,
 )
 from .schemas import (
     ApplicationPlanRequest,
     AuthRequest,
     BoostRequest,
+    CoachRequest,
     DevAuthRequest,
     ECEvaluationRequest,
     EssayEvaluationRequest,
     FullReviewRequest,
+    FeedbackRequest,
     IELTSEvaluationRequest,
+    NameUpdateRequest,
     PortfolioEvaluationRequest,
     ProfileUpdateRequest,
     RecommendationRequest,
     RefineRequest,
     SaveSchoolRequest,
     SchoolFinderRequest,
+    SATCoachRequest,
 )
 
 
@@ -169,10 +175,10 @@ def _clean_value(value: Any, depth: int = 0) -> Any:
 
 
 SECTION_FIELDS: dict[str, set[str]] = {
-    "academic_profile": {"grade", "country", "major", "target_countries"},
+    "academic_profile": {"preferred_name", "grade", "country", "major", "target_countries"},
     "test_scores": {"gpa", "sat", "sat_breakdown", "act", "ielts", "toefl", "duolingo", "notes"},
     "essays": {"personal_statement", "supplementals", "common_app", "notes"},
-    "extracurriculars": {"summary", "spike", "highlights", "notes"},
+    "extracurriculars": {"summary", "spike", "highlights", "activities", "notes"},
     "awards": {"items", "notes"},
     "projects": {"field", "items", "portfolio_url", "gaps", "notes"},
     "recommendations": {"teachers", "status", "stories", "notes"},
@@ -196,6 +202,7 @@ def _ensure_memory(memory: dict[str, Any]) -> tuple[dict[str, Any], dict[str, An
     miniapp.setdefault("evaluation_order", [])
     miniapp.setdefault("plans", [])
     miniapp.setdefault("school_finder_runs", [])
+    miniapp.setdefault("feedback", [])
     miniapp.setdefault("updated_at", None)
     return application, miniapp
 
@@ -255,6 +262,18 @@ def readiness_snapshot(memory: dict[str, Any]) -> dict[str, Any]:
     return {"score": score, "categories": categories, "blocker": blocker_copy}
 
 
+def _preferred_name(memory: dict[str, Any]) -> str:
+    return str((memory.get("profile", {}) or {}).get("preferred_name") or "").strip()[:80]
+
+
+def _public_user(identity: TelegramIdentity, memory: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": identity.user_id,
+        "name": _preferred_name(memory),
+        "has_manual_name": bool(_preferred_name(memory)),
+    }
+
+
 def _dashboard(memory: dict[str, Any], identity: TelegramIdentity) -> dict[str, Any]:
     app_data, miniapp = _ensure_memory(memory)
     readiness = readiness_snapshot(memory)
@@ -272,7 +291,7 @@ def _dashboard(memory: dict[str, Any], identity: TelegramIdentity) -> dict[str, 
     if not today:
         today = {"title": f"Strengthen {readiness['blocker']['label'].lower()}", "why": readiness["blocker"]["message"], "effort": "20 min"}
     return {
-        "name": identity.first_name,
+        "name": _preferred_name(memory) or "Student",
         "readiness": readiness,
         "today_priority": today,
         "status_cards": cards,
@@ -340,9 +359,10 @@ async def auth_telegram(payload: AuthRequest) -> dict[str, Any]:
     except AuthError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
     legacy.ensure_user(identity)
+    memory = legacy.load_memory(identity.user_id)
     access = legacy.subscription_status(identity.user_id)
     token = issue_session_token(identity, _session_secret(), SESSION_TTL_SECONDS)
-    return {"token": token, "user": {"id": identity.user_id, "name": identity.display_name, "username": identity.username, "photo_url": identity.photo_url}, "subscription": access}
+    return {"token": token, "user": _public_user(identity, memory), "subscription": access}
 
 
 @app.post("/api/auth/dev")
@@ -351,14 +371,23 @@ async def auth_dev(payload: DevAuthRequest) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="Not found.")
     identity = TelegramIdentity(user_id=payload.user_id, first_name=payload.first_name, username=payload.username)
     legacy.ensure_user(identity)
+    memory = legacy.load_memory(identity.user_id)
     token = issue_session_token(identity, _session_secret(), SESSION_TTL_SECONDS)
-    return {"token": token, "user": {"id": identity.user_id, "name": identity.display_name, "username": identity.username}, "subscription": legacy.subscription_status(identity.user_id)}
+    return {"token": token, "user": _public_user(identity, memory), "subscription": legacy.subscription_status(identity.user_id)}
 
 
 @app.get("/api/me")
 async def me(identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
     memory = legacy.load_memory(identity.user_id)
-    return {"user": {"id": identity.user_id, "name": identity.display_name, "username": identity.username}, "portfolio": _portfolio(memory), "readiness": readiness_snapshot(memory)}
+    return {"user": _public_user(identity, memory), "portfolio": _portfolio(memory), "readiness": readiness_snapshot(memory)}
+
+
+@app.post("/api/profile/name")
+async def profile_name(payload: NameUpdateRequest, identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
+    memory = legacy.load_memory(identity.user_id)
+    memory.setdefault("profile", {})["preferred_name"] = payload.name
+    _save_memory(identity.user_id, memory)
+    return {"saved": True, "user": _public_user(identity, memory)}
 
 
 @app.get("/api/dashboard")
@@ -426,7 +455,8 @@ async def evaluate_ec(payload: ECEvaluationRequest, identity: TelegramIdentity =
 
 @app.post("/api/evaluate/ielts")
 async def evaluate_ielts(payload: IELTSEvaluationRequest, identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
-    return await _run_compact_evaluation(identity, "ielts_writing", payload.content, {"task_type": payload.task_type, "question": payload.question})
+    topic = f"ielts_{payload.skill}"
+    return await _run_compact_evaluation(identity, topic, payload.content, {"task_type": payload.task_type, "question": payload.question, "target_band": payload.target_band})
 
 
 @app.post("/api/evaluate/recommendation")
@@ -454,6 +484,8 @@ async def full_review(payload: FullReviewRequest, identity: TelegramIdentity = D
     record = miniapp["evaluations"].get(payload.evaluation_id)
     if not record:
         raise HTTPException(status_code=404, detail="This evaluation is no longer available.")
+    if record.get("full_review"):
+        return {"evaluation_id": payload.evaluation_id, "result": record["full_review"], "cached": True}
     rag = await legacy.load_rag(record["topic"], record["content"][:4_000])
     raw = await legacy.ask_ai(
         full_review_messages(record, legacy.module().memory_summary_for_prompt(memory), rag),
@@ -539,6 +571,55 @@ async def boost(payload: BoostRequest, identity: TelegramIdentity = Depends(acti
     return {"tool": payload.tool, "result": _parse_ai_json(raw)}
 
 
+@app.post("/api/coach")
+async def coach(payload: CoachRequest, identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
+    memory = legacy.load_memory(identity.user_id)
+    rag_topic = {
+        "personal_statement": "essays_personal",
+        "supplemental": "essays_supplemental",
+        "extracurricular": "extracurriculars",
+        "portfolio": "portfolio",
+        "general": "general",
+    }[payload.topic]
+    rag = await legacy.load_rag(rag_topic, payload.content[:4_000])
+    raw = await legacy.ask_ai(
+        coach_messages(payload.mode, payload.topic, payload.content, payload.goal or "", legacy.module().memory_summary_for_prompt(memory), rag),
+        strong=payload.mode == "rewrite",
+        max_tokens=2_000 if payload.mode == "rewrite" else 1_500,
+    )
+    return {"mode": payload.mode, "result": _parse_ai_json(raw)}
+
+
+@app.post("/api/sat/coach")
+async def sat_coach(payload: SATCoachRequest, identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
+    memory = legacy.load_memory(identity.user_id)
+    raw = await legacy.ask_ai(
+        sat_coach_messages(payload.model_dump(), legacy.module().memory_summary_for_prompt(memory)),
+        strong=False,
+        max_tokens=1_700,
+    )
+    return {"result": _parse_ai_json(raw)}
+
+
+@app.post("/api/feedback")
+async def submit_feedback(payload: FeedbackRequest, identity: TelegramIdentity = Depends(current_identity)) -> dict[str, bool]:
+    memory = legacy.load_memory(identity.user_id)
+    _, miniapp = _ensure_memory(memory)
+    entry = {**payload.model_dump(), "created_at": int(time.time())}
+    miniapp["feedback"] = (miniapp.get("feedback", []) + [entry])[-20:]
+    _save_memory(identity.user_id, memory)
+    bot = legacy.module()
+    for admin_id in getattr(bot, "ADMIN_IDS", set()):
+        try:
+            await bot.app.bot.send_message(
+                chat_id=admin_id,
+                text=f"💬 Mini App feedback\n\nUser ID: {identity.user_id}\nCategory: {payload.category}\nRating: {payload.rating}/5\n\n{payload.message}",
+            )
+        except Exception:
+            logger.warning("Could not forward Mini App feedback to admin %s", admin_id)
+    return {"saved": True}
+
+
 def _extract_uploaded_text(filename: str, content: bytes) -> str:
     suffix = Path(filename).suffix.lower()
     if suffix == ".pdf":
@@ -575,4 +656,3 @@ if STATIC_DIR.exists():
         if full_path and candidate.is_file() and STATIC_DIR.resolve() in candidate.parents:
             return FileResponse(candidate)
         return FileResponse(STATIC_DIR / "index.html")
-

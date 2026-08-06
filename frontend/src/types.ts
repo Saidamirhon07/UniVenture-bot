@@ -1,11 +1,16 @@
 export type ScreenId =
   | "home"
+  | "discover"
+  | "prep"
+  | "coach"
   | "essay"
   | "school"
   | "plan"
   | "portfolio"
   | "ec"
   | "ielts"
+  | "sat"
+  | "feedback"
   | "recommendation"
   | "portfolio-builder"
   | "boost";
@@ -15,8 +20,7 @@ export type Navigate = (screen: ScreenId) => void;
 export interface SessionUser {
   id: number;
   name: string;
-  username?: string;
-  photo_url?: string;
+  has_manual_name?: boolean;
 }
 
 export interface Readiness {
@@ -40,4 +44,3 @@ export interface EvaluationResponse {
   can_full_review: boolean;
   result: Record<string, unknown>;
 }
-

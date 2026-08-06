@@ -1013,12 +1013,14 @@ def load_user_memory(user_id: int) -> dict:
             with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f)
         base = _default_user_memory()
-        # shallow merge (keeps schema additions safe)
-        for k, v in base.items():
-            if isinstance(v, dict):
-                base[k].update(data.get(k, {}))
+        # Preserve additive Mini App namespaces and other future top-level keys.
+        # The earlier merge only iterated default keys, so saved `miniapp`
+        # evaluations disappeared on the next load and full-review IDs broke.
+        for k, stored in data.items():
+            if isinstance(base.get(k), dict) and isinstance(stored, dict):
+                base[k].update(stored)
             else:
-                base[k] = data.get(k, v)
+                base[k] = stored
         return base
     except Exception as e:
         logging.warning(f"Could not load user memory for {user_id}: {e}")
@@ -1031,8 +1033,19 @@ def save_user_memory(user_id: int, mem: dict):
         os.makedirs(os.path.dirname(path), exist_ok=True)
         temp_path = f"{path}.tmp"
         with _memory_lock:
+            payload = dict(mem)
+            # Preserve additive namespaces (such as Mini App evaluations)
+            # when a Telegram handler later saves an older cached object.
+            if os.path.exists(path):
+                try:
+                    with open(path, "r", encoding="utf-8") as existing_file:
+                        existing = json.load(existing_file)
+                    for key, value in existing.items():
+                        payload.setdefault(key, value)
+                except Exception:
+                    pass
             with open(temp_path, "w", encoding="utf-8") as f:
-                json.dump(mem, f, indent=2, ensure_ascii=False)
+                json.dump(payload, f, indent=2, ensure_ascii=False)
                 f.flush()
                 os.fsync(f.fileno())
             os.replace(temp_path, path)

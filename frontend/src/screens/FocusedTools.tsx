@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { Activity, BarChart3, BriefcaseBusiness, FileCheck2, Gauge, Languages, Lightbulb, PenTool, Rocket, Sparkles, UsersRound, WandSparkles } from "lucide-react";
+import { Activity, BarChart3, BookOpenCheck, BriefcaseBusiness, FileCheck2, Gauge, Headphones, Languages, Lightbulb, Mic2, PenTool, Rocket, Sparkles, UsersRound, WandSparkles } from "lucide-react";
 import { api } from "../api";
-import type { EvaluationResponse, Navigate, Readiness } from "../types";
+import type { EvaluationResponse, Navigate } from "../types";
 import ResultPanel, { StructuredResult } from "../components/ResultPanel";
 import { Button, Card, ErrorBanner, FileImport, Input, ScreenHeader, Segmented, Select, Tag, Textarea } from "../components/ui";
 
@@ -34,6 +34,7 @@ export function ECBuilderScreen({ navigate, onChanged }: { navigate: Navigate; o
         <Input label="Your role" placeholder="Founder, team lead, volunteer…" value={role} onChange={(e) => setRole(e.target.value)} />
         <div className="form-grid two"><Input label="Hours / week" type="number" min={0} max={168} value={hours} onChange={(e) => setHours(e.target.value)} /><Input label="Weeks / year" type="number" min={0} max={52} value={weeks} onChange={(e) => setWeeks(e.target.value)} /></div>
         <Textarea label="Describe the activity" rows={9} placeholder="What did you initiate? Who changed because of it? Include real numbers, constraints and outcomes if you have them." value={activity} onChange={(e) => setActivity(e.target.value)} />
+        <FileImport disabled={state.loading} onText={(text) => setActivity(text)} />
         {state.error ? <ErrorBanner message={state.error} /> : null}
         <Button className="w-full" loading={state.loading} disabled={activity.trim().length < 30} onClick={() => void analyze()}><Rocket size={18} /> Analyze Activity Strength</Button>
       </Card>
@@ -42,28 +43,35 @@ export function ECBuilderScreen({ navigate, onChanged }: { navigate: Navigate; o
   );
 }
 
+type IELTSSkill = "writing" | "speaking" | "reading" | "listening";
 export function IELTSWritingScreen({ navigate, onChanged }: { navigate: Navigate; onChanged: () => void }) {
+  const [skill, setSkill] = useState<IELTSSkill>("writing");
   const [taskType, setTaskType] = useState<"task_1" | "task_2">("task_2");
+  const [targetBand, setTargetBand] = useState("7.0");
   const [question, setQuestion] = useState("");
   const [content, setContent] = useState("");
   const [filename, setFilename] = useState("");
   const state = useToolState<EvaluationResponse>();
   async function analyze() {
     state.setLoading(true); state.setError(""); state.setResult(null);
-    try { state.setResult(await api.post<EvaluationResponse>("/api/evaluate/ielts", { task_type: taskType, question: question || null, content })); onChanged(); }
+    try { state.setResult(await api.post<EvaluationResponse>("/api/evaluate/ielts", { skill, task_type: skill === "writing" ? taskType : null, question: question || null, content, target_band: targetBand })); onChanged(); }
     catch (caught) { state.setError(caught instanceof Error ? caught.message : "Could not check this IELTS response."); }
     finally { state.setLoading(false); }
   }
   return (
     <div className="page-enter space-y-3">
-      <ScreenHeader eyebrow="IELTS examiner lens" title="Writing Check" description="Band estimate, weakest criterion, sentence fixes and one improved paragraph." onBack={() => navigate("home")} />
+      <ScreenHeader eyebrow="IELTS examiner lens" title="IELTS 4-Skill Lab" description="One connected workspace for Writing, Speaking, Reading and Listening." onBack={() => navigate("prep")} />
+      <div className="ielts-skill-map">
+        {[{ key: "writing", label: "Writing", icon: PenTool }, { key: "speaking", label: "Speaking", icon: Mic2 }, { key: "reading", label: "Reading", icon: BookOpenCheck }, { key: "listening", label: "Listening", icon: Headphones }].map(({ key, label, icon: Icon }) => <button className={skill === key ? "active" : ""} key={key} onClick={() => { setSkill(key as IELTSSkill); state.setResult(null); }}><Icon size={19} /><span>{label}</span></button>)}
+      </div>
       <Card>
-        <Segmented value={taskType} onChange={setTaskType} options={[{ value: "task_1", label: "Task 1" }, { value: "task_2", label: "Task 2" }]} />
-        <Textarea label="Question / visual description" rows={4} placeholder={taskType === "task_1" ? "Paste the chart/map/process task or describe it clearly…" : "Paste the exact Task 2 question…"} value={question} onChange={(e) => setQuestion(e.target.value)} />
-        <Textarea label="Your answer" rows={12} placeholder="Paste your full IELTS response…" value={content} onChange={(e) => setContent(e.target.value)} hint={filename || "Assessed across all four IELTS criteria"} />
+        <div className="ielts-lens"><span>{skill === "writing" ? <PenTool size={20} /> : skill === "speaking" ? <Mic2 size={20} /> : skill === "reading" ? <BookOpenCheck size={20} /> : <Headphones size={20} />}</span><div><strong>{skill === "writing" ? "Band criteria + paragraph upgrade" : skill === "speaking" ? "Natural fluency + answer development" : skill === "reading" ? "Evidence path + distractor diagnosis" : "Signal words + attention recovery"}</strong><small>{skill === "writing" ? "Task response, coherence, vocabulary and grammar" : skill === "speaking" ? "Paste a transcript of what you said—imperfections included" : skill === "reading" ? "Turn one wrong answer into a repeatable solving method" : "Use a transcript, your notes and the question you missed"}</small></div></div>
+        {skill === "writing" ? <Segmented value={taskType} onChange={setTaskType} options={[{ value: "task_1", label: "Task 1" }, { value: "task_2", label: "Task 2" }]} /> : null}
+        <div className="form-grid two"><Input label="Target band" value={targetBand} onChange={(event) => setTargetBand(event.target.value)} /><Input label="Practice focus" placeholder={skill === "speaking" ? "Part 2 cue card" : skill === "reading" ? "True / False / Not Given" : skill === "listening" ? "Section 3 distractors" : "Opinion essay"} value={question} onChange={(event) => setQuestion(event.target.value)} /></div>
+        <Textarea label={skill === "writing" ? "Your answer" : skill === "speaking" ? "Your speaking transcript" : skill === "reading" ? "Passage, question, your answer + correct answer" : "Transcript/notes, question and your answer"} rows={12} placeholder={skill === "writing" ? "Paste your full IELTS response…" : skill === "speaking" ? "Write exactly what you said, including pauses or repetitions you remember…" : skill === "reading" ? "Include enough passage context to prove the answer…" : "Paste the relevant transcript or describe what you heard and where you lost the answer…"} value={content} onChange={(e) => setContent(e.target.value)} hint={filename || "Your mistakes become a personalized micro-drill"} />
         <FileImport disabled={state.loading} onText={(text, name) => { setContent(text); setFilename(name); }} />
         {state.error ? <ErrorBanner message={state.error} /> : null}
-        <Button className="w-full" loading={state.loading} disabled={content.trim().length < 80} onClick={() => void analyze()}><Languages size={18} /> Estimate & Improve My Band</Button>
+        <Button className="w-full" loading={state.loading} disabled={content.trim().length < 30} onClick={() => void analyze()}><Languages size={18} /> Coach My {skill[0].toUpperCase() + skill.slice(1)}</Button>
       </Card>
       {state.result ? <ResultPanel response={state.result} refinementActions={false} /> : null}
     </div>
@@ -94,6 +102,7 @@ export function RecommendationScreen({ navigate, onChanged }: { navigate: Naviga
         <Segmented value={mode} onChange={setMode} options={[{ value: "brag_sheet", label: "Brag sheet" }, { value: "evaluate", label: "Evaluate" }, { value: "teacher_packet", label: "Teacher packet" }]} />
         <Input label="Teacher / subject" placeholder="e.g. Ms. Lee — AP Physics" value={subject} onChange={(e) => setSubject(e.target.value)} />
         <Textarea label={mode === "evaluate" ? "Letter draft" : "Your evidence bank"} rows={12} placeholder={placeholders[mode]} value={content} onChange={(e) => setContent(e.target.value)} />
+        <FileImport disabled={state.loading} onText={(text) => setContent(text)} />
         <div className="ethics-note"><FileCheck2 size={17} /><span>The tool organizes truthful evidence and teacher prompts. The teacher remains the author.</span></div>
         {state.error ? <ErrorBanner message={state.error} /> : null}
         <Button className="w-full" loading={state.loading} disabled={content.trim().length < 30} onClick={() => void run()}><UsersRound size={18} /> {mode === "evaluate" ? "Evaluate Credibility" : mode === "brag_sheet" ? "Build Brag Sheet" : "Generate Teacher Packet"}</Button>
@@ -123,6 +132,7 @@ export function PortfolioBuilderScreen({ navigate, onChanged }: { navigate: Navi
           <Input label="Target program" placeholder="Optional" value={target} onChange={(e) => setTarget(e.target.value)} />
         </div>
         <Textarea label="Existing projects" rows={12} placeholder="For each project: what you built, why, your exact role, evidence of skill, users/results, and how you present it." value={projects} onChange={(e) => setProjects(e.target.value)} />
+        <FileImport disabled={state.loading} onText={(text) => setProjects(text)} />
         {state.error ? <ErrorBanner message={state.error} /> : null}
         <Button className="w-full" loading={state.loading} disabled={projects.trim().length < 30} onClick={() => void analyze()}><BriefcaseBusiness size={18} /> Diagnose Portfolio Gaps</Button>
       </Card>
@@ -156,7 +166,7 @@ export function BoostToolsScreen({ navigate }: { navigate: Navigate }) {
       <Card>
         <Tag tone="cyan">{tools.find((item) => item.key === tool)?.label}</Tag>
         <h3 className="mt-3">{tools.find((item) => item.key === tool)?.description}</h3>
-        {tool !== "readiness" ? <><Textarea label="Material to analyze" rows={8} placeholder={tool === "wow_factor" ? "Paste your activity list, profile summary or essay idea…" : "Paste the sentence, activity description or situation…"} value={content} onChange={(e) => setContent(e.target.value)} /><Input label="Context" placeholder="Where will this appear?" value={context} onChange={(e) => setContext(e.target.value)} /></> : <p className="tool-explainer">Your readiness score uses the live application portfolio: essays, school list, testing, activities, recommendations, deadlines and workload.</p>}
+        {tool !== "readiness" ? <><Textarea label="Material to analyze" rows={8} placeholder={tool === "wow_factor" ? "Paste your activity list, profile summary or essay idea…" : "Paste the sentence, activity description or situation…"} value={content} onChange={(e) => setContent(e.target.value)} /><FileImport disabled={state.loading} onText={(text) => setContent(text)} /><Input label="Context" placeholder="Where will this appear?" value={context} onChange={(e) => setContext(e.target.value)} /></> : <p className="tool-explainer">Your readiness score uses the live application portfolio: essays, school list, testing, activities, recommendations, deadlines and workload.</p>}
         {state.error ? <ErrorBanner message={state.error} /> : null}
         <Button className="w-full" loading={state.loading} disabled={tool !== "readiness" && !content.trim()} onClick={() => void run()}><Sparkles size={18} /> Run {tools.find((item) => item.key === tool)?.label}</Button>
       </Card>
@@ -166,4 +176,3 @@ export function BoostToolsScreen({ navigate }: { navigate: Navigate }) {
     </div>
   );
 }
-

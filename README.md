@@ -57,11 +57,14 @@ univenture_admissions_hub/
 | `POST` | `/api/auth/telegram` | Validate Telegram `initData`, create session |
 | `POST` | `/api/auth/dev` | Local-only auth when explicitly enabled |
 | `GET` | `/api/me` | Shared profile, portfolio and readiness |
+| `POST` | `/api/profile/name` | Save the student's manually entered display name |
 | `GET` | `/api/dashboard` | Home dashboard payload |
 | `POST` | `/api/profile/update` | Safely update one portfolio section |
 | `POST` | `/api/evaluate/essay` | Personal Statement or supplemental-specific review |
 | `POST` | `/api/evaluate/ec` | Leadership, evidence and activity rewrite |
-| `POST` | `/api/evaluate/ielts` | IELTS Task 1/2 review |
+| `POST` | `/api/evaluate/ielts` | IELTS Writing, Speaking, Reading or Listening coaching |
+| `POST` | `/api/coach` | Portfolio-aware Brainstorm Ideas and Rewrite My Text |
+| `POST` | `/api/sat/coach` | SAT Math/Reading & Writing sprint or mistake lab |
 | `POST` | `/api/evaluate/recommendation` | Evaluate, brag sheet or teacher packet |
 | `POST` | `/api/evaluate/portfolio` | Portfolio/project signal review |
 | `POST` | `/api/evaluate/refine` | Hook, ending, specificity or section rewrite |
@@ -71,10 +74,13 @@ univenture_admissions_hub/
 | `POST` | `/api/application-plan` | Personalized today/week/month/deadline roadmap |
 | `POST` | `/api/boost` | Wow factor, language, readiness and tips |
 | `POST` | `/api/files/extract` | Extract PDF, DOCX, TXT or Markdown |
+| `POST` | `/api/feedback` | Persist feedback and forward it to configured bot admins |
 | `GET` | `/api/subscription` | Existing trial/paid status |
 | `GET` | `/api/health` | Railway health check |
 
-All AI evaluation types have distinct compact schemas. Full reviews are not generated—and therefore do not consume full-review tokens—until the student taps the button.
+All AI evaluation types have distinct compact schemas. Full reviews are not generated—and therefore do not consume full-review tokens—until the student taps the button. Saved Mini App evaluation IDs are preserved across memory reloads so that the full-review button remains valid.
+
+The bottom navigation now contains the five product-level spaces: Home, Discover, Prep, AI Coach, and Portfolio. Portfolio is the rightmost item. Specialist tools such as essays live inside those hubs instead of consuming global navigation slots.
 
 ## 4. Run locally
 
@@ -175,16 +181,20 @@ curl http://localhost:8000/api/health
 
 ## 8. Manual test checklist
 
-- Open only through Telegram and confirm the name matches the Telegram user.
+- Open only through Telegram and confirm first launch asks the student to enter a preferred name manually.
 - Tamper with `initData` and confirm authentication returns `401`.
 - Confirm an expired user can see access status but AI actions return the paywall.
 - Confirm a trial user and an activated paid user can run every tool.
 - Update GPA in My Portfolio, then open the chatbot `/profile` and confirm the same value is present.
 - Run one Personal Statement and one supplemental review; confirm the headings and advice are different.
 - Tap **Get Full Detailed Review** and confirm it runs only after the tap.
+- Add at least five activity/award slots, save, reopen, edit, and confirm the structured entries remain.
+- Open Discover with an expired account and confirm programs/deadlines remain visible.
+- Run Brainstorm, Rewrite, SAT Math, SAT Reading & Writing, and all four IELTS skill modes.
+- Submit feedback and confirm it reaches the configured admin account.
 - Save a school, refresh, and confirm it remains in `application.school_list`.
 - Generate a plan, return Home, and confirm Today’s Priority uses the latest plan.
-- Upload one PDF, DOCX, and TXT under 5 MB.
+- Upload one PDF, DOCX, and TXT under 5 MB from Essay, AI Coach, EC, IELTS, Recommendation, Portfolio, Boost, and SAT Mistake Lab.
 - Restart Railway and confirm paid users, memory and Chroma sources persist.
 - Test `/start`, `/teach`, `/stats`, `/pay`, `/mysub`, `/activate`, uploads, and ordinary chatbot answers after deployment.
 
