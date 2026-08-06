@@ -27,7 +27,7 @@ from telegram.ext import (
 from dotenv import load_dotenv
 import chromadb
 from chromadb.utils import embedding_functions
-import os, io, nest_asyncio, logging, json, base64, uuid, re
+import os, io, logging, json, base64, uuid, re
 
 # -------- File extraction deps --------
 from pdfminer.high_level import extract_text
