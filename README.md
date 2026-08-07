@@ -2,6 +2,8 @@
 
 A production-oriented Telegram Mini App added **beside** the existing UniVentureAI chatbot. The chatbot keeps all commands and handlers. FastAPI starts that same Telegram application, exposes secure Mini App APIs, serves the React build, and reads/writes the same paid-user file, user-memory directory, ChromaDB collections, and OpenAI models.
 
+Premium V2 adds a calm three-region command center, guided profile intake, profile-aware Venture copilot, a capacity/dependency-aware Application Flight Plan, a 36-opportunity catalog, a 30-university fit atlas, profile-gated Reach/Match/Lower-risk grouping, interactive SAT and IELTS quests, and ten saved slots each for extracurriculars and awards.
+
 ## 1. Architecture
 
 ```mermaid
@@ -58,12 +60,15 @@ univenture_admissions_hub/
 | `POST` | `/api/auth/dev` | Local-only auth when explicitly enabled |
 | `GET` | `/api/me` | Shared profile, portfolio and readiness |
 | `POST` | `/api/profile/name` | Save the student's manually entered display name |
+| `POST` | `/api/profile/onboarding` | Save guided profile, direction and capacity signals |
+| `POST` | `/api/profile/onboarding/skip` | Defer optional guided intake without blocking access |
 | `GET` | `/api/dashboard` | Home dashboard payload |
 | `POST` | `/api/profile/update` | Safely update one portfolio section |
 | `POST` | `/api/evaluate/essay` | Personal Statement or supplemental-specific review |
 | `POST` | `/api/evaluate/ec` | Leadership, evidence and activity rewrite |
 | `POST` | `/api/evaluate/ielts` | IELTS Writing, Speaking, Reading or Listening coaching |
 | `POST` | `/api/coach` | Portfolio-aware Brainstorm Ideas and Rewrite My Text |
+| `POST` | `/api/copilot` | Profile-aware Venture answers grounded in saved platform data |
 | `POST` | `/api/sat/coach` | SAT Math/Reading & Writing sprint or mistake lab |
 | `POST` | `/api/evaluate/recommendation` | Evaluate, brag sheet or teacher packet |
 | `POST` | `/api/evaluate/portfolio` | Portfolio/project signal review |
@@ -72,6 +77,7 @@ univenture_admissions_hub/
 | `POST` | `/api/school-finder` | Structured reach/match/lower-risk cards |
 | `POST` | `/api/schools/save` | Save a card to the shared school list |
 | `POST` | `/api/application-plan` | Personalized today/week/month/deadline roadmap |
+| `POST` | `/api/application-plan/task-status` | Persist Flight Plan task completion |
 | `POST` | `/api/boost` | Wow factor, language, readiness and tips |
 | `POST` | `/api/files/extract` | Extract PDF, DOCX, TXT or Markdown |
 | `POST` | `/api/feedback` | Persist feedback and forward it to configured bot admins |
@@ -188,7 +194,7 @@ curl http://localhost:8000/api/health
 - Update GPA in My Portfolio, then open the chatbot `/profile` and confirm the same value is present.
 - Run one Personal Statement and one supplemental review; confirm the headings and advice are different.
 - Tap **Get Full Detailed Review** and confirm it runs only after the tap.
-- Add at least five activity/award slots, save, reopen, edit, and confirm the structured entries remain.
+- Confirm ten activity and ten award slots appear immediately; save, reopen, edit, and confirm the structured entries remain.
 - Open Discover with an expired account and confirm programs/deadlines remain visible.
 - Run Brainstorm, Rewrite, SAT Math, SAT Reading & Writing, and all four IELTS skill modes.
 - Submit feedback and confirm it reaches the configured admin account.

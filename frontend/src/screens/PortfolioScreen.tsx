@@ -11,7 +11,7 @@ type Entry = Record<string, string>;
 
 const sections: SectionDef[] = [
   { key: "profile", apiSection: "academic_profile", title: "Academic Profile", icon: GraduationCap, fields: [
-    { key: "preferred_name", label: "Your name", placeholder: "How UniVentureAI should address you" }, { key: "grade", label: "Grade", placeholder: "Grade 11" }, { key: "country", label: "Country", placeholder: "Uzbekistan" }, { key: "major", label: "Target major", placeholder: "Computer Science" }, { key: "target_countries", label: "Target countries", placeholder: "United States, Canada" },
+    { key: "preferred_name", label: "Your name", placeholder: "How UniVentureAI should address you" }, { key: "grade", label: "Grade", placeholder: "Grade 11" }, { key: "graduation_year", label: "Graduation year", placeholder: "2027" }, { key: "country", label: "Country", placeholder: "Uzbekistan" }, { key: "citizenship", label: "Citizenship", placeholder: "Uzbekistan" }, { key: "curriculum", label: "Curriculum", placeholder: "National / IB / A Levels" }, { key: "major", label: "Target major", placeholder: "Computer Science" }, { key: "target_countries", label: "Target countries", placeholder: "United States, Canada" }, { key: "career_goal", label: "Long-term direction", placeholder: "Build education technology for Central Asia", type: "textarea" },
   ] },
   { key: "test_scores", apiSection: "test_scores", title: "Test Scores", icon: TestTube2, fields: [
     { key: "gpa", label: "GPA", placeholder: "3.8/4.0" }, { key: "sat", label: "SAT", placeholder: "1450" }, { key: "act", label: "ACT", placeholder: "33" }, { key: "ielts", label: "IELTS", placeholder: "7.5" }, { key: "toefl", label: "TOEFL", placeholder: "105" },
@@ -25,10 +25,10 @@ const sections: SectionDef[] = [
   { key: "awards", apiSection: "awards", title: "Awards & Honors", icon: Award, fields: [{ key: "notes", label: "Awards strategy notes", placeholder: "Selectivity, translations or proof to collect…", type: "textarea" }] },
   { key: "projects", apiSection: "projects", title: "Portfolio Projects", icon: BookOpenCheck, fields: [{ key: "field", label: "Field", placeholder: "CS / design / research" }, { key: "items", label: "Projects", placeholder: "One project per line", type: "textarea" }, { key: "portfolio_url", label: "Portfolio URL", placeholder: "https://…" }, { key: "notes", label: "Gaps or notes", placeholder: "What still needs proof?", type: "textarea" }] },
   { key: "recommendations", apiSection: "recommendations", title: "Recommendation Letters", icon: UsersRound, fields: [{ key: "teachers", label: "Teachers", placeholder: "One teacher per line", type: "textarea" }, { key: "status", label: "Status", placeholder: "Not started / requested / confirmed / submitted" }, { key: "stories", label: "Stories they could tell", placeholder: "One story per line", type: "textarea" }] },
-  { key: "preferences", apiSection: "preferences", title: "Countries & Environment", icon: Plane, fields: [{ key: "intended_major", label: "Intended major", placeholder: "Economics" }, { key: "target_countries", label: "Countries", placeholder: "US, UK" }, { key: "environment", label: "Preferred environment", placeholder: "Urban, collaborative, research-intensive" }, { key: "constraints", label: "Constraints", placeholder: "Location, climate, size…", type: "textarea" }] },
+  { key: "preferences", apiSection: "preferences", title: "Countries & Environment", icon: Plane, fields: [{ key: "intended_major", label: "Intended major", placeholder: "Economics" }, { key: "target_countries", label: "Countries", placeholder: "US, UK" }, { key: "environment", label: "Preferred environment", placeholder: "Urban, collaborative, research-intensive" }, { key: "campus_size", label: "Campus size", placeholder: "Small / medium / large" }, { key: "career_goal", label: "Career direction", placeholder: "What should university help you build toward?", type: "textarea" }, { key: "constraints", label: "Constraints", placeholder: "Location, climate, size…", type: "textarea" }] },
   { key: "financial_aid", apiSection: "financial_aid", title: "Financial Aid Needs", icon: WalletCards, fields: [{ key: "needs_aid", label: "Need financial aid?", placeholder: "", type: "boolean" }, { key: "budget", label: "Annual budget", placeholder: "$12,000" }, { key: "max_family_contribution", label: "Max family contribution", placeholder: "$8,000" }, { key: "notes", label: "Aid notes", placeholder: "Scholarship constraints…", type: "textarea" }] },
-  { key: "deadlines", apiSection: "deadlines", title: "My Deadlines", icon: ClipboardList, fields: [{ key: "nearest_deadline", label: "Nearest deadline", placeholder: "Nov 1, 2026" }, { key: "application_round", label: "Round", placeholder: "Early Action" }, { key: "items", label: "Deadline list", placeholder: "One deadline per line", type: "textarea" }] },
-  { key: "wellness", apiSection: "wellness", title: "Wellness & Workload", icon: HeartPulse, fields: [{ key: "stress_level", label: "Stress level (1-10)", placeholder: "6" }, { key: "hours_per_week", label: "Hours available / week", placeholder: "8" }, { key: "sleep_hours", label: "Average sleep", placeholder: "7" }, { key: "support_needs", label: "Support needed", placeholder: "What would make this manageable?", type: "textarea" }] },
+  { key: "deadlines", apiSection: "deadlines", title: "My Deadlines", icon: ClipboardList, fields: [{ key: "nearest_deadline", label: "Nearest deadline", placeholder: "Nov 1, 2026" }, { key: "application_round", label: "Round", placeholder: "Early Action" }, { key: "target_intake", label: "Target intake", placeholder: "Fall 2027" }, { key: "exam_dates", label: "Planned test dates", placeholder: "SAT Oct 3, IELTS Sep 12", type: "textarea" }, { key: "items", label: "Deadline list", placeholder: "One deadline per line", type: "textarea" }] },
+  { key: "wellness", apiSection: "wellness", title: "Wellness & Workload", icon: HeartPulse, fields: [{ key: "stress_level", label: "Stress level (1-10)", placeholder: "6" }, { key: "hours_per_week", label: "Hours available / week", placeholder: "8" }, { key: "available_days", label: "Available days", placeholder: "Tue, Thu, Sat" }, { key: "energy_pattern", label: "Best focus time", placeholder: "Early mornings / evenings / weekends" }, { key: "sleep_hours", label: "Average sleep", placeholder: "7" }, { key: "support_needs", label: "Support needed", placeholder: "What would make this manageable?", type: "textarea" }] },
 ];
 
 const blankActivity = (): Entry => ({ name: "", role: "", organization: "", time: "", description: "" });
@@ -38,7 +38,8 @@ function parseEditor(field: FieldDef, value: string) {
   if (field.type === "boolean") return value === "yes";
   if (["items", "highlights", "teachers", "stories"].includes(field.key)) return value.split("\n").map((item) => item.trim()).filter(Boolean);
   if (field.key === "target_countries") return value.split(",").map((item) => item.trim()).filter(Boolean);
-  if (["stress_level", "hours_per_week", "sleep_hours"].includes(field.key) && value.trim()) return Number(value);
+  if (field.key === "available_days") return value.split(",").map((item) => item.trim()).filter(Boolean);
+  if (["stress_level", "hours_per_week", "sleep_hours", "graduation_year"].includes(field.key) && value.trim()) return Number(value);
   return value;
 }
 function storedEntries(value: unknown, fallbackKey: string): Entry[] {
@@ -86,11 +87,11 @@ export default function PortfolioScreen({ navigate, onChanged }: { navigate: Nav
     setDraft(Object.fromEntries(section.fields.map((field) => [field.key, toEditor(data[field.key])])));
     if (section.key === "ecs") {
       const entries = storedEntries(data.activities, "description");
-      setActivityDrafts([...entries, ...Array.from({ length: Math.max(0, 5 - entries.length) }, blankActivity)].slice(0, 10));
+      setActivityDrafts([...entries, ...Array.from({ length: Math.max(0, 10 - entries.length) }, blankActivity)].slice(0, 10));
     }
     if (section.key === "awards") {
       const entries = storedEntries(data.items, "name");
-      setAwardDrafts([...entries, ...Array.from({ length: Math.max(0, 5 - entries.length) }, blankAward)].slice(0, 10));
+      setAwardDrafts([...entries, ...Array.from({ length: Math.max(0, 10 - entries.length) }, blankAward)].slice(0, 10));
     }
     setEditing(section); setError("");
   }

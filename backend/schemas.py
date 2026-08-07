@@ -47,6 +47,31 @@ class NameUpdateRequest(BaseModel):
         return cleaned
 
 
+class OnboardingRequest(BaseModel):
+    grade: str = Field(min_length=1, max_length=40)
+    graduation_year: int = Field(ge=2026, le=2035)
+    country: str = Field(min_length=2, max_length=100)
+    curriculum: str = Field(min_length=2, max_length=100)
+    intended_major: str = Field(min_length=2, max_length=160)
+    target_countries: list[str] = Field(min_length=1, max_length=8)
+    gpa: str = Field(min_length=1, max_length=50)
+    sat: str | None = Field(default=None, max_length=30)
+    ielts: str | None = Field(default=None, max_length=30)
+    needs_aid: bool = True
+    annual_budget: str = Field(min_length=1, max_length=100)
+    weekly_hours: int = Field(ge=1, le=80)
+    nearest_deadline: str | None = Field(default=None, max_length=40)
+    application_round: str = Field(default="Undecided", max_length=60)
+
+    @field_validator("target_countries")
+    @classmethod
+    def clean_target_countries(cls, values: list[str]) -> list[str]:
+        cleaned = [value.strip()[:80] for value in values if value.strip()]
+        if not cleaned:
+            raise ValueError("Choose at least one target country.")
+        return cleaned
+
+
 class EssayEvaluationRequest(BaseModel):
     essay_type: Literal["personal_statement", "supplemental"]
     content: str = Field(min_length=80, max_length=30_000)
@@ -134,6 +159,31 @@ class ApplicationPlanRequest(BaseModel):
     deadline: str | None = Field(default=None, max_length=120)
     weekly_hours: int | None = Field(default=None, ge=1, le=80)
     extra_context: str | None = Field(default=None, max_length=3_000)
+    application_round: str | None = Field(default=None, max_length=80)
+    target_intake: str | None = Field(default=None, max_length=80)
+    school_count: int | None = Field(default=None, ge=1, le=40)
+    available_days: list[str] = Field(default_factory=list, max_length=7)
+    exam_dates: str | None = Field(default=None, max_length=1_000)
+    recommender_status: str | None = Field(default=None, max_length=500)
+    energy_pattern: str | None = Field(default=None, max_length=200)
+    plan_style: Literal["balanced", "intensive", "low_stress"] = "balanced"
+
+
+class PlanTaskStatusRequest(BaseModel):
+    plan_id: str = Field(min_length=8, max_length=80)
+    task_key: str = Field(min_length=3, max_length=160)
+    done: bool
+
+
+class CopilotMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=2_000)
+
+
+class CopilotRequest(BaseModel):
+    question: str = Field(min_length=2, max_length=2_000)
+    current_screen: str = Field(default="home", max_length=80)
+    history: list[CopilotMessage] = Field(default_factory=list, max_length=8)
 
 
 class FullReviewRequest(BaseModel):

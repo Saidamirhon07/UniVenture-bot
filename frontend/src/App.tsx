@@ -3,11 +3,13 @@ import { BookOpenText, BriefcaseBusiness, Compass, Home, LayoutGrid, Search, Spa
 import { AnimatePresence, motion } from "framer-motion";
 import { api } from "./api";
 import { Button, Card, ErrorBanner, Input, LoadingScreen, Tag } from "./components/ui";
+import ProfileCopilot from "./components/ProfileCopilot";
 import type { Navigate, ScreenId, SessionUser } from "./types";
 import ApplicationPlanScreen from "./screens/ApplicationPlanScreen";
 import EssayLabScreen from "./screens/EssayLabScreen";
 import HomeScreen from "./screens/HomeScreen";
 import PortfolioScreen from "./screens/PortfolioScreen";
+import ProfileSetupScreen from "./screens/ProfileSetupScreen";
 import SchoolFinderScreen from "./screens/SchoolFinderScreen";
 import { BoostToolsScreen, ECBuilderScreen, IELTSWritingScreen, PortfolioBuilderScreen, RecommendationScreen } from "./screens/FocusedTools";
 import { AICoachScreen, DiscoverScreen, FeedbackScreen, PrepHubScreen, SATStudioScreen } from "./screens/GrowthScreens";
@@ -88,6 +90,7 @@ export default function App() {
   if (authError) return <AuthFailure message={authError} />;
   if (!user) return <LoadingScreen />;
   if (!user.has_manual_name || !user.name) return <NameSetup onSaved={setUser} />;
+  if (!user.onboarding_complete) return <ProfileSetupScreen name={user.name} onComplete={setUser} />;
 
   const content = (() => {
     switch (screen) {
@@ -125,6 +128,7 @@ export default function App() {
           </button>
         ))}
       </nav>
+      {(["home", "coach", "prep", "discover", "feedback"] as ScreenId[]).includes(screen) ? <ProfileCopilot screen={screen} /> : null}
     </div>
   );
 }

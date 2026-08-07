@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Activity, BarChart3, BookOpenCheck, BriefcaseBusiness, FileCheck2, Gauge, Headphones, Languages, Lightbulb, Mic2, PenTool, Rocket, Sparkles, UsersRound, WandSparkles } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Activity, BarChart3, BookOpenCheck, BriefcaseBusiness, Check, FileCheck2, Gauge, Headphones, Languages, Lightbulb, Mic2, PenTool, Play, Rocket, RotateCcw, Sparkles, Timer, UsersRound, WandSparkles } from "lucide-react";
 import { api } from "../api";
 import type { EvaluationResponse, Navigate } from "../types";
 import ResultPanel, { StructuredResult } from "../components/ResultPanel";
@@ -44,8 +44,28 @@ export function ECBuilderScreen({ navigate, onChanged }: { navigate: Navigate; o
 }
 
 type IELTSSkill = "writing" | "speaking" | "reading" | "listening";
+type IELTSQuestItem = { prompt: string; options: string[]; answer: number; explanation: string; mission: string; audio?: string };
+const ieltsQuests: Record<IELTSSkill, IELTSQuestItem> = {
+  writing: { prompt: "Task 2: Cities should invest more in public parks. Which thesis gives the clearest position and roadmap?", options: ["Parks are important and cities have many problems.", "Although housing remains urgent, cities should protect park funding because green spaces improve public health and community life.", "This essay will discuss parks and give my opinion.", "There are advantages and disadvantages to every public investment."], answer: 1, explanation: "It takes a qualified position and previews two defensible reasons. It is specific without trying to sound complicated.", mission: "Write one thesis with a position, concession and two reasons." },
+  speaking: { prompt: "Part 2: Describe a skill you taught yourself. Which opening creates the strongest natural answer?", options: ["I have learned many skills in my life.", "The skill I want to talk about is coding because coding is important.", "Last winter, our school club needed a website and nobody knew how to build one, so I volunteered before I knew what I was doing.", "It is an interesting question and I will answer it now."], answer: 2, explanation: "A specific moment creates an easy story path: situation, action, difficulty, result and reflection.", mission: "Use the 60-second timer: tell the story as situation → struggle → turning point → result." },
+  reading: { prompt: "Passage: ‘The museum extended Friday hours in May. Attendance rose that month, but researchers noted that a new exhibition opened simultaneously.’ Claim: Longer hours caused the attendance increase.", options: ["True", "False", "Not Given", "Both True and False"], answer: 2, explanation: "Attendance rose, but the passage does not isolate the cause because a new exhibition opened at the same time.", mission: "Underline only the words that prove or limit causation." },
+  listening: { prompt: "Listen once, then choose the corrected meeting time.", options: ["Tuesday at 3:30", "Tuesday at 4:00", "Thursday at 3:30", "Thursday at 4:00"], answer: 2, explanation: "The speaker replaces Tuesday with Thursday but keeps 3:30. IELTS distractors often preserve one old detail.", mission: "Write the first answer lightly; confirm after the correction signal.", audio: "We originally planned the project meeting for Tuesday at three thirty. That clashes with the science fair rehearsal, so let's keep the same time but move it to Thursday." },
+};
+
+function IELTSQuest({ skill }: { skill: IELTSSkill }) {
+  const item = ieltsQuests[skill];
+  const [selected, setSelected] = useState<number | null>(null);
+  const [seconds, setSeconds] = useState<number | null>(null);
+  useEffect(() => { setSelected(null); setSeconds(null); }, [skill]);
+  useEffect(() => { if (seconds === null || seconds <= 0) return; const timer = window.setInterval(() => setSeconds((value) => value === null ? null : Math.max(0, value - 1)), 1_000); return () => window.clearInterval(timer); }, [seconds]);
+  function play() { if (!item.audio || !("speechSynthesis" in window)) return; window.speechSynthesis.cancel(); window.speechSynthesis.speak(new SpeechSynthesisUtterance(item.audio)); }
+  function choose(index: number) { if (selected !== null) return; setSelected(index); window.Telegram?.WebApp.HapticFeedback?.notificationOccurred(index === item.answer ? "success" : "warning"); }
+  return <Card className="ielts-quest"><div className="quest-head"><div><Tag tone="cyan">{skill} mission</Tag><strong>Skill arcade</strong></div><span>+20 focus</span></div>{skill === "listening" ? <button className="listen-button" onClick={play}><Play size={17} />Play the briefing once</button> : null}{skill === "speaking" ? <div className="speaking-timer"><Timer size={19} /><div><strong>{seconds === null ? "60" : seconds}s</strong><small>response sprint</small></div><button onClick={() => setSeconds(60)}>{seconds === null || seconds === 0 ? "Start" : "Restart"}</button></div> : null}<h2>{item.prompt}</h2><div className="quest-options">{item.options.map((option, index) => <button className={selected === null ? "" : index === item.answer ? "correct" : index === selected ? "wrong" : "muted"} key={option} onClick={() => choose(index)}><span>{String.fromCharCode(65 + index)}</span>{option}{selected !== null && index === item.answer ? <Check size={16} /> : null}</button>)}</div>{selected !== null ? <div className="quest-feedback"><strong>{selected === item.answer ? "Examiner logic unlocked" : "Repair the method"}</strong><p>{item.explanation}</p><small>Micro-mission: {item.mission}</small><button className="quest-reset" onClick={() => setSelected(null)}><RotateCcw size={14} />Try again</button></div> : <p className="quest-nudge">Commit to an answer before seeing the examiner logic.</p>}</Card>;
+}
+
 export function IELTSWritingScreen({ navigate, onChanged }: { navigate: Navigate; onChanged: () => void }) {
   const [skill, setSkill] = useState<IELTSSkill>("writing");
+  const [lab, setLab] = useState<"quest" | "coach">("quest");
   const [taskType, setTaskType] = useState<"task_1" | "task_2">("task_2");
   const [targetBand, setTargetBand] = useState("7.0");
   const [question, setQuestion] = useState("");
@@ -64,7 +84,8 @@ export function IELTSWritingScreen({ navigate, onChanged }: { navigate: Navigate
       <div className="ielts-skill-map">
         {[{ key: "writing", label: "Writing", icon: PenTool }, { key: "speaking", label: "Speaking", icon: Mic2 }, { key: "reading", label: "Reading", icon: BookOpenCheck }, { key: "listening", label: "Listening", icon: Headphones }].map(({ key, label, icon: Icon }) => <button className={skill === key ? "active" : ""} key={key} onClick={() => { setSkill(key as IELTSSkill); state.setResult(null); }}><Icon size={19} /><span>{label}</span></button>)}
       </div>
-      <Card>
+      <Segmented value={lab} onChange={setLab} options={[{ value: "quest", label: "Practice quest" }, { value: "coach", label: "Coach my work" }]} />
+      {lab === "quest" ? <IELTSQuest skill={skill} /> : <Card>
         <div className="ielts-lens"><span>{skill === "writing" ? <PenTool size={20} /> : skill === "speaking" ? <Mic2 size={20} /> : skill === "reading" ? <BookOpenCheck size={20} /> : <Headphones size={20} />}</span><div><strong>{skill === "writing" ? "Band criteria + paragraph upgrade" : skill === "speaking" ? "Natural fluency + answer development" : skill === "reading" ? "Evidence path + distractor diagnosis" : "Signal words + attention recovery"}</strong><small>{skill === "writing" ? "Task response, coherence, vocabulary and grammar" : skill === "speaking" ? "Paste a transcript of what you said—imperfections included" : skill === "reading" ? "Turn one wrong answer into a repeatable solving method" : "Use a transcript, your notes and the question you missed"}</small></div></div>
         {skill === "writing" ? <Segmented value={taskType} onChange={setTaskType} options={[{ value: "task_1", label: "Task 1" }, { value: "task_2", label: "Task 2" }]} /> : null}
         <div className="form-grid two"><Input label="Target band" value={targetBand} onChange={(event) => setTargetBand(event.target.value)} /><Input label="Practice focus" placeholder={skill === "speaking" ? "Part 2 cue card" : skill === "reading" ? "True / False / Not Given" : skill === "listening" ? "Section 3 distractors" : "Opinion essay"} value={question} onChange={(event) => setQuestion(event.target.value)} /></div>
@@ -72,8 +93,8 @@ export function IELTSWritingScreen({ navigate, onChanged }: { navigate: Navigate
         <FileImport disabled={state.loading} onText={(text, name) => { setContent(text); setFilename(name); }} />
         {state.error ? <ErrorBanner message={state.error} /> : null}
         <Button className="w-full" loading={state.loading} disabled={content.trim().length < 30} onClick={() => void analyze()}><Languages size={18} /> Coach My {skill[0].toUpperCase() + skill.slice(1)}</Button>
-      </Card>
-      {state.result ? <ResultPanel response={state.result} refinementActions={false} /> : null}
+      </Card>}
+      {lab === "coach" && state.result ? <ResultPanel response={state.result} refinementActions={false} /> : null}
     </div>
   );
 }

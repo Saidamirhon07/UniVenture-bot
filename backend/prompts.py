@@ -317,13 +317,31 @@ def plan_messages(payload: dict[str, Any], portfolio: dict[str, Any], readiness:
         "effort": "15 min / 1 hr / multi-session",
         "done_when": "observable completion condition",
         "category": "Essays / Testing / Recommendations / Activities / Portfolio / Research",
+        "depends_on": "another task title or None",
+        "energy": "light / focus / deep",
     }
     schema = {
         "headline": "personalized roadmap focus",
+        "strategy_note": "one candid sentence explaining the sequencing",
+        "profile_snapshot": {
+            "goal": "student's target",
+            "capacity": "real weekly capacity",
+            "main_constraint": "largest scheduling or application risk",
+        },
         "today_priority": task,
         "this_week": [task, task, task],
         "this_month": [task, task, task],
         "before_deadline": [task, task, task],
+        "milestones": [
+            {"label": "milestone name", "target_date": "date or relative window", "proof": "observable evidence", "status": "now / next / later"}
+        ],
+        "risk_radar": [
+            {"risk": "specific risk", "level": "low / medium / high", "countermove": "specific prevention step"}
+        ],
+        "weekly_rhythm": [
+            {"day": "chosen available day", "focus": "task cluster", "minutes": 45}
+        ],
+        "missing_inputs": ["profile detail that would materially improve the plan"],
         "workload_note": "realistic pacing and wellness note",
     }
     return [
@@ -331,13 +349,38 @@ def plan_messages(payload: dict[str, Any], portfolio: dict[str, Any], readiness:
             "role": "system",
             "content": f"""{VOICE}
 
-Create a realistic application roadmap. Prioritize blockers, sequence dependencies, and protect the student's workload.
-Use the saved portfolio. Never assume a deadline or requirement that is not provided; label verification tasks.
+Create a realistic, dependency-aware application flight plan. Prioritize blockers, sequence prerequisites, expose risks early, and protect the student's workload.
+Use the saved portfolio and the student's actual available days, energy pattern, application round, exams and recommender status. Never assume a deadline or requirement that is not provided; label verification tasks.
+Every task must have an observable done_when condition. Keep the plan specific enough to execute without another planning session.
 Return exactly this JSON shape:
 {json.dumps(schema, indent=2)}""",
         },
         {"role": "user", "content": json.dumps({"request": payload, "portfolio": portfolio, "readiness": readiness}, ensure_ascii=False)},
     ]
+
+
+def copilot_messages(question: str, current_screen: str, history: list[dict[str, str]], portfolio: dict[str, Any], readiness: dict[str, Any]) -> list[dict[str, str]]:
+    system = f"""{VOICE}
+
+You are Venture, the in-product UniVentureAI admissions copilot for a Central Asian secondary-school student.
+Answer using the student's saved profile, application portfolio, readiness snapshot, and the current Mini App screen.
+Be candid, warm, specific, and action-oriented. Never invent a student fact, university policy, deadline, scholarship, or admission probability.
+If a profile detail is missing, say exactly what is missing and why it changes the answer. Distinguish preparation strength from admission odds.
+Prefer one direct answer, up to three compact bullets, and one next action. Keep the entire answer under 180 words.
+When useful, route the student to one of these product areas: Today, Strategy, Prep, Discover, Portfolio, School Finder, Essay Lab, SAT Studio, or IELTS Lab.
+Current screen: {current_screen}
+"""
+    context = {
+        "portfolio": portfolio,
+        "readiness": readiness,
+        "question": question,
+    }
+    messages: list[dict[str, str]] = [{"role": "system", "content": system}]
+    for item in history[-6:]:
+        if item.get("role") in {"user", "assistant"} and item.get("content"):
+            messages.append({"role": item["role"], "content": str(item["content"])[:2_000]})
+    messages.append({"role": "user", "content": json.dumps(context, ensure_ascii=False)})
+    return messages
 
 
 def boost_messages(tool: str, content: str, context: str, memory_summary: str) -> list[dict[str, str]]:

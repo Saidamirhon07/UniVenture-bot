@@ -33,6 +33,7 @@ from .prompts import (
     boost_messages,
     coach_messages,
     compact_evaluation_messages,
+    copilot_messages,
     full_review_messages,
     plan_messages,
     recommendation_builder_messages,
@@ -45,6 +46,7 @@ from .schemas import (
     AuthRequest,
     BoostRequest,
     CoachRequest,
+    CopilotRequest,
     DevAuthRequest,
     ECEvaluationRequest,
     EssayEvaluationRequest,
@@ -52,6 +54,8 @@ from .schemas import (
     FeedbackRequest,
     IELTSEvaluationRequest,
     NameUpdateRequest,
+    OnboardingRequest,
+    PlanTaskStatusRequest,
     PortfolioEvaluationRequest,
     ProfileUpdateRequest,
     RecommendationRequest,
@@ -175,17 +179,17 @@ def _clean_value(value: Any, depth: int = 0) -> Any:
 
 
 SECTION_FIELDS: dict[str, set[str]] = {
-    "academic_profile": {"preferred_name", "grade", "country", "major", "target_countries"},
+    "academic_profile": {"preferred_name", "grade", "graduation_year", "country", "citizenship", "curriculum", "major", "target_countries", "career_goal"},
     "test_scores": {"gpa", "sat", "sat_breakdown", "act", "ielts", "toefl", "duolingo", "notes"},
     "essays": {"personal_statement", "supplementals", "common_app", "notes"},
     "extracurriculars": {"summary", "spike", "highlights", "activities", "notes"},
     "awards": {"items", "notes"},
     "projects": {"field", "items", "portfolio_url", "gaps", "notes"},
     "recommendations": {"teachers", "status", "stories", "notes"},
-    "preferences": {"target_countries", "intended_major", "environment", "budget", "constraints", "notes"},
+    "preferences": {"target_countries", "intended_major", "environment", "campus_size", "budget", "constraints", "career_goal", "notes"},
     "financial_aid": {"needs_aid", "budget", "max_family_contribution", "scholarship_priority", "notes"},
-    "deadlines": {"items", "nearest_deadline", "application_round", "notes"},
-    "wellness": {"stress_level", "hours_per_week", "sleep_hours", "support_needs", "notes"},
+    "deadlines": {"items", "nearest_deadline", "application_round", "target_intake", "exam_dates", "notes"},
+    "wellness": {"stress_level", "hours_per_week", "available_days", "energy_pattern", "sleep_hours", "support_needs", "notes"},
 }
 
 
@@ -203,6 +207,7 @@ def _ensure_memory(memory: dict[str, Any]) -> tuple[dict[str, Any], dict[str, An
     miniapp.setdefault("plans", [])
     miniapp.setdefault("school_finder_runs", [])
     miniapp.setdefault("feedback", [])
+    miniapp.setdefault("onboarding_complete", False)
     miniapp.setdefault("updated_at", None)
     return application, miniapp
 
@@ -210,6 +215,30 @@ def _ensure_memory(memory: dict[str, Any]) -> tuple[dict[str, Any], dict[str, An
 def _portfolio(memory: dict[str, Any]) -> dict[str, Any]:
     application, _ = _ensure_memory(memory)
     return {"profile": memory.get("profile", {}), "application": application}
+
+
+def _profile_completeness(memory: dict[str, Any]) -> dict[str, Any]:
+    application, _ = _ensure_memory(memory)
+    profile = memory.get("profile", {}) or {}
+    tests = application.get("test_scores", {}) or {}
+    preferences = application.get("preferences", {}) or {}
+    wellness = application.get("wellness", {}) or {}
+    deadlines = application.get("deadlines", {}) or {}
+    fields = [
+        ("grade", profile.get("grade"), "grade"),
+        ("graduation_year", profile.get("graduation_year"), "graduation year"),
+        ("country", profile.get("country"), "home country"),
+        ("curriculum", profile.get("curriculum"), "school curriculum"),
+        ("major", profile.get("major") or preferences.get("intended_major"), "target major"),
+        ("target_countries", profile.get("target_countries") or preferences.get("target_countries"), "target countries"),
+        ("gpa", tests.get("gpa") or profile.get("gpa"), "GPA or school average"),
+        ("budget", preferences.get("budget") or profile.get("budget"), "annual family budget"),
+        ("hours", wellness.get("hours_per_week"), "weekly application time"),
+        ("deadline", deadlines.get("nearest_deadline"), "nearest deadline"),
+    ]
+    missing = [{"key": key, "label": label} for key, value, label in fields if not value]
+    filled = len(fields) - len(missing)
+    return {"percent": round(100 * filled / len(fields)), "filled": filled, "total": len(fields), "missing": missing}
 
 
 def _status_fraction(value: Any) -> float:
@@ -267,15 +296,18 @@ def _preferred_name(memory: dict[str, Any]) -> str:
 
 
 def _public_user(identity: TelegramIdentity, memory: dict[str, Any]) -> dict[str, Any]:
+    _, miniapp = _ensure_memory(memory)
     return {
         "id": identity.user_id,
         "name": _preferred_name(memory),
         "has_manual_name": bool(_preferred_name(memory)),
+        "onboarding_complete": bool(miniapp.get("onboarding_complete")),
     }
 
 
 def _dashboard(memory: dict[str, Any], identity: TelegramIdentity) -> dict[str, Any]:
     app_data, miniapp = _ensure_memory(memory)
+    profile = memory.get("profile", {}) or {}
     readiness = readiness_snapshot(memory)
     essays = app_data.get("essays", {}) or {}
     deadlines = app_data.get("deadlines", {}) or {}
@@ -288,7 +320,10 @@ def _dashboard(memory: dict[str, Any], identity: TelegramIdentity) -> dict[str, 
         {"key": "recommendations", "label": "Recommendations", "value": app_data.get("recommendations", {}).get("status") or "Not started", "progress": round(100 * _status_fraction(app_data.get("recommendations", {}).get("status")))},
     ]
     latest_plan = (miniapp.get("plans") or [])[-1] if miniapp.get("plans") else None
-    today = (latest_plan or {}).get("result", {}).get("today_priority")
+    latest_result = (latest_plan or {}).get("result", {}) or {}
+    completion = (latest_plan or {}).get("completion", {}) or {}
+    ordered_tasks = [latest_result.get("today_priority")] + list(latest_result.get("this_week") or [])
+    today = next((task for task in ordered_tasks if task and not completion.get(str(task.get("key", "")))), None)
     if not today:
         today = {"title": f"Strengthen {readiness['blocker']['label'].lower()}", "why": readiness["blocker"]["message"], "effort": "20 min"}
     blocker_next_steps = {
@@ -302,10 +337,21 @@ def _dashboard(memory: dict[str, Any], identity: TelegramIdentity) -> dict[str, 
     }
     deadline_label = str(deadlines.get("nearest_deadline") or "Add your nearest deadline").strip()[:80]
     application_round = str(deadlines.get("application_round") or "Deadline").strip()[:40]
+    weekly_path = [task for task in (latest_result.get("this_week") or []) if task][:3]
+    if not weekly_path:
+        weekly_path = [
+            {"title": today["title"], "effort": today.get("effort", "20 min"), "category": readiness["blocker"]["label"], "key": "fallback-now"},
+            {"title": blocker_next_steps.get(readiness["blocker"]["key"], "Build supporting evidence"), "effort": "35 min", "category": "Next", "key": "fallback-next"},
+            {"title": "Verify your nearest deadline", "effort": "10 min", "category": "Planning", "key": "fallback-deadline"},
+        ]
     return {
         "name": _preferred_name(memory) or "Student",
+        "location": str(profile.get("city") or profile.get("country") or "Central Asia")[:100],
+        "intended_major": str(profile.get("major") or (app_data.get("preferences", {}) or {}).get("intended_major") or "")[:160],
         "readiness": readiness,
+        "profile_completeness": _profile_completeness(memory),
         "today_priority": today,
+        "weekly_path": weekly_path,
         "trajectory": {
             "now": f"Strengthen {readiness['blocker']['label'].lower()}",
             "next": blocker_next_steps.get(readiness["blocker"]["key"], "Secure proof & feedback"),
@@ -396,13 +442,62 @@ async def auth_dev(payload: DevAuthRequest) -> dict[str, Any]:
 @app.get("/api/me")
 async def me(identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
     memory = legacy.load_memory(identity.user_id)
-    return {"user": _public_user(identity, memory), "portfolio": _portfolio(memory), "readiness": readiness_snapshot(memory)}
+    return {"user": _public_user(identity, memory), "portfolio": _portfolio(memory), "readiness": readiness_snapshot(memory), "profile_completeness": _profile_completeness(memory)}
 
 
 @app.post("/api/profile/name")
 async def profile_name(payload: NameUpdateRequest, identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
     memory = legacy.load_memory(identity.user_id)
     memory.setdefault("profile", {})["preferred_name"] = payload.name
+    _save_memory(identity.user_id, memory)
+    return {"saved": True, "user": _public_user(identity, memory)}
+
+
+@app.post("/api/profile/onboarding")
+async def profile_onboarding(payload: OnboardingRequest, identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
+    memory = legacy.load_memory(identity.user_id)
+    application, miniapp = _ensure_memory(memory)
+    data = payload.model_dump()
+    profile = memory.setdefault("profile", {})
+    profile.update({
+        "grade": data["grade"],
+        "graduation_year": data["graduation_year"],
+        "country": data["country"],
+        "curriculum": data["curriculum"],
+        "major": data["intended_major"],
+        "target_countries": data["target_countries"],
+        "gpa": data["gpa"],
+        "needs_aid": data["needs_aid"],
+        "budget": data["annual_budget"],
+    })
+    application["profile"].update({"grade": data["grade"], "country": data["country"]})
+    application["test_scores"].update({key: data[key] for key in ("gpa", "sat", "ielts") if data.get(key)})
+    application["preferences"].update({
+        "intended_major": data["intended_major"],
+        "target_countries": data["target_countries"],
+        "budget": data["annual_budget"],
+        "needs_aid": data["needs_aid"],
+    })
+    application["wellness"].update({"hours_per_week": data["weekly_hours"]})
+    application["deadlines"].update({
+        "nearest_deadline": data.get("nearest_deadline"),
+        "application_round": data["application_round"],
+    })
+    miniapp["onboarding_complete"] = True
+    _save_memory(identity.user_id, memory)
+    return {
+        "saved": True,
+        "user": _public_user(identity, memory),
+        "profile_completeness": _profile_completeness(memory),
+        "readiness": readiness_snapshot(memory),
+    }
+
+
+@app.post("/api/profile/onboarding/skip")
+async def profile_onboarding_skip(identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
+    memory = legacy.load_memory(identity.user_id)
+    _, miniapp = _ensure_memory(memory)
+    miniapp["onboarding_complete"] = True
     _save_memory(identity.user_id, memory)
     return {"saved": True, "user": _public_user(identity, memory)}
 
@@ -570,9 +665,30 @@ async def application_plan(payload: ApplicationPlanRequest, identity: TelegramId
     )
     result = _parse_ai_json(raw)
     _, miniapp = _ensure_memory(memory)
-    miniapp["plans"] = (miniapp["plans"] + [{"created_at": int(time.time()), "request": payload.model_dump(), "result": result}])[-5:]
+    plan_id = uuid.uuid4().hex
+    for section in ("today_priority", "this_week", "this_month", "before_deadline"):
+        tasks = [result.get(section)] if section == "today_priority" else list(result.get(section) or [])
+        for index, task in enumerate(tasks):
+            if isinstance(task, dict):
+                task["key"] = f"{section}-{index}"
+    record = {"id": plan_id, "created_at": int(time.time()), "request": payload.model_dump(), "result": result, "completion": {}}
+    miniapp["plans"] = (miniapp["plans"] + [record])[-5:]
     _save_memory(identity.user_id, memory)
-    return {"result": result, "readiness": readiness}
+    return {"plan_id": plan_id, "result": result, "readiness": readiness, "profile_completeness": _profile_completeness(memory)}
+
+
+@app.post("/api/application-plan/task-status")
+async def application_plan_task_status(payload: PlanTaskStatusRequest, identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
+    memory = legacy.load_memory(identity.user_id)
+    _, miniapp = _ensure_memory(memory)
+    plan = next((item for item in miniapp.get("plans", []) if item.get("id") == payload.plan_id), None)
+    if not plan:
+        raise HTTPException(status_code=404, detail="This roadmap is no longer available.")
+    completion = plan.setdefault("completion", {})
+    completion[payload.task_key] = payload.done
+    _save_memory(identity.user_id, memory)
+    done_count = sum(1 for value in completion.values() if value)
+    return {"saved": True, "task_key": payload.task_key, "done": payload.done, "done_count": done_count}
 
 
 @app.post("/api/boost")
@@ -605,6 +721,26 @@ async def coach(payload: CoachRequest, identity: TelegramIdentity = Depends(acti
         max_tokens=2_000 if payload.mode == "rewrite" else 1_500,
     )
     return {"mode": payload.mode, "result": _parse_ai_json(raw)}
+
+
+@app.post("/api/copilot")
+async def copilot(payload: CopilotRequest, identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
+    memory = legacy.load_memory(identity.user_id)
+    raw = await legacy.ask_ai(
+        copilot_messages(
+            payload.question,
+            payload.current_screen,
+            [item.model_dump() for item in payload.history],
+            _portfolio(memory),
+            readiness_snapshot(memory),
+        ),
+        strong=False,
+        max_tokens=650,
+    )
+    answer = str(raw or "").strip()
+    if not answer:
+        raise HTTPException(status_code=503, detail="Your copilot is temporarily busy. Please try again.")
+    return {"answer": answer, "profile_completeness": _profile_completeness(memory)}
 
 
 @app.post("/api/sat/coach")

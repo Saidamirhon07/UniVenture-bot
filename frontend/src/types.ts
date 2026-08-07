@@ -21,6 +21,14 @@ export interface SessionUser {
   id: number;
   name: string;
   has_manual_name?: boolean;
+  onboarding_complete?: boolean;
+}
+
+export interface ProfileCompleteness {
+  percent: number;
+  filled: number;
+  total: number;
+  missing: Array<{ key: string; label: string }>;
 }
 
 export interface Readiness {
@@ -31,8 +39,12 @@ export interface Readiness {
 
 export interface DashboardData {
   name: string;
+  location?: string;
+  intended_major?: string;
   readiness: Readiness;
+  profile_completeness: ProfileCompleteness;
   today_priority: { title: string; why: string; effort?: string };
+  weekly_path: Array<{ key?: string; title: string; effort?: string; category?: string }>;
   trajectory?: { now: string; next: string; deadline: string };
   status_cards: Array<{ key: string; label: string; value: string; progress: number }>;
   subscription: { has_access: boolean; access_type: string; remaining_days: number | null; price: string };

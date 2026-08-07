@@ -1,57 +1,76 @@
-# UniVentureAI Premium Home — Design QA
+# UniVentureAI Premium V3 — Design QA
 
-## Source visual truth
+## Evidence
 
-- Selected reference: `/workspace/scratch/1c9e578a9128/upload/image(4).png`
-- Normalized source: `qa/source-normalized-390x844.png`
-- Source pixels: 853 × 1844, normalized to 390 × 844 CSS-equivalent pixels.
-- Supporting source assets: `frontend/public/assets/blue-doorway.png` and `frontend/public/assets/uzbek-line-motif.png`.
+- Source visual truth: `/workspace/scratch/1c9e578a9128/upload/Screenshot 2026-08-07 at 4.01.16 PM.png`
+- App-surface normalization from the selected premium direction: `qa/source-normalized-390x844.png`
+- Browser-rendered implementation: `qa-v3/01-home-refined-390x844.png`
+- Full-page implementation: `qa-v3/01-home-refined-full.png`
+- Full-view combined comparison: `qa-v3/comparison-home-final.png`
+- Focused top-region comparison: `qa-v3/comparison-home-top-final.png`
+- Interaction report: `qa-v3/interaction-report.json`
 
-## Implementation evidence
+## Normalization and State
 
-- Browser-rendered implementation: `qa/home-390x844-viewport.png`
-- Full implementation page: `qa/home-390x844-full.png`
-- Full-view side-by-side comparison: `qa/design-comparison-pass2.png`
-- Focused top-region comparison: `qa/design-comparison-top-pass2.png`
-- Portfolio editor evidence: `qa/portfolio-ec-editor.png`
-- Viewport: 390 × 844 CSS pixels at device scale factor 1.
-- State: authenticated paid student with populated portfolio, readiness score 72, current mission, trajectory, deadline, and agenda.
+- Attached source: 586 × 1206 px, including the surrounding Telegram/iOS frame and presentation caption.
+- Normalized app reference: 390 × 844 px.
+- Implementation: 390 × 844 px at a 390 × 844 CSS viewport and `deviceScaleFactor: 1`.
+- State: authenticated paid student, onboarding complete, populated Computer Science profile, Family view collapsed, light atelier theme.
+- The source and implementation intentionally contain different student data. Layout, hierarchy, visual language, and interaction structure are the fidelity targets; live scores and recommendations must remain profile-derived.
+- Additional responsive checks: 360 × 800 and 430 × 932. Both have zero horizontal overflow and visible persistent navigation.
 
 ## Findings
 
-- No actionable P0, P1, or P2 differences remain.
-- Typography preserves the selected editorial hierarchy: navy serif display type, compact sans-serif labels, and readable small-data text. The implementation intentionally uses a slightly larger student name and action copy for legibility on real Telegram screens.
-- Spacing and layout rhythm now keep the full default command center visible in the first viewport. The agenda ends at 790.36px and the fixed navigation begins at 791px, so persistent controls do not hide content.
-- Colors map faithfully to the reference: cream canvas, navy type, cobalt actions, teal readiness, amber deadline, coral academics, and plum voice.
-- Image assets match the selected art direction and remain sharp at mobile size. The doorway uses the generated raster asset rather than CSS illustration; the Uzbek ornament uses its supplied raster motif.
-- Copy and content preserve the reference structure while replacing the fictional grant/deadline with a safer official MIT deadline route and adding a compact, working Family Brief action.
-- The five-slot activity and award editors render correctly. The Save Section action remains pinned at 767–844px after the editor body scrolls, stays above the 791–844px global navigation, and retains its coral action color.
+No actionable P0, P1, or P2 findings remain.
 
-## Interaction and responsive evidence
+- Fonts and typography: the editorial serif display type, compact sans-serif utility labels, uppercase tracked section headings, and navy hierarchy match the selected direction. The mission headline, readiness total, four dimension scores, and trajectory labels are larger than V2 as requested.
+- Spacing and layout rhythm: the doorway mission, Application Twin, trajectory, curated card, and agenda preserve the earlier command-center sequence. Supporting explanations are shorter, while card proportions, dividers, radii, and vertical rhythm remain stable at all three mobile sizes.
+- Colors and visual tokens: cream, deep navy, cobalt, teal, gold, coral, and violet retain the source roles and semantic meaning. Primary text and controls maintain readable contrast.
+- Image quality and asset fidelity: the existing cobalt doorway and Uzbek line motif are reused at their intended crops. No placeholder art, CSS illustration, or rasterized UI replacement is present.
+- Copy and content: repeated explanation was removed. Readiness remains clearly labeled as preparation strength rather than admission odds. The curated card now uses the student's intended major and opens an official opportunity source.
+- Icons and affordances: the five-tab navigation, mission CTA, score dimensions, Family toggle, trajectory, opportunity, agenda actions, and Venture copilot are all interactive. The floating copilot reserves space over agenda rows and does not hide their controls.
 
-- Working: daily mission → EC Builder.
-- Working: Identity → My Portfolio.
-- Working: Evidence → EC Builder.
-- Working: Academics → Prep Lab.
-- Working: Voice → Essay Lab.
-- Working: verified deadline → Discover.
-- Working: feedback → Send Feedback.
-- Working: Today, Strategy, Prep, Discover, and Portfolio primary navigation with correct active states.
-- Working: Family Brief open/close state.
-- Activity editor initial slots: 5; award editor initial slots: 5; both support expansion to 10 in application code.
-- Body scrolling locks while an editor is open; editor content scrolls independently.
-- Browser console errors: none in the local application harness.
-- Browser page errors: none.
+Residual P3 note: native Telegram/iOS status chrome is not part of the local browser surface. This is expected and does not affect the app-owned design.
 
-## Comparison history
+## Comparison History
 
-1. Initial pass: blocked because no browser-rendered implementation was available.
-2. First rendered pass: found a P1 density mismatch (trajectory, opportunity, and agenda below the first viewport) and a P1 editor action-style bug caused by portal theme scope.
-3. Fixes: tightened only home-screen spacing and control density, reduced the sticky navigation height while preserving usable targets, moved Family Brief into the Application Twin header, and scoped Portfolio theme tokens to the editor portal.
-4. Final rendered pass: the full command center fits at 390 × 844, the editor action remains visible after scrolling, all primary actions work, and no application console/page errors remain.
+### Pass 1 — blocked
 
-## Follow-up polish
+- [P2] The Venture floating button overlapped the first agenda row's effort and chevron controls at 390 × 844.
+- [P3] The first generic STEM opportunity was relevant by category but not the strongest possible Computer Science match.
 
-- P3: replace the static 2026–27 deadline catalog with a server-managed, periodically verified opportunity feed before the next admissions cycle.
+Fixes made:
 
-**final result: passed**
+- Reserved right-side space in Home agenda rows so the persistent copilot cannot cover controls.
+- Added major-specific opportunity matching before the category fallback; Computer Science now selects Imagine Cup Junior.
+
+Post-fix evidence:
+
+- `qa-v3/01-home-refined-390x844.png`
+- `qa-v3/comparison-home-final.png`
+
+### Pass 2 — passed
+
+- Combined reference/implementation comparisons show no remaining actionable P0/P1/P2 mismatch.
+- Primary interactions tested: five-tab navigation, Venture open/ask/close, Application Flight Plan, SAT answer feedback, IELTS answer feedback, profile-aware School Fit, Discover catalog, and Portfolio EC/award editors.
+- Data checks: 36 opportunities, 30 universities, 10 EC slots, 10 award slots, and 15 visible profile-fit schools in the populated QA state.
+- Browser console errors: none.
+- Failed network requests: none in the controlled QA harness.
+- Frontend production build: passed.
+- Python compilation: passed.
+- Backend unit tests: 6 passed.
+
+## Implementation Checklist
+
+- [x] Earlier premium command-center Home restored
+- [x] Shorter supporting copy and stronger key typography
+- [x] Data-driven mission, Application Twin, trajectory, and major-matched opportunity
+- [x] Rich profile intake and dependency-aware Application Flight Plan preserved
+- [x] Profile-gated Reach/Match/Lower-risk school map preserved
+- [x] 36-opportunity catalog and 30-university atlas preserved
+- [x] Profile-aware Venture copilot preserved without hiding controls
+- [x] Interactive SAT and four-skill IELTS experiences preserved
+- [x] 10 extracurricular and 10 award slots preserved
+- [x] Responsive, interaction, console, build, compilation, and unit-test checks passed
+
+final result: passed
