@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { BrainCircuit, Compass, FlaskConical, Home, LayoutGrid, Sparkles, UserRound } from "lucide-react";
+import { BookOpenText, BriefcaseBusiness, Compass, Home, LayoutGrid, Search, Sparkles } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { api } from "./api";
 import { Button, Card, ErrorBanner, Input, LoadingScreen, Tag } from "./components/ui";
@@ -13,16 +13,17 @@ import { BoostToolsScreen, ECBuilderScreen, IELTSWritingScreen, PortfolioBuilder
 import { AICoachScreen, DiscoverScreen, FeedbackScreen, PrepHubScreen, SATStudioScreen } from "./screens/GrowthScreens";
 
 const primaryNav: Array<{ screen: ScreenId; label: string; icon: typeof Home }> = [
-  { screen: "home", label: "Home", icon: Home },
-  { screen: "discover", label: "Discover", icon: Compass },
-  { screen: "prep", label: "Prep", icon: FlaskConical },
-  { screen: "coach", label: "AI Coach", icon: BrainCircuit },
-  { screen: "portfolio", label: "Portfolio", icon: UserRound },
+  { screen: "home", label: "Today", icon: Home },
+  { screen: "coach", label: "Strategy", icon: Compass },
+  { screen: "prep", label: "Prep", icon: BookOpenText },
+  { screen: "discover", label: "Discover", icon: Search },
+  { screen: "portfolio", label: "Portfolio", icon: BriefcaseBusiness },
 ];
 
 function navScreen(screen: ScreenId): ScreenId {
-  if (["sat", "ielts", "school", "plan"].includes(screen)) return "prep";
-  if (["essay", "ec", "recommendation", "portfolio-builder", "boost"].includes(screen)) return "coach";
+  if (["sat", "ielts"].includes(screen)) return "prep";
+  if (["school"].includes(screen)) return "discover";
+  if (["plan", "essay", "ec", "recommendation", "portfolio-builder", "boost"].includes(screen)) return "coach";
   return screen;
 }
 
@@ -70,8 +71,8 @@ export default function App() {
     const webApp = window.Telegram?.WebApp;
     webApp?.ready();
     webApp?.expand();
-    webApp?.setHeaderColor("#06101f");
-    webApp?.setBackgroundColor("#06101f");
+    webApp?.setHeaderColor("#fbf7f1");
+    webApp?.setBackgroundColor("#fbf7f1");
     webApp?.enableClosingConfirmation?.();
     api.authenticate().then(({ user: authenticatedUser }) => setUser(authenticatedUser)).catch((error) => setAuthError(error instanceof Error ? error.message : "Authentication failed."));
   }, []);
@@ -109,8 +110,7 @@ export default function App() {
   })();
 
   return (
-    <div className="app-shell">
-      <div className="ambient ambient-one" /><div className="ambient ambient-two" />
+    <div className={`app-shell theme-${navScreen(screen)}`}>
       <main className="app-content">
         <AnimatePresence mode="wait">
           <motion.div key={screen} initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -6 }} transition={{ duration: 0.18 }}>

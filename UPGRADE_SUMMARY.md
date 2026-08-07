@@ -2,9 +2,14 @@
 
 ## What changed
 
+- The selected premium home design is implemented: cream editorial canvas, navy display type, Uzbek gold ornament, cobalt doorway, compact Application Twin, full trajectory, curated deadline, daily agenda, and five color-coded journeys.
+- The complete default command center fits in one 390 × 844 Telegram viewport; the fixed navigation no longer hides the agenda.
+- Application Twin dimensions are interactive and use live portfolio readiness data. Identity, Evidence, Academics, and Voice each open the relevant workspace.
+- The trajectory now reads the student's real weakest readiness area and saved application deadline instead of functioning as decorative copy.
+- Family Brief is a real compact toggle with a parent-friendly explanation and recommended action.
 - Portfolio now has structured, editable activity and award cards. Five slots appear immediately and students can add up to ten in each section.
 - The full-review persistence bug is fixed. Additive Mini App memory is preserved when the legacy chatbot reloads or later saves a cached user record.
-- The Portfolio editor is rendered outside the animated page stack, and its Save Section action is pinned above the device safe area.
+- The Portfolio editor is rendered outside the animated page stack, and its coral Save Section action is pinned above the device safe area and global navigation.
 - First launch asks every student to type the name UniVentureAI should use. Telegram still provides secure identity, but not the displayed name.
 - Global navigation is now Home, Discover, Prep, AI Coach, and Portfolio. Portfolio is the rightmost item.
 - Discover is visible to all authenticated students, including expired users. It includes opportunity filters and visual deadline cards that link to official university pages.
@@ -16,9 +21,9 @@
 
 ## Deployment
 
-Replace the existing `univenture_admissions_hub` folder on the `admissions-mini-app` branch with this version, commit it, and push. Railway should keep:
+Your current `UniVenture-bot` repository deploys from its top level. Merge the contents of this handoff into the repository root on the `admissions-mini-app` branch; do not keep a second nested `univenture_admissions_hub` copy. Railway should keep:
 
-- Root Directory: `univenture_admissions_hub`
+- Root Directory: blank
 - Networking target port: `8080`
 - Existing `/data` volume
 - Existing production variables, including `RUN_TELEGRAM_BOT=1`
@@ -30,3 +35,5 @@ No data migration or new environment variable is required.
 - Python compilation completed successfully.
 - All backend unit tests passed.
 - The React/TypeScript production build completed successfully.
+- Browser-rendered QA passed at 390 × 844 with all primary home interactions, five global navigation items, Family Brief, five activity slots, five award slots, and the pinned editor action verified.
+- Browser console and page errors: none in the local application harness.

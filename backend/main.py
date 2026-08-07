@@ -278,6 +278,7 @@ def _dashboard(memory: dict[str, Any], identity: TelegramIdentity) -> dict[str, 
     app_data, miniapp = _ensure_memory(memory)
     readiness = readiness_snapshot(memory)
     essays = app_data.get("essays", {}) or {}
+    deadlines = app_data.get("deadlines", {}) or {}
     cards = [
         {"key": "essays", "label": "Essays", "value": essays.get("personal_statement") or "Not started", "progress": round(100 * _status_fraction(essays.get("personal_statement")))},
         {"key": "schools", "label": "School list", "value": f"{len(app_data.get('school_list', []))} saved", "progress": min(100, len(app_data.get("school_list", [])) * 16)},
@@ -290,10 +291,26 @@ def _dashboard(memory: dict[str, Any], identity: TelegramIdentity) -> dict[str, 
     today = (latest_plan or {}).get("result", {}).get("today_priority")
     if not today:
         today = {"title": f"Strengthen {readiness['blocker']['label'].lower()}", "why": readiness["blocker"]["message"], "effort": "20 min"}
+    blocker_next_steps = {
+        "academics": "Document academic context",
+        "testing": "Complete a focused score sprint",
+        "essays": "Test the story with feedback",
+        "activities": "Secure proof & feedback",
+        "schools": "Verify fit and affordability",
+        "recommendations": "Confirm two strong recommenders",
+        "planning": "Lock the next weekly milestone",
+    }
+    deadline_label = str(deadlines.get("nearest_deadline") or "Add your nearest deadline").strip()[:80]
+    application_round = str(deadlines.get("application_round") or "Deadline").strip()[:40]
     return {
         "name": _preferred_name(memory) or "Student",
         "readiness": readiness,
         "today_priority": today,
+        "trajectory": {
+            "now": f"Strengthen {readiness['blocker']['label'].lower()}",
+            "next": blocker_next_steps.get(readiness["blocker"]["key"], "Secure proof & feedback"),
+            "deadline": f"{application_round} · {deadline_label}",
+        },
         "status_cards": cards,
         "subscription": legacy.subscription_status(identity.user_id),
     }

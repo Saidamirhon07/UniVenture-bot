@@ -33,6 +33,7 @@ export interface DashboardData {
   name: string;
   readiness: Readiness;
   today_priority: { title: string; why: string; effort?: string };
+  trajectory?: { now: string; next: string; deadline: string };
   status_cards: Array<{ key: string; label: string; value: string; progress: number }>;
   subscription: { has_access: boolean; access_type: string; remaining_days: number | null; price: string };
 }
