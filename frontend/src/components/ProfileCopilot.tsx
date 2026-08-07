@@ -3,7 +3,28 @@ import { ArrowUp, MessageCircle, Sparkles, X } from "lucide-react";
 import { api } from "../api";
 import type { ScreenId } from "../types";
 
-type ChatMessage = { role: "user" | "assistant"; content: string };
+type ChatMessage = { role: "user" | "assistant"; content: string; bullets?: string[]; nextAction?: string };
+type CopilotResponse = { answer: string; bullets?: unknown; next_action?: unknown };
+
+function cleanResponse(payload: CopilotResponse): ChatMessage {
+  let answer = String(payload.answer || "").trim();
+  let bullets = Array.isArray(payload.bullets) ? payload.bullets.map(String).filter(Boolean).slice(0, 3) : [];
+  let nextAction = typeof payload.next_action === "string" ? payload.next_action.trim() : "";
+  if (answer.startsWith("{") && answer.endsWith("}")) {
+    try {
+      const legacy = JSON.parse(answer) as Record<string, unknown>;
+      answer = String(legacy.answer || legacy.headline || legacy.summary || answer).trim();
+      const rawBullets = legacy.bullets || legacy.actions || legacy.moves;
+      if (Array.isArray(rawBullets)) {
+        bullets = rawBullets.map((item) => typeof item === "object" && item ? String((item as Record<string, unknown>).title || (item as Record<string, unknown>).action || (item as Record<string, unknown>).text || "") : String(item)).filter(Boolean).slice(0, 3);
+      }
+      nextAction = String(legacy.next_action || legacy.next_step || nextAction || "").trim();
+    } catch {
+      // Keep the plain response when an older server returns non-JSON text.
+    }
+  }
+  return { role: "assistant", content: answer || "I’m ready—try that question once more.", bullets, nextAction };
+}
 
 const promptByScreen: Partial<Record<ScreenId, string[]>> = {
   home: ["What should I do today?", "What is my biggest profile gap?", "Explain my readiness score"],
@@ -34,8 +55,8 @@ export default function ProfileCopilot({ screen }: { screen: ScreenId }) {
     const history = [...messages.filter((item) => item.content), nextUser];
     setMessages(history); setQuestion(""); setLoading(true); setError("");
     try {
-      const data = await api.post<{ answer: string }>("/api/copilot", { question: clean, current_screen: screen, history: messages.slice(-6) });
-      setMessages((items) => [...items, { role: "assistant", content: data.answer }]);
+      const data = await api.post<CopilotResponse>("/api/copilot", { question: clean, current_screen: screen, history: messages.slice(-6).map(({ role, content }) => ({ role, content })) });
+      setMessages((items) => [...items, cleanResponse(data)]);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Your copilot could not answer just now.");
     } finally { setLoading(false); }
@@ -49,7 +70,7 @@ export default function ProfileCopilot({ screen }: { screen: ScreenId }) {
     {open ? <section className="copilot-panel" aria-label="Venture admissions copilot">
       <header><span><Sparkles size={18} /></span><div><strong>Venture</strong><small>Knows your Application Twin</small></div><button aria-label="Close" onClick={() => setOpen(false)}><X size={18} /></button></header>
       <div className="copilot-messages">
-        {messages.map((message, index) => <div className={`copilot-message ${message.role}`} key={`${message.role}-${index}`}><span>{message.content}</span></div>)}
+        {messages.map((message, index) => <div className={`copilot-message ${message.role}`} key={`${message.role}-${index}`}><span><p>{message.content}</p>{message.bullets?.length ? <ul>{message.bullets.map((item) => <li key={item}>{item}</li>)}</ul> : null}{message.nextAction ? <b><Sparkles size={12} />Next: {message.nextAction}</b> : null}</span></div>)}
         {loading ? <div className="copilot-message assistant typing"><span><i /><i /><i /></span></div> : null}
         {error ? <p className="copilot-error">{error}</p> : null}
         <div ref={endRef} />

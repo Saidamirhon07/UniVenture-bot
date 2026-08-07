@@ -9,8 +9,10 @@ import re
 import time
 import uuid
 from contextlib import asynccontextmanager
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from docx import Document as DocxDocument
 from dotenv import load_dotenv
@@ -41,6 +43,7 @@ from .prompts import (
     sat_coach_messages,
     school_finder_messages,
 )
+from .product_logic import practice_snapshot as build_practice_snapshot, task_action as _task_action
 from .schemas import (
     ApplicationPlanRequest,
     AuthRequest,
@@ -54,11 +57,14 @@ from .schemas import (
     FeedbackRequest,
     IELTSEvaluationRequest,
     NameUpdateRequest,
+    NotificationsReadRequest,
     OnboardingRequest,
     PlanTaskStatusRequest,
     PortfolioEvaluationRequest,
+    PracticeCompletionRequest,
     ProfileUpdateRequest,
     RecommendationRequest,
+    ReminderCreateRequest,
     RefineRequest,
     SaveSchoolRequest,
     SchoolFinderRequest,
@@ -79,6 +85,7 @@ SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", "21600"))
 RUN_TELEGRAM_BOT = os.getenv("RUN_TELEGRAM_BOT", "1") == "1"
 DEV_AUTH_BYPASS = os.getenv("DEV_AUTH_BYPASS", "0") == "1"
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(5 * 1024 * 1024)))
+TASHKENT = ZoneInfo("Asia/Tashkent")
 
 
 @asynccontextmanager
@@ -207,9 +214,123 @@ def _ensure_memory(memory: dict[str, Any]) -> tuple[dict[str, Any], dict[str, An
     miniapp.setdefault("plans", [])
     miniapp.setdefault("school_finder_runs", [])
     miniapp.setdefault("feedback", [])
+    if not isinstance(miniapp.get("practice"), dict):
+        miniapp["practice"] = {"days": {}}
+    if not isinstance(miniapp.get("reminders"), list):
+        miniapp["reminders"] = []
+    if not isinstance(miniapp.get("seen_notifications"), list):
+        miniapp["seen_notifications"] = []
     miniapp.setdefault("onboarding_complete", False)
     miniapp.setdefault("updated_at", None)
     return application, miniapp
+
+
+def _local_today() -> date:
+    return datetime.now(TASHKENT).date()
+
+
+def _practice_snapshot(memory: dict[str, Any]) -> dict[str, Any]:
+    _, miniapp = _ensure_memory(memory)
+    practice = miniapp.get("practice") or {}
+    days = practice.get("days") if isinstance(practice, dict) else {}
+    if not isinstance(days, dict):
+        days = {}
+    return build_practice_snapshot(days, _local_today())
+
+
+def _parse_due_at(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=TASHKENT)
+    return parsed.astimezone(TASHKENT)
+
+
+def _dashboard_notifications(
+    memory: dict[str, Any],
+    today_task: dict[str, Any],
+    today_action: dict[str, Any],
+    profile_completeness: dict[str, Any],
+    deadline_label: str,
+    intended_major: str,
+) -> list[dict[str, Any]]:
+    _, miniapp = _ensure_memory(memory)
+    seen = {str(item) for item in miniapp.get("seen_notifications", [])}
+    today_key = _local_today().isoformat()
+    practice = _practice_snapshot(memory)
+    notifications: list[dict[str, Any]] = [
+        {
+            "id": f"priority:{today_key}",
+            "kind": "task",
+            "title": "Today’s highest-impact move",
+            "body": str(today_task.get("title") or "Open your application plan"),
+            "screen": str(today_action.get("screen") or "plan"),
+            "action_label": str(today_action.get("secondary_label") or today_action.get("label") or "Open"),
+        }
+    ]
+    if not practice["completed_today"]:
+        streak_copy = f"Protect your {practice['current_streak']}-day streak" if practice["current_streak"] else "Start a daily prep streak"
+        notifications.append({
+            "id": f"practice:{today_key}",
+            "kind": "streak",
+            "title": streak_copy,
+            "body": "Finish one short SAT or IELTS quest today. One focused attempt counts.",
+            "screen": "prep",
+            "action_label": "Choose a quest",
+        })
+    if deadline_label and deadline_label != "Add your nearest deadline":
+        notifications.append({
+            "id": f"deadline:{deadline_label}",
+            "kind": "deadline",
+            "title": "Deadline check",
+            "body": f"Your saved nearest deadline is {deadline_label}. Verify the official source and protect review time.",
+            "screen": "plan",
+            "action_label": "Review Flight Plan",
+        })
+    if profile_completeness.get("percent", 0) < 100:
+        missing = (profile_completeness.get("missing") or [{}])[0].get("label", "profile detail")
+        notifications.append({
+            "id": f"profile:{missing}",
+            "kind": "profile",
+            "title": "Make your guidance more precise",
+            "body": f"Add your {missing}; it changes school fit and plan recommendations.",
+            "screen": "portfolio",
+            "action_label": "Complete profile",
+        })
+    notifications.append({
+        "id": "opportunities:36:v1",
+        "kind": "opportunity",
+        "title": "36 verified opportunities are ready",
+        "body": f"Explore official-source programs matched to {intended_major or 'your interests'}.",
+        "screen": "discover",
+        "action_label": "Explore opportunities",
+    })
+
+    now = datetime.now(TASHKENT)
+    for reminder in miniapp.get("reminders", []):
+        if not isinstance(reminder, dict) or reminder.get("done"):
+            continue
+        due = _parse_due_at(reminder.get("due_at"))
+        if not due or due > now + timedelta(days=7):
+            continue
+        when = "overdue" if due < now else f"due {due.strftime('%a, %b %d at %H:%M')}"
+        notifications.insert(0, {
+            "id": f"reminder:{reminder.get('id')}",
+            "kind": "reminder",
+            "title": str(reminder.get("title") or "Application reminder"),
+            "body": when.capitalize(),
+            "screen": str(reminder.get("screen") or "plan"),
+            "action_label": "Open task",
+        })
+
+    for item in notifications:
+        item["unread"] = item["id"] not in seen
+    return notifications[:8]
 
 
 def _portfolio(memory: dict[str, Any]) -> dict[str, Any]:
@@ -326,6 +447,7 @@ def _dashboard(memory: dict[str, Any], identity: TelegramIdentity) -> dict[str, 
     today = next((task for task in ordered_tasks if task and not completion.get(str(task.get("key", "")))), None)
     if not today:
         today = {"title": f"Strengthen {readiness['blocker']['label'].lower()}", "why": readiness["blocker"]["message"], "effort": "20 min"}
+    today_action = _task_action(today, readiness["blocker"]["key"])
     blocker_next_steps = {
         "academics": "Document academic context",
         "testing": "Complete a focused score sprint",
@@ -344,13 +466,24 @@ def _dashboard(memory: dict[str, Any], identity: TelegramIdentity) -> dict[str, 
             {"title": blocker_next_steps.get(readiness["blocker"]["key"], "Build supporting evidence"), "effort": "35 min", "category": "Next", "key": "fallback-next"},
             {"title": "Verify your nearest deadline", "effort": "10 min", "category": "Planning", "key": "fallback-deadline"},
         ]
+    profile_completeness = _profile_completeness(memory)
+    intended_major = str(profile.get("major") or (app_data.get("preferences", {}) or {}).get("intended_major") or "")[:160]
+    notifications = _dashboard_notifications(
+        memory,
+        today,
+        today_action,
+        profile_completeness,
+        deadline_label,
+        intended_major,
+    )
     return {
         "name": _preferred_name(memory) or "Student",
         "location": str(profile.get("city") or profile.get("country") or "Central Asia")[:100],
-        "intended_major": str(profile.get("major") or (app_data.get("preferences", {}) or {}).get("intended_major") or "")[:160],
+        "intended_major": intended_major,
         "readiness": readiness,
-        "profile_completeness": _profile_completeness(memory),
+        "profile_completeness": profile_completeness,
         "today_priority": today,
+        "today_action": today_action,
         "weekly_path": weekly_path,
         "trajectory": {
             "now": f"Strengthen {readiness['blocker']['label'].lower()}",
@@ -358,6 +491,9 @@ def _dashboard(memory: dict[str, Any], identity: TelegramIdentity) -> dict[str, 
             "deadline": f"{application_round} · {deadline_label}",
         },
         "status_cards": cards,
+        "practice_streak": _practice_snapshot(memory),
+        "notifications": notifications,
+        "unread_notifications": sum(1 for item in notifications if item.get("unread")),
         "subscription": legacy.subscription_status(identity.user_id),
     }
 
@@ -691,6 +827,64 @@ async def application_plan_task_status(payload: PlanTaskStatusRequest, identity:
     return {"saved": True, "task_key": payload.task_key, "done": payload.done, "done_count": done_count}
 
 
+@app.post("/api/practice/complete")
+async def practice_complete(payload: PracticeCompletionRequest, identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
+    memory = legacy.load_memory(identity.user_id)
+    _, miniapp = _ensure_memory(memory)
+    practice = miniapp.setdefault("practice", {"days": {}})
+    if not isinstance(practice.get("days"), dict):
+        practice["days"] = {}
+    days = practice["days"]
+    today_key = _local_today().isoformat()
+    skills = days.setdefault(today_key, [])
+    if payload.skill not in skills:
+        skills.append(payload.skill)
+    cutoff = (_local_today() - timedelta(days=180)).isoformat()
+    practice["days"] = {key: value for key, value in days.items() if key >= cutoff}
+    _save_memory(identity.user_id, memory)
+    window = _practice_snapshot(memory)
+    window["just_recorded"] = payload.skill
+    return window
+
+
+@app.get("/api/practice/streak")
+async def practice_streak(identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
+    return _practice_snapshot(legacy.load_memory(identity.user_id))
+
+
+@app.post("/api/reminders")
+async def create_reminder(payload: ReminderCreateRequest, identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
+    due = _parse_due_at(payload.due_at)
+    if not due:
+        raise HTTPException(status_code=422, detail="Choose a valid reminder time.")
+    memory = legacy.load_memory(identity.user_id)
+    _, miniapp = _ensure_memory(memory)
+    reminder = {
+        "id": uuid.uuid4().hex,
+        "title": " ".join(payload.title.split())[:240],
+        "due_at": due.isoformat(),
+        "screen": payload.screen or "plan",
+        "created_at": int(time.time()),
+        "done": False,
+    }
+    miniapp["reminders"] = (miniapp.get("reminders", []) + [reminder])[-40:]
+    _save_memory(identity.user_id, memory)
+    return {"saved": True, "reminder": reminder}
+
+
+@app.post("/api/notifications/read")
+async def notifications_read(payload: NotificationsReadRequest, identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
+    memory = legacy.load_memory(identity.user_id)
+    _, miniapp = _ensure_memory(memory)
+    seen = [str(item) for item in miniapp.get("seen_notifications", [])]
+    for item_id in payload.ids:
+        if item_id not in seen:
+            seen.append(item_id)
+    miniapp["seen_notifications"] = seen[-120:]
+    _save_memory(identity.user_id, memory)
+    return {"saved": True, "read": len(payload.ids)}
+
+
 @app.post("/api/boost")
 async def boost(payload: BoostRequest, identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
     memory = legacy.load_memory(identity.user_id)
@@ -737,10 +931,36 @@ async def copilot(payload: CopilotRequest, identity: TelegramIdentity = Depends(
         strong=False,
         max_tokens=650,
     )
-    answer = str(raw or "").strip()
-    if not answer:
+    raw_answer = str(raw or "").strip()
+    if not raw_answer:
         raise HTTPException(status_code=503, detail="Your copilot is temporarily busy. Please try again.")
-    return {"answer": answer, "profile_completeness": _profile_completeness(memory)}
+    answer = raw_answer
+    bullets: list[str] = []
+    next_action = ""
+    try:
+        parsed = _parse_ai_json(raw_answer)
+    except HTTPException:
+        parsed = {}
+    if parsed:
+        answer = str(parsed.get("answer") or parsed.get("headline") or parsed.get("summary") or "").strip()
+        raw_bullets = parsed.get("bullets") or parsed.get("moves") or parsed.get("actions") or []
+        if isinstance(raw_bullets, list):
+            for item in raw_bullets[:3]:
+                if isinstance(item, dict):
+                    value = item.get("title") or item.get("action") or item.get("text")
+                else:
+                    value = item
+                if value:
+                    bullets.append(str(value).strip()[:260])
+        next_action = str(parsed.get("next_action") or parsed.get("next_step") or "").strip()[:300]
+    if not answer:
+        answer = "I found the useful next step, but the explanation needs a quick retry. Ask the question once more."
+    return {
+        "answer": answer[:1_200],
+        "bullets": bullets,
+        "next_action": next_action,
+        "profile_completeness": _profile_completeness(memory),
+    }
 
 
 @app.post("/api/sat/coach")

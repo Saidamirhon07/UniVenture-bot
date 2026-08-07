@@ -104,7 +104,7 @@ export default function App() {
       case "portfolio": return <PortfolioScreen navigate={navigate} onChanged={markChanged} />;
       case "ec": return <ECBuilderScreen navigate={navigate} onChanged={markChanged} />;
       case "ielts": return <IELTSWritingScreen navigate={navigate} onChanged={markChanged} />;
-      case "sat": return <SATStudioScreen navigate={navigate} />;
+      case "sat": return <SATStudioScreen navigate={navigate} onChanged={markChanged} />;
       case "feedback": return <FeedbackScreen navigate={navigate} />;
       case "recommendation": return <RecommendationScreen navigate={navigate} onChanged={markChanged} />;
       case "portfolio-builder": return <PortfolioBuilderScreen navigate={navigate} onChanged={markChanged} />;

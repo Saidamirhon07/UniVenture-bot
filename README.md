@@ -2,7 +2,7 @@
 
 A production-oriented Telegram Mini App added **beside** the existing UniVentureAI chatbot. The chatbot keeps all commands and handlers. FastAPI starts that same Telegram application, exposes secure Mini App APIs, serves the React build, and reads/writes the same paid-user file, user-memory directory, ChromaDB collections, and OpenAI models.
 
-Premium V2 adds a calm three-region command center, guided profile intake, profile-aware Venture copilot, a capacity/dependency-aware Application Flight Plan, a 36-opportunity catalog, a 30-university fit atlas, profile-gated Reach/Match/Lower-risk grouping, interactive SAT and IELTS quests, and ten saved slots each for extracurriculars and awards.
+Premium V4 combines the refined command center, guided profile intake, profile-aware Venture copilot, capacity/dependency-aware Flight Plan, 36-opportunity catalog, 30-university fit atlas, profile-gated Reach/Match/Lower-risk grouping, interactive SAT/IELTS quests, daily streaks, task-aware routing, reminders, and a useful notification desk.
 
 ## 1. Architecture
 
@@ -38,6 +38,7 @@ univenture_admissions_hub/
 │   ├── auth.py                  # Telegram initData + signed sessions
 │   ├── legacy.py                # direct bridge to existing bot services
 │   ├── main.py                  # FastAPI routes, shared memory, bot lifespan
+│   ├── product_logic.py         # deterministic routing and streak calculations
 │   ├── prompts.py               # unique compact/full-review prompt contracts
 │   └── schemas.py               # request validation
 ├── frontend/
@@ -63,6 +64,10 @@ univenture_admissions_hub/
 | `POST` | `/api/profile/onboarding` | Save guided profile, direction and capacity signals |
 | `POST` | `/api/profile/onboarding/skip` | Defer optional guided intake without blocking access |
 | `GET` | `/api/dashboard` | Home dashboard payload |
+| `GET` | `/api/practice/streak` | Persistent SAT/IELTS daily streak |
+| `POST` | `/api/practice/complete` | Idempotently record a completed daily quest |
+| `POST` | `/api/reminders` | Save a task reminder in student memory |
+| `POST` | `/api/notifications/read` | Persist bell read state |
 | `POST` | `/api/profile/update` | Safely update one portfolio section |
 | `POST` | `/api/evaluate/essay` | Personal Statement or supplemental-specific review |
 | `POST` | `/api/evaluate/ec` | Leadership, evidence and activity rewrite |
@@ -143,7 +148,7 @@ Restart the frontend dev server so Vite receives the variable. This tests the sa
 
 ## 5. Railway deployment
 
-1. Put this folder in the repository Railway deploys. If it is a subfolder, set Railway’s **Root Directory** to `univenture_admissions_hub`.
+1. Merge this package directly into the top level of `UniVenture-bot`. Keep Railway’s **Root Directory** blank.
 2. Use the included Dockerfile. Do not create a second bot service.
 3. Attach one persistent Railway volume mounted at `/data`.
 4. Copy the current production variables from the existing bot and add the values in `.env.example`.
@@ -170,6 +175,7 @@ No migrations are required for existing users.
 
 - Existing fields under `profile`, `writing`, `application`, `history`, and `drafts` remain untouched.
 - New Mini App state is additive under `memory["miniapp"]`.
+- Practice days, reminders, and notification read state are additive under `memory["miniapp"]`; no migration is required.
 - New portfolio sections (`projects`, `recommendations`, `deadlines`, and `school_list`) are additive under `memory["application"]`.
 - Chroma collection names remain `global_<topic>` and use the bot’s existing embedding configuration.
 - The original slash commands, admin commands, teaching commands, payment proof flow, reminders, menus, file handlers, and chat answers remain registered.

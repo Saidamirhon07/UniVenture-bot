@@ -1,8 +1,9 @@
 import clsx from "clsx";
 import { motion } from "framer-motion";
-import { ArrowLeft, LoaderCircle, Sparkles, Upload } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Flame, LoaderCircle, Sparkles, Upload } from "lucide-react";
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
 import { api } from "../api";
+import type { PracticeStreak } from "../types";
 
 export function Card({ children, className = "", tone = "glass" }: { children: ReactNode; className?: string; tone?: "glass" | "light" | "cyan" }) {
   return (
@@ -112,6 +113,21 @@ export function LoadingScreen({ label = "Building your command center…" }: { l
       <div className="loading-line"><span /></div>
       <p>{label}</p>
     </div>
+  );
+}
+
+export function PracticeStreakCard({ streak, compact = false }: { streak: PracticeStreak | null; compact?: boolean }) {
+  const count = streak?.current_streak || 0;
+  const done = Boolean(streak?.completed_today);
+  return (
+    <section className={`practice-streak ${compact ? "compact" : ""} ${done ? "complete" : ""}`} aria-label={`${count} day practice streak`}>
+      <span className="streak-flame"><Flame size={compact ? 17 : 21} /></span>
+      <div>
+        <small>{done ? "Daily mission complete" : count ? "Keep the chain alive" : "Start your momentum"}</small>
+        <strong>{count} day{count === 1 ? "" : "s"} in a row</strong>
+      </div>
+      <em>{done ? <><CheckCircle2 size={14} />Done today</> : "One quest today"}</em>
+    </section>
   );
 }
 

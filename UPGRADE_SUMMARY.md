@@ -1,5 +1,16 @@
 # UniVentureAI Mini App — Refined Product Upgrade
 
+## Premium V4 reliability and engagement pass
+
+- Home actions are now classified from the actual generated task instead of the weakest readiness category. Essays, SAT, IELTS, school research, ECs, recommendations, portfolio work, and general planning open the correct workspace.
+- Logistics moves such as SAT registration or test-date planning open a reminder sheet with useful times and a related-tool fallback instead of dropping the student into Essay Lab.
+- The bell opens a real signal desk for priority tasks, saved reminders, deadline/profile gaps, daily-practice nudges, and verified opportunities. Read state is saved with the student.
+- Venture responses render as friendly paragraphs, compact action bullets, and one highlighted next move. Older raw JSON responses are cleaned by the client, while new responses use a strict student-friendly backend contract.
+- SAT and IELTS quests now feed one persistent daily streak. Completion is idempotent per skill and day, and the same streak appears in Prep, SAT, IELTS, Home, and bell nudges.
+- Onboarding keeps Back visible and now always shows a clear Next button on multi-step profile questions.
+- The Flight Plan deadline/capacity row is protected from iOS date-input overflow and stacks on narrow phones.
+- `.gitignore` now ignores only the root runtime `/data/` directory, so `frontend/src/data/catalogs.ts` cannot disappear from Railway builds again.
+
 ## What changed
 
 - The selected premium home design is restored and refined: cream editorial canvas, navy display type, Uzbek gold ornament, cobalt doorway, full Application Twin, trajectory, major-matched opportunity, daily agenda, and five color-coded journeys.
@@ -38,7 +49,6 @@ No data migration or new environment variable is required.
 ## Verification completed
 
 - Python compilation completed successfully.
-- All backend unit tests passed.
+- All 10 backend/product-flow unit tests passed.
 - The React/TypeScript production build completed successfully.
-- Browser-rendered QA passed at 390 × 844, with responsive smoke checks at 360 × 800 and 430 × 932. Copilot, Flight Plan, SAT/IELTS feedback, 36 opportunities, 30 universities, ten activity slots, ten award slots, and the persistent navigation were verified.
-- Browser console and page errors: none in the local application harness.
+- The earlier V3 browser evidence remains in `qa-v3/`. Current V4 browser capture is pending because this workspace did not expose its cloud browser; `design-qa.md` records that limitation rather than reusing stale screenshots as proof.

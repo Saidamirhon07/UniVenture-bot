@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
+  AlarmClock,
   ArrowRight,
   Award,
   BarChart3,
@@ -10,17 +11,19 @@ import {
   Clock3,
   FileCheck2,
   Fingerprint,
+  Flame,
   GraduationCap,
   MapPin,
   Mic2,
   MessageCircleMore,
   Sparkles,
   UsersRound,
+  X,
 } from "lucide-react";
 import { api } from "../api";
 import { opportunities, type Opportunity } from "../data/catalogs";
 import type { DashboardData, Navigate } from "../types";
-import { Card, ErrorBanner, LoadingScreen, Tag } from "../components/ui";
+import { Button, Card, ErrorBanner, LoadingScreen, Tag } from "../components/ui";
 
 function concise(text: string, max = 96) {
   const clean = String(text || "").replace(/\s+/g, " ").trim();
@@ -69,6 +72,19 @@ export default function HomeScreen({ navigate, reloadKey }: { navigate: Navigate
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState("");
   const [familyView, setFamilyView] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [reminderOpen, setReminderOpen] = useState(false);
+  const [reminderSaving, setReminderSaving] = useState(false);
+  const [reminderStatus, setReminderStatus] = useState("");
+
+  const loadDashboard = useCallback(async () => {
+    try {
+      const dashboard = await api.get<DashboardData>("/api/dashboard");
+      setData(dashboard); setError("");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not load your dashboard.");
+    }
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -99,14 +115,58 @@ export default function HomeScreen({ navigate, reloadKey }: { navigate: Navigate
   const greeting = currentHour < 12 ? "Good morning" : currentHour < 17 ? "Good afternoon" : "Good evening";
   const scoreLabel = (score: number) => score >= 75 ? "Strong" : score >= 50 ? "On track" : "Build next";
   const weakestDimension = [...dimensions].sort((a, b) => a.score - b.score)[0];
-  const priorityRoute = ({ essays: "essay", activities: "ec", academics: "prep", testing: "prep", schools: "school", recommendations: "recommendation", planning: "plan" } as const)[data.readiness.blocker.key] || "plan";
   const featuredOpportunity = opportunityForMajor(data.intended_major || "");
+  const currentData = data;
+
+  function startPriority() {
+    if (currentData.today_action.mode === "reminder") {
+      setReminderStatus("");
+      setReminderOpen(true);
+      return;
+    }
+    navigate(currentData.today_action.screen);
+  }
+
+  function openNotifications() {
+    setNotificationsOpen(true);
+    const unreadIds = currentData.notifications.filter((item) => item.unread).map((item) => item.id);
+    if (!unreadIds.length) return;
+    setData((current) => current ? {
+      ...current,
+      notifications: current.notifications.map((item) => ({ ...item, unread: false })),
+      unread_notifications: 0,
+    } : current);
+    void api.post("/api/notifications/read", { ids: unreadIds });
+  }
+
+  function reminderTime(hours: number, fixedHour?: number) {
+    const due = new Date();
+    if (fixedHour !== undefined) {
+      due.setDate(due.getDate() + hours);
+      due.setHours(fixedHour, 0, 0, 0);
+    } else {
+      due.setHours(due.getHours() + hours);
+    }
+    return due;
+  }
+
+  async function saveReminder(label: string, due: Date) {
+    setReminderSaving(true); setReminderStatus("");
+    try {
+      await api.post("/api/reminders", { title: currentData.today_priority.title, due_at: due.toISOString(), screen: currentData.today_action.screen });
+      setReminderStatus(`Saved for ${label}. It will appear in your bell updates.`);
+      window.Telegram?.WebApp.HapticFeedback?.notificationOccurred("success");
+      await loadDashboard();
+    } catch (caught) {
+      setReminderStatus(caught instanceof Error ? caught.message : "Could not save this reminder.");
+    } finally { setReminderSaving(false); }
+  }
 
   return (
     <div className="home-screen page-enter">
       <header className="atelier-brandbar">
         <div><strong>UniVentureAI</strong><span>Admissions strategy atelier</span></div>
-        <button aria-label="Open verified updates" title="Verified opportunities and deadlines" onClick={() => navigate("discover")}><Bell size={20} /><i /></button>
+        <button aria-label={`Open updates${data.unread_notifications ? `, ${data.unread_notifications} unread` : ""}`} title="Tasks, reminders and useful updates" onClick={openNotifications}><Bell size={20} />{data.unread_notifications ? <i /> : null}{data.unread_notifications > 1 ? <b>{Math.min(data.unread_notifications, 9)}</b> : null}</button>
       </header>
 
       <header className="home-header atelier-home-header">
@@ -137,7 +197,7 @@ export default function HomeScreen({ navigate, reloadKey }: { navigate: Navigate
             <div><h2>{data.today_priority.title}</h2><p>{concise(data.today_priority.why)}</p></div>
           </div>
           <span className="mission-time"><Clock3 size={16} />{data.today_priority.effort || "25 min"}</span>
-          <button onClick={() => navigate(priorityRoute)}>Start this move <ArrowRight size={19} /></button>
+          <button onClick={startPriority}>{data.today_action.label} <ArrowRight size={19} /></button>
         </div>
         <div className="next-move-art" aria-hidden="true"><img src="/assets/blue-doorway.png" alt="" /></div>
       </section>
@@ -175,13 +235,30 @@ export default function HomeScreen({ navigate, reloadKey }: { navigate: Navigate
       </section>
 
       <section className="agenda-section">
-        <div className="atelier-kicker">Today's agenda</div>
+        <div className="agenda-title-row"><div className="atelier-kicker">Today's agenda</div><span className={data.practice_streak.completed_today ? "home-streak done" : "home-streak"}><Flame size={14} />{data.practice_streak.current_streak} day streak</span></div>
         <div className="agenda-list">
-          <button onClick={() => navigate("plan")}><span><FileCheck2 size={19} /></span><div><strong>{data.today_priority.title}</strong><small>Top priority</small></div><em>{data.today_priority.effort || "20 min"}</em><ChevronRight size={18} /></button>
+          <button onClick={startPriority}><span><FileCheck2 size={19} /></span><div><strong>{data.today_priority.title}</strong><small>{data.today_action.mode === "reminder" ? "Tap to schedule" : "Top priority"}</small></div><em>{data.today_priority.effort || "20 min"}</em><ChevronRight size={18} /></button>
           <button onClick={() => navigate("coach")}><span><Sparkles size={19} /></span><div><strong>Ask your AI strategist</strong><small>Profile-aware guidance</small></div><em>10 min</em><ChevronRight size={18} /></button>
         </div>
       </section>
       <button className="home-feedback-link" onClick={() => navigate("feedback")}><MessageCircleMore size={16} />Feedback<ChevronRight size={16} /></button>
+
+      {notificationsOpen ? <div className="home-sheet-backdrop" onClick={() => setNotificationsOpen(false)}><section className="notification-center" aria-label="Updates and reminders" onClick={(event) => event.stopPropagation()}>
+        <header><div><span><Bell size={18} /></span><div><strong>Your signal desk</strong><small>Useful now—not noisy news.</small></div></div><button aria-label="Close updates" onClick={() => setNotificationsOpen(false)}><X size={18} /></button></header>
+        <div className="notification-list">{data.notifications.map((item) => <button key={item.id} onClick={() => { setNotificationsOpen(false); if (item.kind === "task" && data.today_action.mode === "reminder") startPriority(); else navigate(item.screen); }}><span className={`notification-icon notification-${item.kind}`}>{item.kind === "streak" ? <Flame size={18} /> : item.kind === "reminder" ? <AlarmClock size={18} /> : item.kind === "opportunity" ? <Award size={18} /> : <FileCheck2 size={18} />}</span><div><small>{item.kind}</small><strong>{item.title}</strong><p>{item.body}</p><em>{item.action_label}<ChevronRight size={13} /></em></div></button>)}</div>
+      </section></div> : null}
+
+      {reminderOpen ? <div className="home-sheet-backdrop" onClick={() => setReminderOpen(false)}><section className="reminder-sheet" aria-label="Plan this move" onClick={(event) => event.stopPropagation()}>
+        <header><span><AlarmClock size={20} /></span><div><small>Turn logistics into an action</small><strong>When should Venture remind you?</strong></div><button aria-label="Close reminder" onClick={() => setReminderOpen(false)}><X size={18} /></button></header>
+        <div className="reminder-task"><small>Your move</small><strong>{data.today_priority.title}</strong><p>{concise(data.today_priority.why, 150)}</p></div>
+        <div className="reminder-choices">
+          <button disabled={reminderSaving} onClick={() => void saveReminder("later today", reminderTime(3))}><strong>Later today</strong><small>In 3 hours</small></button>
+          <button disabled={reminderSaving} onClick={() => void saveReminder("tomorrow at 18:00", reminderTime(1, 18))}><strong>Tomorrow</strong><small>18:00</small></button>
+          <button disabled={reminderSaving} onClick={() => void saveReminder("in three days at 18:00", reminderTime(3, 18))}><strong>In 3 days</strong><small>18:00</small></button>
+        </div>
+        {reminderStatus ? <p className="reminder-status">{reminderStatus}</p> : null}
+        <Button variant="ghost" className="w-full reminder-secondary" onClick={() => navigate(data.today_action.screen)}>{data.today_action.secondary_label || "Open the related workspace"}<ArrowRight size={16} /></Button>
+      </section></div> : null}
     </div>
   );
 }

@@ -175,6 +175,20 @@ class PlanTaskStatusRequest(BaseModel):
     done: bool
 
 
+class PracticeCompletionRequest(BaseModel):
+    skill: Literal["sat", "ielts"]
+
+
+class ReminderCreateRequest(BaseModel):
+    title: str = Field(min_length=3, max_length=240)
+    due_at: str = Field(min_length=10, max_length=80)
+    screen: str | None = Field(default=None, max_length=80)
+
+
+class NotificationsReadRequest(BaseModel):
+    ids: list[str] = Field(default_factory=list, max_length=30)
+
+
 class CopilotMessage(BaseModel):
     role: Literal["user", "assistant"]
     content: str = Field(min_length=1, max_length=2_000)

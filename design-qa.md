@@ -1,76 +1,45 @@
-# UniVentureAI Premium V3 — Design QA
+# UniVentureAI Premium V4 — Design QA
 
 ## Evidence
 
-- Source visual truth: `/workspace/scratch/1c9e578a9128/upload/Screenshot 2026-08-07 at 4.01.16 PM.png`
-- App-surface normalization from the selected premium direction: `qa/source-normalized-390x844.png`
-- Browser-rendered implementation: `qa-v3/01-home-refined-390x844.png`
-- Full-page implementation: `qa-v3/01-home-refined-full.png`
-- Full-view combined comparison: `qa-v3/comparison-home-final.png`
-- Focused top-region comparison: `qa-v3/comparison-home-top-final.png`
-- Interaction report: `qa-v3/interaction-report.json`
-
-## Normalization and State
-
-- Attached source: 586 × 1206 px, including the surrounding Telegram/iOS frame and presentation caption.
-- Normalized app reference: 390 × 844 px.
-- Implementation: 390 × 844 px at a 390 × 844 CSS viewport and `deviceScaleFactor: 1`.
-- State: authenticated paid student, onboarding complete, populated Computer Science profile, Family view collapsed, light atelier theme.
-- The source and implementation intentionally contain different student data. Layout, hierarchy, visual language, and interaction structure are the fidelity targets; live scores and recommendations must remain profile-derived.
-- Additional responsive checks: 360 × 800 and 430 × 932. Both have zero horizontal overflow and visible persistent navigation.
+- Source visual truth: `/workspace/scratch/1c9e578a9128/upload/image(9).png`, `/workspace/scratch/1c9e578a9128/upload/image(10).png`, and `/workspace/scratch/1c9e578a9128/upload/telegram-cloud-photo-size-2-5454415897226321633-w.jpg`.
+- Prior V3 browser evidence: `qa-v3/01-home-refined-390x844.png` and `qa-v3/03-flight-plan-builder-viewport-390x844.png`.
+- Current V4 browser-rendered implementation screenshot: unavailable.
+- Intended viewport: 390 × 844 CSS px at device scale factor 1, plus 360 × 800 and 430 × 932 responsive checks.
+- State: authenticated paid student, populated profile, SAT-logistics next move, notification center, reminder sheet, Venture response, onboarding step, and Flight Plan intake.
 
 ## Findings
 
-No actionable P0, P1, or P2 findings remain.
+- [P2] Current visual comparison is unavailable.
+  - Location: V4 Home overlays, onboarding navigation, streak surfaces, Venture response card, and Flight Plan mobile form.
+  - Evidence: source screenshots are available, but this Work session did not expose a cloud browser or current implementation capture. Prior V3 screenshots do not contain the new states and cannot be reused as V4 proof.
+  - Impact: production build and code-level responsive safeguards pass, but exact WebKit rendering, focus caret visibility, and overlay spacing have not been compared from pixels.
+  - Fix: capture the six V4 states in Telegram/WebKit or an approved browser at 390 × 844, check console/network failures, and compare them with the attached references.
 
-- Fonts and typography: the editorial serif display type, compact sans-serif utility labels, uppercase tracked section headings, and navy hierarchy match the selected direction. The mission headline, readiness total, four dimension scores, and trajectory labels are larger than V2 as requested.
-- Spacing and layout rhythm: the doorway mission, Application Twin, trajectory, curated card, and agenda preserve the earlier command-center sequence. Supporting explanations are shorter, while card proportions, dividers, radii, and vertical rhythm remain stable at all three mobile sizes.
-- Colors and visual tokens: cream, deep navy, cobalt, teal, gold, coral, and violet retain the source roles and semantic meaning. Primary text and controls maintain readable contrast.
-- Image quality and asset fidelity: the existing cobalt doorway and Uzbek line motif are reused at their intended crops. No placeholder art, CSS illustration, or rasterized UI replacement is present.
-- Copy and content: repeated explanation was removed. Readiness remains clearly labeled as preparation strength rather than admission odds. The curated card now uses the student's intended major and opens an official opportunity source.
-- Icons and affordances: the five-tab navigation, mission CTA, score dimensions, Family toggle, trajectory, opportunity, agenda actions, and Venture copilot are all interactive. The floating copilot reserves space over agenda rows and does not hide their controls.
+## Required fidelity surfaces
 
-Residual P3 note: native Telegram/iOS status chrome is not part of the local browser surface. This is expected and does not affect the app-owned design.
+- Fonts and typography: unchanged premium Georgia/Inter-style hierarchy; current pixel verification blocked.
+- Spacing and layout rhythm: existing tokens retained; the iOS-sensitive deadline row now stacks below 430 px; current pixel verification blocked.
+- Colors and visual tokens: existing cream/navy/cobalt/teal/gold system retained; Venture caret explicitly uses teal `#0a8a7d`; current pixel verification blocked.
+- Image quality and asset fidelity: existing doorway and Uzbek motif assets are unchanged; no new raster assets were needed.
+- Copy and content: Venture uses plain student-facing content, dynamic action labels, short notification copy, and explicit reminder choices; current wrapping verification blocked.
 
-## Comparison History
+## Functional verification
 
-### Pass 1 — blocked
-
-- [P2] The Venture floating button overlapped the first agenda row's effort and chevron controls at 390 × 844.
-- [P3] The first generic STEM opportunity was relevant by category but not the strongest possible Computer Science match.
-
-Fixes made:
-
-- Reserved right-side space in Home agenda rows so the persistent copilot cannot cover controls.
-- Added major-specific opportunity matching before the category fallback; Computer Science now selects Imagine Cup Junior.
-
-Post-fix evidence:
-
-- `qa-v3/01-home-refined-390x844.png`
-- `qa-v3/comparison-home-final.png`
-
-### Pass 2 — passed
-
-- Combined reference/implementation comparisons show no remaining actionable P0/P1/P2 mismatch.
-- Primary interactions tested: five-tab navigation, Venture open/ask/close, Application Flight Plan, SAT answer feedback, IELTS answer feedback, profile-aware School Fit, Discover catalog, and Portfolio EC/award editors.
-- Data checks: 36 opportunities, 30 universities, 10 EC slots, 10 award slots, and 15 visible profile-fit schools in the populated QA state.
-- Browser console errors: none.
-- Failed network requests: none in the controlled QA harness.
-- Frontend production build: passed.
+- React/TypeScript production build: passed.
 - Python compilation: passed.
-- Backend unit tests: 6 passed.
+- Backend/product-flow unit tests: 10 passed.
+- Exact SAT-logistics classification: reminder mode with SAT Quest fallback.
+- `.gitignore` catalog regression: fixed by anchoring the runtime data exclusion to `/data/`.
 
-## Implementation Checklist
+## Implementation checklist
 
-- [x] Earlier premium command-center Home restored
-- [x] Shorter supporting copy and stronger key typography
-- [x] Data-driven mission, Application Twin, trajectory, and major-matched opportunity
-- [x] Rich profile intake and dependency-aware Application Flight Plan preserved
-- [x] Profile-gated Reach/Match/Lower-risk school map preserved
-- [x] 36-opportunity catalog and 30-university atlas preserved
-- [x] Profile-aware Venture copilot preserved without hiding controls
-- [x] Interactive SAT and four-skill IELTS experiences preserved
-- [x] 10 extracurricular and 10 award slots preserved
-- [x] Responsive, interaction, console, build, compilation, and unit-test checks passed
+- [x] Task-aware Home routing and reminder fallback
+- [x] Structured, readable Venture responses and visible teal caret
+- [x] Clear onboarding Next action
+- [x] Persistent SAT/IELTS streak
+- [x] Useful bell signal desk and saved read state
+- [x] iOS-safe Flight Plan deadline row
+- [ ] Browser-rendered V4 capture and visual comparison
 
-final result: passed
+final result: blocked

@@ -109,8 +109,8 @@ export default function ProfileSetupScreen({ name, onComplete }: ProfileSetupPro
 
         {error ? <ErrorBanner message={error} /> : null}
         <div className="setup-actions">
-          {step > 0 ? <Button variant="ghost" onClick={() => setStep((value) => value - 1)}><ArrowLeft size={17} />Back</Button> : <button className="setup-skip" disabled={loading} onClick={() => void skip()}>I’ll add this later</button>}
-          {step < steps.length - 1 ? <Button disabled={!canContinue} onClick={() => setStep((value) => value + 1)}>Continue<ArrowRight size={17} /></Button> : <Button loading={loading} disabled={!canContinue} onClick={() => void finish()}>Build my command center<ArrowRight size={17} /></Button>}
+          <div>{step > 0 ? <Button variant="ghost" onClick={() => setStep((value) => value - 1)}><ArrowLeft size={17} />Back</Button> : <button className="setup-skip" disabled={loading} onClick={() => void skip()}>I’ll add this later</button>}</div>
+          {step < steps.length - 1 ? <Button className="setup-next" disabled={!canContinue} onClick={() => setStep((value) => value + 1)}>Next<ArrowRight size={17} /></Button> : <Button className="setup-next" loading={loading} disabled={!canContinue} onClick={() => void finish()}>Build my hub<ArrowRight size={17} /></Button>}
         </div>
       </Card>
     </main>
