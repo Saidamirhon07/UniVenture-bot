@@ -78,7 +78,7 @@ export default function ApplicationPlanScreen({ navigate, onChanged }: { navigat
   }
 
   return <div className="page-enter space-y-3 flight-plan-screen">
-    <ScreenHeader eyebrow="Adaptive application system" title="Application Flight Plan" description="A living route built from your profile, real capacity, dependencies and deadlines." onBack={() => navigate("home")} />
+    <ScreenHeader eyebrow="Adaptive application system" title="Application Flight Plan" description="A living route built from your profile, real capacity, dependencies and deadlines." onBack={() => navigate("roadmap")} />
 
     {!result ? <>
       <Card className="flight-intro"><div className="flight-intro-icon"><Route size={23} /></div><div><Tag tone="cyan">Built around your life</Tag><h2>No generic monthly checklist.</h2><p>UniVentureAI sequences what unlocks the next task, then reshapes the week around exams, energy and available time.</p></div></Card>

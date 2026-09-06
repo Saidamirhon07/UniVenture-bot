@@ -216,7 +216,7 @@ export default function HomeScreen({ navigate, reloadKey }: { navigate: Navigate
 
       <section className="trajectory-section">
         <div className="atelier-kicker">Your trajectory</div>
-        <button className="trajectory-card" onClick={() => navigate("plan")}>
+        <button className="trajectory-card" onClick={() => navigate("roadmap")}>
           <span className="trajectory-line" />
           <span className="trajectory-step current"><i /><small>Now</small><strong>{data.trajectory?.now || `Strengthen ${data.readiness.blocker.label.toLowerCase()}`}</strong></span>
           <span className="trajectory-step"><i /><small>Next</small><strong>{data.trajectory?.next || "Secure proof & feedback"}</strong></span>

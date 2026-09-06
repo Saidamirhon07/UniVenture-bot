@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { BookOpenText, BriefcaseBusiness, Compass, Home, LayoutGrid, Search, Sparkles } from "lucide-react";
+import { Home, LayoutGrid, MapPinned, Search, Sparkles, UserRound } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { api } from "./api";
 import { Button, Card, ErrorBanner, Input, LoadingScreen, Tag } from "./components/ui";
@@ -13,19 +13,20 @@ import ProfileSetupScreen from "./screens/ProfileSetupScreen";
 import SchoolFinderScreen from "./screens/SchoolFinderScreen";
 import { BoostToolsScreen, ECBuilderScreen, IELTSWritingScreen, PortfolioBuilderScreen, RecommendationScreen } from "./screens/FocusedTools";
 import { AICoachScreen, DiscoverScreen, FeedbackScreen, PrepHubScreen, SATStudioScreen } from "./screens/GrowthScreens";
+import { RoadmapScreen, ToolsHubScreen } from "./screens/NavigationHubs";
 
-const primaryNav: Array<{ screen: ScreenId; label: string; icon: typeof Home }> = [
+const primaryNav: Array<{ screen: ScreenId; label: string; icon: typeof Home; featured?: boolean }> = [
   { screen: "home", label: "Today", icon: Home },
-  { screen: "coach", label: "Strategy", icon: Compass },
-  { screen: "prep", label: "Prep", icon: BookOpenText },
+  { screen: "roadmap", label: "Roadmap", icon: MapPinned },
+  { screen: "tools", label: "Tools", icon: LayoutGrid, featured: true },
   { screen: "discover", label: "Discover", icon: Search },
-  { screen: "portfolio", label: "Portfolio", icon: BriefcaseBusiness },
+  { screen: "portfolio", label: "Profile", icon: UserRound },
 ];
 
 function navScreen(screen: ScreenId): ScreenId {
-  if (["sat", "ielts"].includes(screen)) return "prep";
+  if (["sat", "ielts", "prep", "coach", "brainstorm", "rewrite", "essay", "ec", "recommendation", "portfolio-builder", "boost"].includes(screen)) return "tools";
   if (["school"].includes(screen)) return "discover";
-  if (["plan", "essay", "ec", "recommendation", "portfolio-builder", "boost"].includes(screen)) return "coach";
+  if (["plan"].includes(screen)) return "roadmap";
   return screen;
 }
 
@@ -95,9 +96,13 @@ export default function App() {
   const content = (() => {
     switch (screen) {
       case "home": return <HomeScreen navigate={navigate} reloadKey={reloadKey} />;
+      case "roadmap": return <RoadmapScreen navigate={navigate} reloadKey={reloadKey} />;
+      case "tools": return <ToolsHubScreen navigate={navigate} />;
       case "discover": return <DiscoverScreen navigate={navigate} />;
       case "prep": return <PrepHubScreen navigate={navigate} />;
       case "coach": return <AICoachScreen navigate={navigate} />;
+      case "brainstorm": return <AICoachScreen navigate={navigate} initialMode="brainstorm" />;
+      case "rewrite": return <AICoachScreen navigate={navigate} initialMode="rewrite" />;
       case "essay": return <EssayLabScreen navigate={navigate} onChanged={markChanged} />;
       case "school": return <SchoolFinderScreen navigate={navigate} onChanged={markChanged} />;
       case "plan": return <ApplicationPlanScreen navigate={navigate} onChanged={markChanged} />;
@@ -122,13 +127,13 @@ export default function App() {
         </AnimatePresence>
       </main>
       <nav className="bottom-nav" aria-label="Primary navigation">
-        {primaryNav.map(({ screen: target, label, icon: Icon }) => (
-          <button key={target} className={navScreen(screen) === target ? "active" : ""} onClick={() => navigate(target)}>
+        {primaryNav.map(({ screen: target, label, icon: Icon, featured }) => (
+          <button key={target} className={`${navScreen(screen) === target ? "active" : ""}${featured ? " nav-tools" : ""}`} onClick={() => navigate(target)}>
             <span><Icon size={20} /></span><small>{label}</small>
           </button>
         ))}
       </nav>
-      {(["home", "coach", "prep", "discover", "feedback"] as ScreenId[]).includes(screen) ? <ProfileCopilot screen={screen} /> : null}
+      {(["home", "roadmap", "tools", "discover", "feedback"] as ScreenId[]).includes(screen) ? <ProfileCopilot screen={screen} /> : null}
     </div>
   );
 }

@@ -1,4 +1,17 @@
-# UniVentureAI Mini App — Refined Product Upgrade
+# UniVentureAI Mini App — Premium V5 Navigation Upgrade
+
+## Find → act → progress
+
+- Global navigation is now organized around the student's five real jobs: **Today, Roadmap, Tools, Discover, and Profile**.
+- **Tools** is the elevated center action and opens a searchable, filterable directory of 12 focused workspaces.
+- Essay Evaluation, Brainstorm, and Rewrite are visible as distinct key actions; Brainstorm and Rewrite open in the correct mode immediately.
+- The tool directory supports plain-language search and goal categories: Writing, Tests, Profile, and Strategy.
+- A profile-aware shortcut surfaces the student's current recommended move above the directory.
+- The new **Admission Roadmap** turns live preparation data into five chapters with Strong, Now, and Ahead states.
+- Momentum XP is calculated from real profile completion, readiness, and completed SAT/IELTS sessions. It is explicitly separated from admission odds.
+- The Roadmap includes a daily quest, streak, level progress, chapter map, weekly questline, and direct Flight Plan entry.
+- Specialist-screen back actions return to their true parent hub, while active bottom-navigation states remain consistent.
+- No new database, Railway variable, payment change, or memory migration is required.
 
 ## Premium V4 reliability and engagement pass
 
@@ -22,7 +35,7 @@
 - The full-review persistence bug is fixed. Additive Mini App memory is preserved when the legacy chatbot reloads or later saves a cached user record.
 - The Portfolio editor is rendered outside the animated page stack, and its coral Save Section action is pinned above the device safe area and global navigation.
 - First launch asks every student to type the name UniVentureAI should use. Telegram still provides secure identity, but not the displayed name.
-- Global navigation is now Home, Discover, Prep, AI Coach, and Portfolio. Portfolio is the rightmost item.
+- Global navigation now prioritizes Today, a gamified Roadmap, the central Tools directory, Discover, and Profile.
 - Discover is visible to all authenticated students, including expired users. It includes 36 filterable opportunities and visual deadline cards that link to official sources.
 - AI Coach restores the chatbot-style Brainstorm Ideas and Rewrite My Text workflows using shared memory and topic-specific RAG.
 - The richer command-center Home remains the primary direction. It keeps one next move, Application Twin, trajectory, one curated signal, and a compact two-action agenda without the explanatory copy that previously made the page feel crowded.
@@ -51,4 +64,4 @@ No data migration or new environment variable is required.
 - Python compilation completed successfully.
 - All 10 backend/product-flow unit tests passed.
 - The React/TypeScript production build completed successfully.
-- The earlier V3 browser evidence remains in `qa-v3/`. Current V4 browser capture is pending because this workspace did not expose its cloud browser; `design-qa.md` records that limitation rather than reusing stale screenshots as proof.
+- The earlier V3 browser evidence remains in `qa-v3/`. Current V5 browser capture is pending because this workspace did not expose its cloud browser; `design-qa.md` records that limitation rather than reusing stale screenshots as proof.

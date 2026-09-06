@@ -1095,3 +1095,174 @@ p { color: #637086; }
   body { background: #e9e2d9; }
   .app-shell { box-shadow: 0 0 80px rgba(40, 45, 59, .16); }
 }
+
+/* V5 navigation, tool directory and admission journey */
+.theme-roadmap { --journey: #0a8a7d; --journey-soft: #e4f5f1; }
+.theme-tools { --journey: #7445a5; --journey-soft: #f0e8f8; }
+.app-content { padding-bottom: calc(112px + env(safe-area-inset-bottom)); }
+.bottom-nav { min-height: 70px; overflow: visible; padding-top: 8px; }
+.bottom-nav button { min-width: 0; min-height: 47px; }
+.bottom-nav button span { transition: transform .18s ease, background .18s ease, color .18s ease; }
+.bottom-nav button:active span { transform: scale(.94); }
+.bottom-nav .nav-tools { position: relative; }
+.bottom-nav .nav-tools span {
+  width: 54px;
+  height: 54px;
+  margin-top: -27px;
+  color: #fff;
+  border: 5px solid #fbf7f1;
+  border-radius: 19px;
+  background: #7445a5;
+  box-shadow: 0 9px 23px rgba(71, 42, 105, .24);
+}
+.bottom-nav .nav-tools small { margin-top: -1px; color: #5f536d; font-weight: 800; }
+.bottom-nav .nav-tools.active span { color: #fff; background: #5f328e; box-shadow: 0 10px 25px rgba(71, 42, 105, .31); }
+.bottom-nav .nav-tools.active small { color: #7445a5; }
+.copilot-fab { bottom: calc(86px + env(safe-area-inset-bottom)); }
+.copilot-panel { bottom: calc(82px + env(safe-area-inset-bottom)); }
+
+.hub-header, .roadmap-header { position: relative; z-index: 1; display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin: 1px 2px 18px; }
+.hub-header > div, .roadmap-header > div { min-width: 0; }
+.hub-header > div > span, .roadmap-header > div > span { display: block; margin-bottom: 5px; color: var(--journey); font-size: .59rem; font-weight: 820; letter-spacing: .13em; text-transform: uppercase; }
+.hub-header h1, .roadmap-header h1 { margin: 0 0 5px; font-size: clamp(2.25rem, 11vw, 3.25rem); line-height: .98; }
+.hub-header p, .roadmap-header p { margin: 0; font-size: .72rem; }
+.hub-count { flex: 0 0 64px; min-height: 64px; display: grid; place-content: center; justify-items: center; gap: 1px; color: #7445a5; border: 1px solid #dfd2e9; border-radius: 20px; background: #f4edf9; }
+.hub-count strong { font-family: Georgia, "Times New Roman", serif; font-size: 1.55rem; font-weight: 500; line-height: 1; }
+.hub-count small { color: #75687d; font-size: .47rem; }
+
+.tool-search { position: relative; display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 9px; min-height: 49px; padding: 0 13px; border: 1px solid #ddd1e4; border-radius: 15px; background: #fffdf9; box-shadow: 0 8px 24px rgba(37, 31, 48, .05); }
+.tool-search > svg { color: #7445a5; }
+.tool-search input { min-width: 0; color: #10294b; border: 0; outline: 0; background: transparent; font-size: .77rem; }
+.tool-search input::placeholder { color: #97929d; }
+.tool-search button { width: 28px; height: 28px; display: grid; place-items: center; color: #736a79; border: 0; border-radius: 9px; background: #eee7f2; font-size: 1.2rem; line-height: 1; }
+.tool-search:focus-within { border-color: #7445a5; box-shadow: 0 0 0 3px #f0e8f8; }
+
+.smart-shortcut { width: 100%; display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 10px; margin-top: 10px; padding: 10px 12px; color: #10294b; text-align: left; border: 1px solid #d7e7e1; border-radius: 14px; background: #edf7f3; }
+.smart-shortcut > span { width: 34px; height: 34px; display: grid; place-items: center; color: #fff; border-radius: 11px; background: #0a8a7d; }
+.smart-shortcut > div { min-width: 0; display: grid; gap: 2px; }
+.smart-shortcut small { color: #0a7b70; font-size: .5rem; font-weight: 820; letter-spacing: .07em; text-transform: uppercase; }
+.smart-shortcut strong { overflow: hidden; color: #1b3f3c; text-overflow: ellipsis; white-space: nowrap; font-size: .67rem; }
+.smart-shortcut > svg { color: #0a8a7d; }
+
+.key-tools-section, .browse-tools, .journey-map-section, .weekly-questline { margin-top: 22px; }
+.hub-section-title { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin: 0 2px 10px; }
+.hub-section-title > div > span { display: block; margin-bottom: 3px; color: var(--journey); font-size: .51rem; font-weight: 820; letter-spacing: .11em; text-transform: uppercase; }
+.hub-section-title h2 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: 1.12rem; font-weight: 500; }
+.hub-section-title > small { color: #7a7e88; font-size: .52rem; }
+.key-tools-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.key-tool { min-height: 126px; display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto 1fr; gap: 7px; padding: 12px; color: #10294b; text-align: left; border: 1px solid #e3d8cb; border-radius: 17px; background: #fffdf9; }
+.key-tool:first-child { grid-column: 1 / -1; min-height: 92px; grid-template-columns: auto minmax(0,1fr) auto; grid-template-rows: 1fr; align-items: center; }
+.key-tool-icon { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 12px; }
+.key-tool-copy { min-width: 0; display: grid; align-content: start; gap: 4px; }
+.key-tool-copy em { width: fit-content; padding: 3px 6px; color: #fff; border-radius: 99px; background: #0b55d9; font-size: .44rem; font-style: normal; font-weight: 820; letter-spacing: .05em; text-transform: uppercase; }
+.key-tool-copy strong { font-family: Georgia, "Times New Roman", serif; font-size: .93rem; font-weight: 500; }
+.key-tool:first-child .key-tool-copy strong { font-size: 1.05rem; }
+.key-tool-copy small { display: -webkit-box; overflow: hidden; color: #6d7480; font-size: .56rem; line-height: 1.38; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.key-tool:first-child .key-tool-copy small { -webkit-line-clamp: 2; }
+.key-tool > svg { align-self: center; color: #7e7784; }
+.key-tool-blue .key-tool-icon { color: #0b55d9; background: #e9f0ff; }
+.key-tool-violet .key-tool-icon { color: #7445a5; background: #f0e8f8; }
+.key-tool-teal .key-tool-icon { color: #0a8a7d; background: #e4f5f1; }
+.key-tool-amber .key-tool-icon { color: #bd7800; background: #fff0d0; }
+.key-tool-coral .key-tool-icon { color: #bf4e2c; background: #fae9e2; }
+
+.tool-categories { display: flex; gap: 7px; overflow-x: auto; margin-bottom: 10px; padding: 2px 1px 4px; scrollbar-width: none; }
+.tool-categories::-webkit-scrollbar { display: none; }
+.tool-categories button { flex: 0 0 auto; min-height: 34px; display: flex; align-items: center; gap: 5px; padding: 7px 10px; color: #697182; border: 1px solid #e1d7ca; border-radius: 11px; background: #fffdf9; font-size: .58rem; font-weight: 720; }
+.tool-categories button.active { color: #fff; border-color: #7445a5; background: #7445a5; }
+.tool-directory { overflow: hidden; border: 1px solid #e4d9cc; border-radius: 17px; background: #fffdf9; }
+.tool-directory-item { width: 100%; min-height: 77px; display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 10px; padding: 10px 12px; color: #10294b; text-align: left; border: 0; border-bottom: 1px solid #eee6dc; background: transparent; }
+.tool-directory-item:last-child { border-bottom: 0; }
+.directory-icon { width: 39px; height: 39px; display: grid; place-items: center; border-radius: 12px; }
+.directory-blue { color: #0b55d9; background: #e9f0ff; }
+.directory-violet { color: #7445a5; background: #f0e8f8; }
+.directory-teal { color: #0a8a7d; background: #e4f5f1; }
+.directory-amber { color: #bd7800; background: #fff0d0; }
+.directory-coral { color: #bf4e2c; background: #fae9e2; }
+.tool-directory-item > span:nth-child(2) { min-width: 0; display: grid; gap: 2px; }
+.tool-directory-item small { color: #84798b; font-size: .46rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.tool-directory-item strong { font-size: .7rem; }
+.tool-directory-item p { overflow: hidden; margin: 0; color: #707784; text-overflow: ellipsis; white-space: nowrap; font-size: .54rem; }
+.tool-directory-item > svg { color: #7b7d83; }
+.tool-empty { display: grid; justify-items: center; gap: 6px; padding: 30px 20px; text-align: center; border: 1px dashed #d9cde1; border-radius: 17px; background: #fffdf9; }
+.tool-empty svg { color: #7445a5; }
+.tool-empty strong { font-size: .76rem; }
+.tool-empty p { margin: 0; font-size: .63rem; }
+
+.roadmap-level { flex: 0 0 62px; min-height: 70px; display: grid; grid-template-columns: auto auto; place-content: center; align-items: center; gap: 1px 4px; color: #fff; border-radius: 20px; background: #0a8a7d; box-shadow: 0 9px 23px rgba(10, 115, 105, .2); }
+.roadmap-level svg { grid-row: 1 / 3; }
+.roadmap-level small { font-size: .48rem; text-transform: uppercase; }
+.roadmap-level strong { font-family: Georgia, "Times New Roman", serif; font-size: 1.35rem; font-weight: 500; line-height: 1; }
+.momentum-card { padding: 14px; color: #fff; border-radius: 18px; background: #173954; box-shadow: 0 12px 28px rgba(16, 41, 67, .13); }
+.momentum-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.momentum-top > div:first-child { display: grid; gap: 2px; }
+.momentum-top > div:first-child span { color: #b7cbd6; font-size: .52rem; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
+.momentum-top > div:first-child strong { font-family: Georgia, "Times New Roman", serif; font-size: 1.32rem; font-weight: 500; }
+.streak-pill { display: grid; grid-template-columns: auto auto; align-items: center; gap: 0 5px; padding: 7px 10px; color: #ffcc79; border-radius: 12px; background: #29485f; }
+.streak-pill svg { grid-row: 1 / 3; }
+.streak-pill strong { font-size: .8rem; }
+.streak-pill span { color: #c7d6df; font-size: .46rem; }
+.streak-pill.complete { color: #88ebbb; }
+.xp-track { height: 6px; overflow: hidden; margin-top: 13px; border-radius: 99px; background: #355369; }
+.xp-track i { display: block; height: 100%; border-radius: inherit; background: #6ee0d0; }
+.xp-caption { display: flex; justify-content: space-between; gap: 10px; margin-top: 6px; color: #bdccd5; font-size: .49rem; }
+
+.daily-quest-card { margin-top: 10px; padding: 14px; border: 1px solid #ead7b7; border-radius: 18px; background: #fffaf0; }
+.daily-quest-top { display: flex; align-items: center; gap: 8px; }
+.daily-quest-top > span { width: 34px; height: 34px; display: grid; place-items: center; color: #fff; border-radius: 11px; background: #bd7800; }
+.daily-quest-top > div { flex: 1; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.daily-quest-top small { color: #a66b05; font-size: .52rem; font-weight: 820; letter-spacing: .08em; text-transform: uppercase; }
+.daily-quest-card h2 { margin: 11px 0 5px; font-size: 1.05rem; }
+.daily-quest-card p { display: -webkit-box; overflow: hidden; margin: 0 0 11px; font-size: .62rem; line-height: 1.45; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.daily-quest-card > button { min-height: 39px; display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; color: #fff; border: 0; border-radius: 11px; background: #bd7800; font-size: .69rem; font-weight: 780; }
+
+.journey-map { position: relative; display: grid; gap: 8px; }
+.journey-map::before { content: ""; position: absolute; top: 23px; bottom: 23px; left: 18px; width: 2px; background: #ddd8d0; }
+.journey-node { position: relative; z-index: 1; width: 100%; min-height: 82px; display: grid; grid-template-columns: 36px 40px minmax(0,1fr) auto; align-items: center; gap: 9px; padding: 10px 11px 10px 0; color: #10294b; text-align: left; border: 1px solid #e4d9cc; border-radius: 17px; background: #fffdf9; }
+.journey-node.current { border-color: #9dcfc6; box-shadow: 0 8px 24px rgba(11, 111, 99, .08); }
+.journey-node.future { opacity: .78; }
+.journey-rail { width: 36px; display: grid; place-items: center; color: #8b8c90; }
+.journey-node.complete .journey-rail { color: #0a8a7d; }
+.journey-node.current .journey-rail { color: #bd7800; }
+.journey-node-icon { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 13px; }
+.journey-blue .journey-node-icon { color: #0b55d9; background: #e9f0ff; }
+.journey-violet .journey-node-icon { color: #7445a5; background: #f0e8f8; }
+.journey-teal .journey-node-icon { color: #0a8a7d; background: #e4f5f1; }
+.journey-amber .journey-node-icon { color: #bd7800; background: #fff0d0; }
+.journey-coral .journey-node-icon { color: #bf4e2c; background: #fae9e2; }
+.journey-node-copy { min-width: 0; display: grid; gap: 2px; }
+.journey-node-copy > small { color: #0a8a7d; font-size: .46rem; font-weight: 820; letter-spacing: .07em; text-transform: uppercase; }
+.journey-node-copy > strong { font-size: .7rem; }
+.journey-node-copy p { overflow: hidden; margin: 0; color: #747982; text-overflow: ellipsis; white-space: nowrap; font-size: .52rem; }
+.journey-node-copy i { height: 4px; overflow: hidden; margin-top: 4px; border-radius: 99px; background: #ece7df; }
+.journey-node-copy i span { display: block; height: 100%; border-radius: inherit; background: #0a8a7d; }
+.journey-score { color: #344b65; font-family: Georgia, "Times New Roman", serif; font-size: 1rem; }
+.journey-score small { color: #7a818b; font-family: Inter, sans-serif; font-size: .45rem; }
+
+.weekly-questline > div:last-child { overflow: hidden; border: 1px solid #e4d9cc; border-radius: 17px; background: #fffdf9; }
+.weekly-questline > div:last-child > button { width: 100%; min-height: 62px; display: grid; grid-template-columns: auto minmax(0,1fr) auto auto; align-items: center; gap: 9px; padding: 9px 11px; color: #10294b; text-align: left; border: 0; border-bottom: 1px solid #eee6dc; background: transparent; }
+.weekly-questline > div:last-child > button:last-child { border-bottom: 0; }
+.weekly-questline button > span { width: 29px; height: 29px; display: grid; place-items: center; color: #0a8a7d; border-radius: 10px; background: #e4f5f1; font-size: .63rem; font-weight: 820; }
+.weekly-questline button > div { min-width: 0; display: grid; gap: 2px; }
+.weekly-questline button small { color: #7c828b; font-size: .48rem; }
+.weekly-questline button strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .64rem; }
+.weekly-questline button em { color: #bd7800; font-size: .5rem; font-style: normal; font-weight: 820; }
+.weekly-questline button > svg { color: #7a7d83; }
+.roadmap-plan-button { width: 100%; display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 10px; margin-top: 13px; padding: 11px 12px; color: #10294b; text-align: left; border: 1px solid #d7e7e1; border-radius: 15px; background: #edf7f3; }
+.roadmap-plan-button > span { width: 37px; height: 37px; display: grid; place-items: center; color: #fff; border-radius: 12px; background: #0a8a7d; }
+.roadmap-plan-button > div { display: grid; gap: 2px; }
+.roadmap-plan-button small { color: #58736f; font-size: .49rem; }
+.roadmap-plan-button strong { color: #1d514a; font-size: .66rem; }
+.roadmap-plan-button > svg { color: #0a8a7d; }
+.xp-note { display: flex; align-items: flex-start; justify-content: center; gap: 6px; margin: 11px 8px 0; text-align: center; font-size: .5rem; line-height: 1.4; }
+.xp-note svg { flex: 0 0 auto; color: #0a8a7d; }
+
+@media (max-width: 380px) {
+  .hub-header h1, .roadmap-header h1 { font-size: 2.05rem; }
+  .hub-count { flex-basis: 58px; min-height: 58px; }
+  .key-tool { min-height: 120px; }
+  .journey-node { grid-template-columns: 32px 36px minmax(0,1fr) auto; gap: 7px; }
+  .journey-rail { width: 32px; }
+  .journey-node-icon { width: 36px; height: 36px; }
+  .journey-node-copy p { display: none; }
+}

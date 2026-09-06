@@ -1,8 +1,12 @@
 export type ScreenId =
   | "home"
+  | "roadmap"
+  | "tools"
   | "discover"
   | "prep"
   | "coach"
+  | "brainstorm"
+  | "rewrite"
   | "essay"
   | "school"
   | "plan"
