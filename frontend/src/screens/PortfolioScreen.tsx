@@ -121,7 +121,7 @@ export default function PortfolioScreen({ navigate, onChanged }: { navigate: Nav
   if (!portfolio && !error) return <LoadingScreen label="Opening your application portfolio…" />;
 
   return <div className="page-enter space-y-3">
-    <ScreenHeader eyebrow="Your living application record" title="My Portfolio" description="Edit once. Every AI tool uses this same saved memory." onBack={() => navigate("home")} />
+    <ScreenHeader eyebrow="Your saved details" title="Profile" description="Update once. Every tool uses it." onBack={() => navigate("home")} />
     {error && !editing ? <ErrorBanner message={error} /> : null}
     {portfolio && readiness ? <>
       <Card className="portfolio-score"><ProgressRing value={readiness.score} size={102} /><div><Tag tone="cyan">{completed}/{sections.length} sections active</Tag><h2>{readiness.blocker.label} needs attention</h2><p>{readiness.blocker.message} This measures preparation—not admission probability.</p></div></Card>

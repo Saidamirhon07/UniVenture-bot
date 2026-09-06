@@ -1,4 +1,18 @@
-# UniVentureAI Mini App — Premium V5 Navigation Upgrade
+# UniVentureAI Mini App — Premium V6 Simple Frontend
+
+## Clarity pass
+
+- Home now contains only the student's current task, four quick tools, one compact progress card, and one All Tools action.
+- The navigation uses the shortest clear labels: **Home, Plan, Tools, Explore, Profile**.
+- Tools displays all 12 workspaces by default in four plain-language groups. No category filter hides available features.
+- **EC Evaluation** and **Recommendation Letters** are explicitly visible alongside Essay Review, Brainstorm, Rewrite, SAT, IELTS, School Finder, Portfolio Review, Profile & Awards, Application Plan, and Quick Checks.
+- Search remains available as an optional shortcut and recognizes student language such as “essay”, “EC”, “letters”, “SAT”, and “plan”.
+- Plan preserves the gamified progress loop while reducing it to readiness, XP, streak, today's mission, five steps, and two weekly tasks.
+- Top-level and specialist screen titles use shorter names and supporting text.
+- The existing premium cream, navy, cobalt, teal, gold, coral, and violet visual language remains intact.
+- Telegram authentication, paid access, shared memory, reminders, notifications, streaks, and Railway storage are unchanged.
+
+## Premium V5 navigation upgrade
 
 ## Find → act → progress
 

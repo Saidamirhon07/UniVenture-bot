@@ -28,7 +28,7 @@ export function ECBuilderScreen({ navigate, onChanged }: { navigate: Navigate; o
   }
   return (
     <div className="page-enter space-y-3">
-      <ScreenHeader eyebrow="Impact, not adjectives" title="EC Builder" description="Find the leadership signal, proof gap and strongest truthful Common App rewrite." onBack={() => navigate("tools")} />
+      <ScreenHeader eyebrow="Activities" title="EC Evaluation" description="Show your impact clearly." onBack={() => navigate("tools")} />
       <Card>
         <div className="metric-ribbon"><span><Activity size={17} />Leadership</span><span><BarChart3 size={17} />Impact</span><span><Sparkles size={17} />Uniqueness</span></div>
         <Input label="Your role" placeholder="Founder, team lead, volunteer…" value={role} onChange={(e) => setRole(e.target.value)} />
@@ -83,7 +83,7 @@ export function IELTSWritingScreen({ navigate, onChanged }: { navigate: Navigate
   }
   return (
     <div className="page-enter space-y-3">
-      <ScreenHeader eyebrow="IELTS examiner lens" title="IELTS 4-Skill Lab" description="One connected workspace for Writing, Speaking, Reading and Listening." onBack={() => navigate("tools")} />
+      <ScreenHeader eyebrow="Test prep" title="IELTS Practice" description="Practice all four skills." onBack={() => navigate("tools")} />
       <PracticeStreakCard streak={streak} compact />
       <div className="ielts-skill-map">
         {[{ key: "writing", label: "Writing", icon: PenTool }, { key: "speaking", label: "Speaking", icon: Mic2 }, { key: "reading", label: "Reading", icon: BookOpenCheck }, { key: "listening", label: "Listening", icon: Headphones }].map(({ key, label, icon: Icon }) => <button className={skill === key ? "active" : ""} key={key} onClick={() => { setSkill(key as IELTSSkill); state.setResult(null); }}><Icon size={19} /><span>{label}</span></button>)}
@@ -122,7 +122,7 @@ export function RecommendationScreen({ navigate, onChanged }: { navigate: Naviga
   }
   return (
     <div className="page-enter space-y-3">
-      <ScreenHeader eyebrow="Credible advocacy" title="Recommendation Center" description="Help a teacher tell specific, evidence-rich stories—without ghostwriting fake praise." onBack={() => navigate("tools")} />
+      <ScreenHeader eyebrow="Your supporters" title="Recommendation Letters" description="Plan stronger, specific letters." onBack={() => navigate("tools")} />
       <Card>
         <Segmented value={mode} onChange={setMode} options={[{ value: "brag_sheet", label: "Brag sheet" }, { value: "evaluate", label: "Evaluate" }, { value: "teacher_packet", label: "Teacher packet" }]} />
         <Input label="Teacher / subject" placeholder="e.g. Ms. Lee — AP Physics" value={subject} onChange={(e) => setSubject(e.target.value)} />
@@ -150,7 +150,7 @@ export function PortfolioBuilderScreen({ navigate, onChanged }: { navigate: Navi
   }
   return (
     <div className="page-enter space-y-3">
-      <ScreenHeader eyebrow="Proof of future promise" title="Portfolio Builder" description="For CS, design, art, business and research portfolios—not just pretty project lists." onBack={() => navigate("tools")} />
+      <ScreenHeader eyebrow="Projects" title="Portfolio Review" description="Find the proof your portfolio is missing." onBack={() => navigate("tools")} />
       <Card>
         <div className="form-grid two">
           <Select label="Portfolio field" value={field} onChange={(e) => setField(e.target.value)}><option>Computer Science</option><option>Design</option><option>Art</option><option>Business</option><option>Research</option><option>Engineering</option><option>Architecture</option><option>Other</option></Select>
@@ -186,7 +186,7 @@ export function BoostToolsScreen({ navigate }: { navigate: Navigate }) {
   }
   return (
     <div className="page-enter space-y-3">
-      <ScreenHeader eyebrow="Small tools, high leverage" title="Boost Tools" description="Quick strategic checks that stay grounded in evidence and your saved portfolio." onBack={() => navigate("tools")} />
+      <ScreenHeader eyebrow="Fast help" title="Quick Checks" description="Readiness, wording and profile checks." onBack={() => navigate("tools")} />
       <div className="boost-picker">{tools.map(({ key, label, icon: Icon }) => <button key={key} className={tool === key ? "active" : ""} onClick={() => { setTool(key); state.setResult(null); }}><Icon size={18} /><span>{label}</span></button>)}</div>
       <Card>
         <Tag tone="cyan">{tools.find((item) => item.key === tool)?.label}</Tag>

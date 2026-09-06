@@ -2,7 +2,7 @@
 
 A production-oriented Telegram Mini App added **beside** the existing UniVentureAI chatbot. The chatbot keeps all commands and handlers. FastAPI starts that same Telegram application, exposes secure Mini App APIs, serves the React build, and reads/writes the same paid-user file, user-memory directory, ChromaDB collections, and OpenAI models.
 
-Premium V5 combines the refined command center with a searchable 12-tool directory, a gamified Admission Roadmap, guided profile intake, profile-aware Venture copilot, capacity/dependency-aware Flight Plan, 36-opportunity catalog, 30-university fit atlas, profile-gated Reach/Match/Lower-risk grouping, interactive SAT/IELTS quests, daily streaks, task-aware routing, reminders, and a useful notification desk.
+Premium V6 combines a simplified Home, an always-visible 12-tool directory, a compact gamified Plan, guided profile intake, profile-aware Venture copilot, capacity/dependency-aware application planning, 36 opportunities, 30-university fit research, interactive SAT/IELTS practice, daily streaks, task-aware routing, reminders, and useful notifications.
 
 ## 1. Architecture
 
@@ -91,7 +91,7 @@ univenture_admissions_hub/
 
 All AI evaluation types have distinct compact schemas. Full reviews are not generated—and therefore do not consume full-review tokens—until the student taps the button. Saved Mini App evaluation IDs are preserved across memory reloads so that the full-review button remains valid.
 
-The bottom navigation contains the five student-level spaces: Today, Roadmap, Tools, Discover, and Profile. Tools is the elevated center action. Its searchable directory gives Essay Evaluation, Brainstorm, Rewrite, SAT, IELTS, School Fit, Flight Plan, EC, recommendation, portfolio, profile, and boost features clear individual entry points.
+The bottom navigation contains five short, familiar spaces: Home, Plan, Tools, Explore, and Profile. Tools remains the elevated center action and shows all 12 workspaces by default, including explicit EC Evaluation and Recommendation Letters entries.
 
 ## 4. Run locally
 

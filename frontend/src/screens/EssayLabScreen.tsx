@@ -38,7 +38,7 @@ export default function EssayLabScreen({ navigate, onChanged }: { navigate: Navi
 
   return (
     <div className="page-enter space-y-3">
-      <ScreenHeader eyebrow="Your writing studio" title="Essay Lab" description="Short diagnosis first. Deeper review only when you ask for it." onBack={() => navigate("tools")} />
+      <ScreenHeader eyebrow="Writing" title="Essay Review" description="Paste a draft. Get clear feedback." onBack={() => navigate("tools")} />
 
       <Card>
         <Segmented value={essayType} onChange={(value) => { setEssayType(value); setResponse(null); }} options={[

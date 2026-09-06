@@ -16,10 +16,10 @@ import { AICoachScreen, DiscoverScreen, FeedbackScreen, PrepHubScreen, SATStudio
 import { RoadmapScreen, ToolsHubScreen } from "./screens/NavigationHubs";
 
 const primaryNav: Array<{ screen: ScreenId; label: string; icon: typeof Home; featured?: boolean }> = [
-  { screen: "home", label: "Today", icon: Home },
-  { screen: "roadmap", label: "Roadmap", icon: MapPinned },
+  { screen: "home", label: "Home", icon: Home },
+  { screen: "roadmap", label: "Plan", icon: MapPinned },
   { screen: "tools", label: "Tools", icon: LayoutGrid, featured: true },
-  { screen: "discover", label: "Discover", icon: Search },
+  { screen: "discover", label: "Explore", icon: Search },
   { screen: "portfolio", label: "Profile", icon: UserRound },
 ];
 

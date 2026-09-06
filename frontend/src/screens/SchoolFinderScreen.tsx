@@ -116,7 +116,7 @@ export default function SchoolFinderScreen({ navigate, onChanged }: { navigate: 
 
   if (profileLoading) return <LoadingScreen label="Building your university fit map…" />;
   return <div className="page-enter space-y-3 school-fit-screen">
-    <ScreenHeader eyebrow="30-university research atlas" title="School Fit Map" description="Profile-aware reach, match and lower-risk research—without fake acceptance odds." onBack={() => navigate("discover")} />
+    <ScreenHeader eyebrow="University search" title="School Finder" description="Build a realistic school list." onBack={() => navigate("discover")} />
     <Segmented value={mode} onChange={setMode} options={[{ value: "fit", label: "My fit map" }, { value: "custom", label: "AI search" }, { value: "atlas", label: "Atlas" }]} />
     {error ? <ErrorBanner message={error} /> : null}
 
