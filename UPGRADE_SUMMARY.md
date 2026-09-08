@@ -1,4 +1,19 @@
-# UniVentureAI Mini App — Premium V6 Simple Frontend
+# UniVentureAI Mini App — Premium V8 Practice Studios
+
+## V8: creative Home + meaningful practice
+
+- Stronger navy mission hero, live progress, dedicated SAT/IELTS cards, six visible application tools, a compact path and opportunity entry point.
+- 24 original SAT questions, 12 original IELTS reading/listening questions, five writing prompts and three speaking cue cards.
+- Learning, timed and mistake-review modes; skill focus; question navigation; flags; explanations and saved session history.
+- Server grading, duplicate-save protection within the retained 60-session history, and per-question practice records. Missed questions are immediately reviewable; successful questions become due in three days.
+- IELTS writing workspace: Task 1/2 prompts, timers, word count, saved drafts, self-review checklist and existing AI evaluation.
+- IELTS speaking: preparation/response timers, optional local microphone recording, playback/download, saved transcript and text-only feedback.
+- Account-persistent drafts, daily practice records, and guards against accidental navigation away from unsaved work.
+- File import errors are visible across the application; enlarged tool labels, selected-state semantics and reduced-motion styles.
+- Existing Railway, Telegram, billing and profile systems remain. New practice fields are additive.
+- Production frontend build, 21 Python unit tests, eight JavaScript checks and Python compilation pass. Six API integration tests need the full runtime; browser checks require the included Mac runner. Neither is claimed as passed here.
+
+## Historical V6 changes
 
 ## Clarity pass
 

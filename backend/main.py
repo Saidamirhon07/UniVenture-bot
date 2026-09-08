@@ -23,6 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from pdfminer.high_level import extract_text as extract_pdf_text
 
 from . import legacy
+from .practice import BANK as PRACTICE_BANK, record_session
 from .auth import (
     AuthError,
     TelegramIdentity,
@@ -62,6 +63,8 @@ from .schemas import (
     PlanTaskStatusRequest,
     PortfolioEvaluationRequest,
     PracticeCompletionRequest,
+    PracticeSessionRequest,
+    PracticeDraftRequest,
     ProfileUpdateRequest,
     RecommendationRequest,
     ReminderCreateRequest,
@@ -825,6 +828,39 @@ async def application_plan_task_status(payload: PlanTaskStatusRequest, identity:
     _save_memory(identity.user_id, memory)
     done_count = sum(1 for value in completion.values() if value)
     return {"saved": True, "task_key": payload.task_key, "done": payload.done, "done_count": done_count}
+
+
+@app.get("/api/practice/library")
+async def practice_library(identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
+    memory = legacy.load_memory(identity.user_id)
+    _, miniapp = _ensure_memory(memory)
+    practice = miniapp.get("practice", {})
+    return {"questions": PRACTICE_BANK, "records": practice.get("questions", {}),
+            "sessions": practice.get("sessions", []), "drafts": practice.get("drafts", {}),
+            "streak": _practice_snapshot(memory)}
+
+
+@app.post("/api/practice/session")
+async def practice_session(payload: PracticeSessionRequest, identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
+    memory = legacy.load_memory(identity.user_id)
+    _, miniapp = _ensure_memory(memory)
+    practice = miniapp.setdefault("practice", {"days": {}})
+    try:
+        session = record_session(practice, payload.model_dump(), _local_today(), int(time.time()))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    _save_memory(identity.user_id, memory)
+    return {"session": session, "records": practice.get("questions", {}), "streak": _practice_snapshot(memory)}
+
+
+@app.post("/api/practice/draft")
+async def practice_draft(payload: PracticeDraftRequest, identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
+    memory = legacy.load_memory(identity.user_id)
+    _, miniapp = _ensure_memory(memory)
+    draft = {"prompt": payload.prompt, "content": payload.content, "updated_at": int(time.time())}
+    miniapp.setdefault("practice", {}).setdefault("drafts", {})[payload.key] = draft
+    _save_memory(identity.user_id, memory)
+    return {"saved": True, "draft": draft}
 
 
 @app.post("/api/practice/complete")

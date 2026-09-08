@@ -1,4 +1,5 @@
 import clsx from "clsx";
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { ArrowLeft, CheckCircle2, Flame, LoaderCircle, Sparkles, Upload } from "lucide-react";
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
@@ -66,7 +67,7 @@ export function Segmented<T extends string>({ value, options, onChange }: { valu
   return (
     <div className="segmented">
       {options.map((option) => (
-        <button key={option.value} type="button" className={clsx("segment", value === option.value && "segment-active")} onClick={() => onChange(option.value)}>
+        <button key={option.value} type="button" aria-pressed={value === option.value} className={clsx("segment", value === option.value && "segment-active")} onClick={() => onChange(option.value)}>
           {option.label}
         </button>
       ))}
@@ -77,7 +78,7 @@ export function Segmented<T extends string>({ value, options, onChange }: { valu
 export function ScreenHeader({ eyebrow, title, description, onBack }: { eyebrow: string; title: string; description: string; onBack: () => void }) {
   return (
     <header className="screen-header">
-      <button type="button" className="back-button" onClick={onBack} aria-label="Back to dashboard"><ArrowLeft size={19} /></button>
+      <button type="button" className="back-button" onClick={onBack} aria-label="Back"><ArrowLeft size={19} /></button>
       <div>
         <div className="eyebrow">{eyebrow}</div>
         <h1>{title}</h1>
@@ -132,22 +133,30 @@ export function PracticeStreakCard({ streak, compact = false }: { streak: Practi
 }
 
 export function FileImport({ onText, disabled }: { onText: (text: string, filename: string) => void; disabled?: boolean }) {
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
   async function handleFile(file?: File) {
     if (!file) return;
+    setError("");
+    if (file.size > 5 * 1024 * 1024) { setError("Choose a file smaller than 5 MB."); return; }
+    setLoading(true);
+    try {
     if ([".txt", ".md"].some((extension) => file.name.toLowerCase().endsWith(extension))) {
       onText(await file.text(), file.name);
       return;
     }
     const extracted = await api.upload<{ filename: string; text: string }>("/api/files/extract", file);
     onText(extracted.text, extracted.filename);
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Couldn't import this file. Try pasting its text."); }
+    finally { setLoading(false); }
   }
 
   return (
-    <label className={clsx("file-import", disabled && "opacity-50 pointer-events-none")}>
+    <div><label className={clsx("file-import", (disabled || loading) && "opacity-50 pointer-events-none")}>
       <Upload size={17} />
-      <span>Import PDF, DOCX or TXT</span>
-      <input type="file" accept=".pdf,.docx,.txt,.md" hidden disabled={disabled} onChange={(event) => void handleFile(event.target.files?.[0])} />
-    </label>
+      <span>{loading ? "Importing…" : "Import PDF, DOCX or TXT"}</span>
+      <input type="file" accept=".pdf,.docx,.txt,.md" hidden disabled={disabled || loading} onChange={(event) => { void handleFile(event.target.files?.[0]); event.target.value = ""; }} />
+    </label>{error && <ErrorBanner message={error}/>}</div>
   );
 }
 

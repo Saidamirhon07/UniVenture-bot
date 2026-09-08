@@ -2,7 +2,7 @@
 
 A production-oriented Telegram Mini App added **beside** the existing UniVentureAI chatbot. The chatbot keeps all commands and handlers. FastAPI starts that same Telegram application, exposes secure Mini App APIs, serves the React build, and reads/writes the same paid-user file, user-memory directory, ChromaDB collections, and OpenAI models.
 
-Premium V6 combines a simplified Home, an always-visible 12-tool directory, a compact gamified Plan, guided profile intake, profile-aware Venture copilot, capacity/dependency-aware application planning, 36 opportunities, 30-university fit research, interactive SAT/IELTS practice, daily streaks, task-aware routing, reminders, and useful notifications.
+Premium V8 adds a richer mission-led Home, two dedicated practice studios, saved results and mistake review, IELTS writing drafts and local speaking playback. It preserves the 12-tool directory, gamified Plan, guided intake, Venture copilot, 36 opportunities, 30-university atlas, Telegram authentication, paid access, and shared memory. Read V8_APPLY_STEPS.md before applying, and V8_RELEASE_NOTES.md for the verified scope and testing limits.
 
 ## 1. Architecture
 

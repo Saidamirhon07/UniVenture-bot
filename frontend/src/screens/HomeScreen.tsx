@@ -14,6 +14,11 @@ import {
   LayoutGrid,
   MapPin,
   MessageCircleMore,
+  Languages,
+  Lightbulb,
+  PenLine,
+  Sparkles,
+  UsersRound,
   Target,
   Trophy,
   X,
@@ -80,7 +85,7 @@ export default function HomeScreen({ navigate, reloadKey }: { navigate: Navigate
       notifications: current.notifications.map((item) => ({ ...item, unread: false })),
       unread_notifications: 0,
     } : current);
-    void api.post("/api/notifications/read", { ids: unreadIds });
+    void api.post("/api/notifications/read", { ids: unreadIds }).catch(() => { setError("Couldn't save update status. Please try again."); void loadDashboard(); });
   }
 
   function reminderTime(days: number, fixedHour?: number) {
@@ -113,17 +118,21 @@ export default function HomeScreen({ navigate, reloadKey }: { navigate: Navigate
     { title: "Essay Review", icon: FileSearch, screen: "essay" as const, accent: "blue" },
     { title: "EC Evaluation", icon: Trophy, screen: "ec" as const, accent: "coral" },
     { title: "School Finder", icon: GraduationCap, screen: "school" as const, accent: "teal" },
-    { title: "SAT Practice", icon: Calculator, screen: "sat" as const, accent: "violet" },
+    { title: "Recommendation Letters", icon: UsersRound, screen: "recommendation" as const, accent: "teal" },
+    { title: "Brainstorm", icon: Lightbulb, screen: "brainstorm" as const, accent: "violet" },
+    { title: "Rewrite", icon: PenLine, screen: "rewrite" as const, accent: "blue" },
   ];
 
   return (
-    <div className="home-screen simple-home page-enter">
+    <div className="home-screen simple-home home-v8 page-enter">
       <header className="simple-brandbar">
         <strong>UniVentureAI</strong>
         <button aria-label={`Open updates${data.unread_notifications ? `, ${data.unread_notifications} unread` : ""}`} onClick={openNotifications}>
           <Bell size={19} />{data.unread_notifications ? <i /> : null}
         </button>
       </header>
+
+      {error && <ErrorBanner message={error} />}
 
       <header className="simple-home-greeting">
         <h1>{greeting}, {firstName}</h1>
@@ -132,9 +141,9 @@ export default function HomeScreen({ navigate, reloadKey }: { navigate: Navigate
 
       {!data.subscription.has_access ? <Card tone="light" className="paywall-card"><Tag tone="warn">Access paused</Tag><h3>Your trial has ended</h3><p>Use /pay in the bot. Your work stays saved.</p></Card> : null}
 
-      <section className="simple-today-card">
+      <section className="simple-today-card mission-v8">
         <div className="simple-today-copy">
-          <div><span><Target size={16} />Today</span><em>{data.today_priority.effort || "20 min"}</em></div>
+          <div><span><Sparkles size={16} />Your next move</span><em>{data.today_priority.effort || "20 min"}</em></div>
           <h2>{data.today_priority.title}</h2>
           <p>{concise(data.today_priority.why)}</p>
           <button onClick={startPriority}>{data.today_action.label}<ArrowRight size={17} /></button>
@@ -142,12 +151,23 @@ export default function HomeScreen({ navigate, reloadKey }: { navigate: Navigate
         <img src="/assets/blue-doorway.png" alt="" aria-hidden="true" />
       </section>
 
+      <section className="home-momentum-v8" aria-label="Your momentum">
+        <button onClick={() => navigate("roadmap")}><Target size={17}/><strong>{data.readiness.score}%</strong><small>Preparation</small></button>
+        <button onClick={() => navigate("prep")}><Flame size={17}/><strong>{data.practice_streak.current_streak} days</strong><small>Practice streak</small></button>
+        <button onClick={() => navigate("portfolio")}><Trophy size={17}/><strong>{data.profile_completeness.percent}%</strong><small>Profile complete</small></button>
+      </section>
+
+      <section className="home-practice-v8">
+        <div className="simple-section-heading"><h2>Build your daily edge</h2><span>Small steps count</span></div>
+        <div className="home-practice-grid">{([{screen:"sat",title:"SAT Studio",note:"Learn · time · review",icon:Calculator},{screen:"ielts",title:"IELTS Studio",note:"Four skills, one place",icon:Languages}] as const).map(({screen,title,note,icon:Icon})=><button key={screen} onClick={()=>navigate(screen)}><Icon size={23}/><small>{data.practice_streak.today_skills.includes(screen) ? "Practiced today" : "Ready when you are"}</small><strong>{title}</strong><span>{note}</span><ArrowRight size={19}/></button>)}</div>
+      </section>
+
       <section className="simple-home-tools">
         <div className="simple-section-heading"><h2>Quick tools</h2><button onClick={() => navigate("tools")}>See all <ChevronRight size={15} /></button></div>
         <div>{quickTools.map(({ title, icon: Icon, screen, accent }) => <button className={`home-tool home-tool-${accent}`} key={screen} onClick={() => navigate(screen)}><span><Icon size={20} /></span><strong>{title}</strong></button>)}</div>
       </section>
 
-      <section className="simple-home-progress">
+      <section className="simple-home-progress home-path-v8">
         <div className="progress-top"><div><small>Application progress</small><strong>{data.readiness.score}%</strong></div><button onClick={() => navigate("roadmap")}>View plan <ChevronRight size={15} /></button></div>
         <div className="simple-progress-bar"><i style={{ width: `${data.readiness.score}%` }} /></div>
         <div className="progress-signals">
@@ -155,7 +175,11 @@ export default function HomeScreen({ navigate, reloadKey }: { navigate: Navigate
           <span><small>Profile</small><strong>{data.profile_completeness.percent}%</strong></span>
           <span><small>Streak</small><strong><Flame size={13} />{data.practice_streak.current_streak} days</strong></span>
         </div>
+        <div className="home-path-stops">{[{label:"Now",text:data.trajectory?.now || data.today_priority.title},{label:"Next",text:data.trajectory?.next || "Strengthen your application"},{label:"Deadline",text:data.trajectory?.deadline || "Set your target date"}].map((step,index)=><button key={step.label} onClick={()=>navigate("roadmap")}><i>{index+1}</i><small>{step.label}</small><strong>{concise(step.text,60)}</strong></button>)}</div>
+        <small className="practice-disclaimer">Preparation signals, not admission chances.</small>
       </section>
+
+      <button className="home-discover-v8" onClick={()=>navigate("discover")}><Award size={27}/><span><small>BEYOND THE CHECKLIST</small><strong>Find something worth pursuing.</strong><em>Explore programs, competitions & projects</em></span><ChevronRight size={18}/></button>
 
       <button className="simple-all-tools" onClick={() => navigate("tools")}><span><LayoutGrid size={19} /></span><div><strong>Open all tools</strong><small>Essay, EC, letters, tests and more</small></div><ArrowRight size={17} /></button>
       <button className="home-feedback-link" onClick={() => navigate("feedback")}><MessageCircleMore size={16} />Feedback<ChevronRight size={16} /></button>

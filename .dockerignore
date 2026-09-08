@@ -5,6 +5,7 @@ __pycache__
 *.py[cod]
 .pytest_cache
 frontend/node_modules
+frontend/qa
 frontend/dist
 *.tsbuildinfo
 qa

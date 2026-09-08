@@ -63,9 +63,9 @@ function IELTSQuest({ skill, onComplete }: { skill: IELTSSkill; onComplete: () =
   return <Card className="ielts-quest"><div className="quest-head"><div><Tag tone="cyan">{skill} mission</Tag><strong>Skill arcade</strong></div><span>+20 focus</span></div>{skill === "listening" ? <button className="listen-button" onClick={play}><Play size={17} />Play the briefing once</button> : null}{skill === "speaking" ? <div className="speaking-timer"><Timer size={19} /><div><strong>{seconds === null ? "60" : seconds}s</strong><small>response sprint</small></div><button onClick={() => setSeconds(60)}>{seconds === null || seconds === 0 ? "Start" : "Restart"}</button></div> : null}<h2>{item.prompt}</h2><div className="quest-options">{item.options.map((option, index) => <button className={selected === null ? "" : index === item.answer ? "correct" : index === selected ? "wrong" : "muted"} key={option} onClick={() => choose(index)}><span>{String.fromCharCode(65 + index)}</span>{option}{selected !== null && index === item.answer ? <Check size={16} /> : null}</button>)}</div>{selected !== null ? <div className="quest-feedback"><strong>{selected === item.answer ? "Examiner logic unlocked" : "Repair the method"}</strong><p>{item.explanation}</p><small>Micro-mission: {item.mission}</small><button className="quest-reset" onClick={() => setSelected(null)}><RotateCcw size={14} />Try again</button></div> : <p className="quest-nudge">Commit to an answer before seeing the examiner logic.</p>}</Card>;
 }
 
-export function IELTSWritingScreen({ navigate, onChanged }: { navigate: Navigate; onChanged: () => void }) {
+export function IELTSWritingScreen({ navigate, onChanged, coachOnly = false }: { navigate: Navigate; onChanged: () => void; coachOnly?: boolean }) {
   const [skill, setSkill] = useState<IELTSSkill>("writing");
-  const [lab, setLab] = useState<"quest" | "coach">("quest");
+  const [lab, setLab] = useState<"quest" | "coach">(coachOnly ? "coach" : "quest");
   const [taskType, setTaskType] = useState<"task_1" | "task_2">("task_2");
   const [targetBand, setTargetBand] = useState("7.0");
   const [question, setQuestion] = useState("");
@@ -83,12 +83,12 @@ export function IELTSWritingScreen({ navigate, onChanged }: { navigate: Navigate
   }
   return (
     <div className="page-enter space-y-3">
-      <ScreenHeader eyebrow="Test prep" title="IELTS Practice" description="Practice all four skills." onBack={() => navigate("tools")} />
-      <PracticeStreakCard streak={streak} compact />
+      {!coachOnly && <ScreenHeader eyebrow="Test prep" title="IELTS Practice" description="Practice all four skills." onBack={() => navigate("tools")} />}
+      {!coachOnly && <PracticeStreakCard streak={streak} compact />}
       <div className="ielts-skill-map">
         {[{ key: "writing", label: "Writing", icon: PenTool }, { key: "speaking", label: "Speaking", icon: Mic2 }, { key: "reading", label: "Reading", icon: BookOpenCheck }, { key: "listening", label: "Listening", icon: Headphones }].map(({ key, label, icon: Icon }) => <button className={skill === key ? "active" : ""} key={key} onClick={() => { setSkill(key as IELTSSkill); state.setResult(null); }}><Icon size={19} /><span>{label}</span></button>)}
       </div>
-      <Segmented value={lab} onChange={setLab} options={[{ value: "quest", label: "Practice quest" }, { value: "coach", label: "Coach my work" }]} />
+      {!coachOnly && <Segmented value={lab} onChange={setLab} options={[{ value: "quest", label: "Practice quest" }, { value: "coach", label: "Coach my work" }]} />}
       {lab === "quest" ? <IELTSQuest skill={skill} onComplete={completeQuest} /> : <Card>
         <div className="ielts-lens"><span>{skill === "writing" ? <PenTool size={20} /> : skill === "speaking" ? <Mic2 size={20} /> : skill === "reading" ? <BookOpenCheck size={20} /> : <Headphones size={20} />}</span><div><strong>{skill === "writing" ? "Band criteria + paragraph upgrade" : skill === "speaking" ? "Natural fluency + answer development" : skill === "reading" ? "Evidence path + distractor diagnosis" : "Signal words + attention recovery"}</strong><small>{skill === "writing" ? "Task response, coherence, vocabulary and grammar" : skill === "speaking" ? "Paste a transcript of what you said—imperfections included" : skill === "reading" ? "Turn one wrong answer into a repeatable solving method" : "Use a transcript, your notes and the question you missed"}</small></div></div>
         {skill === "writing" ? <Segmented value={taskType} onChange={setTaskType} options={[{ value: "task_1", label: "Task 1" }, { value: "task_2", label: "Task 2" }]} /> : null}

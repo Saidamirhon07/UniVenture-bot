@@ -179,6 +179,25 @@ class PracticeCompletionRequest(BaseModel):
     skill: Literal["sat", "ielts"]
 
 
+class PracticeAnswer(BaseModel):
+    question_id: str = Field(min_length=3, max_length=40)
+    choice: int | None = Field(default=None, ge=0, le=3, strict=True)
+
+
+class PracticeSessionRequest(BaseModel):
+    session_id: str = Field(min_length=8, max_length=80, pattern=r"^[a-zA-Z0-9_-]+$")
+    exam: Literal["sat", "ielts"]
+    mode: Literal["learn", "timed", "review"]
+    seconds: int = Field(ge=0, le=14400, strict=True)
+    answers: list[PracticeAnswer] = Field(min_length=1, max_length=40)
+
+
+class PracticeDraftRequest(BaseModel):
+    key: Literal["writing_task_1", "writing_task_2", "speaking"]
+    prompt: str = Field(max_length=3000)
+    content: str = Field(max_length=20000)
+
+
 class ReminderCreateRequest(BaseModel):
     title: str = Field(min_length=3, max_length=240)
     due_at: str = Field(min_length=10, max_length=80)

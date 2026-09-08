@@ -1,0 +1,593 @@
+[
+  {
+    "id": "sm01",
+    "exam": "sat",
+    "section": "math",
+    "skill": "Algebra",
+    "level": "Foundation",
+    "prompt": "A room costs $48 plus $6 per student. The total cost is $96. How many students attended?",
+    "options": [
+      "6",
+      "8",
+      "12",
+      "16"
+    ],
+    "answer": 1,
+    "explanation": "48 + 6s = 96, so 6s = 48 and s = 8. Subtract the fixed cost before dividing."
+  },
+  {
+    "id": "sm02",
+    "exam": "sat",
+    "section": "math",
+    "skill": "Algebra",
+    "level": "Foundation",
+    "prompt": "If 3(x − 4) = 21, what is x?",
+    "options": [
+      "3",
+      "7",
+      "11",
+      "25"
+    ],
+    "answer": 2,
+    "explanation": "Divide both sides by 3: x − 4 = 7. Then add 4 to both sides: x = 11. Substitution confirms 3(11 − 4) = 21."
+  },
+  {
+    "id": "sm03",
+    "exam": "sat",
+    "section": "math",
+    "skill": "Algebra",
+    "level": "Transfer",
+    "prompt": "The lines y = 2x + 1 and y = −x + 10 intersect. What is the x-coordinate?",
+    "options": [
+      "2",
+      "3",
+      "4",
+      "7"
+    ],
+    "answer": 1,
+    "explanation": "Set the expressions equal: 2x + 1 = −x + 10. Then 3x = 9, giving x = 3."
+  },
+  {
+    "id": "sm04",
+    "exam": "sat",
+    "section": "math",
+    "skill": "Algebra",
+    "level": "Transfer",
+    "prompt": "Which equation represents a line through (2, 5) with slope −3?",
+    "options": [
+      "y = −3x − 1",
+      "y = 3x − 1",
+      "y = −3x + 11",
+      "y = −3x + 5"
+    ],
+    "answer": 2,
+    "explanation": "Use y − 5 = −3(x − 2). Expanding gives y = −3x + 11."
+  },
+  {
+    "id": "sm05",
+    "exam": "sat",
+    "section": "math",
+    "skill": "Advanced math",
+    "level": "Transfer",
+    "prompt": "Which equivalent expression makes the minimum of x² − 6x + 5 easiest to identify?",
+    "options": [
+      "(x − 1)(x − 5)",
+      "(x − 3)² − 4",
+      "x(x − 6) + 5",
+      "(x + 3)² − 4"
+    ],
+    "answer": 1,
+    "explanation": "Completing the square gives (x − 3)² − 4. The square is nonnegative, so the minimum is −4."
+  },
+  {
+    "id": "sm06",
+    "exam": "sat",
+    "section": "math",
+    "skill": "Advanced math",
+    "level": "Challenge",
+    "prompt": "For which value of k does x² − 8x + k = 0 have exactly one real solution?",
+    "options": [
+      "8",
+      "12",
+      "16",
+      "64"
+    ],
+    "answer": 2,
+    "explanation": "A repeated real root requires discriminant 0: (−8)² − 4k = 0, so k = 16."
+  },
+  {
+    "id": "sm07",
+    "exam": "sat",
+    "section": "math",
+    "skill": "Advanced math",
+    "level": "Transfer",
+    "prompt": "A population starts at 200 and grows by 5% each year. Which expression gives the population after t years?",
+    "options": [
+      "200 + 5t",
+      "200(0.05)ᵗ",
+      "200(1.5)ᵗ",
+      "200(1.05)ᵗ"
+    ],
+    "answer": 3,
+    "explanation": "Each year multiplies the population by 1 + 0.05 = 1.05. Repeating that t times gives 200(1.05)ᵗ."
+  },
+  {
+    "id": "sm08",
+    "exam": "sat",
+    "section": "math",
+    "skill": "Problem solving",
+    "level": "Foundation",
+    "prompt": "In a random sample of 80 students, 52 prefer a later start. What is the best estimate for a school of 400 students?",
+    "options": [
+      "208",
+      "240",
+      "260",
+      "320"
+    ],
+    "answer": 2,
+    "explanation": "52/80 = 0.65, and 0.65 × 400 = 260. This is an estimate, not a guaranteed count."
+  },
+  {
+    "id": "sm09",
+    "exam": "sat",
+    "section": "math",
+    "skill": "Problem solving",
+    "level": "Transfer",
+    "prompt": "A jacket costs $80. Its price rises by 25%, then the new price is discounted by 20%. What is the final price?",
+    "options": [
+      "$76",
+      "$80",
+      "$84",
+      "$100"
+    ],
+    "answer": 1,
+    "explanation": "80 × 1.25 = 100, then 100 × 0.80 = 80. The percentages apply to different starting prices."
+  },
+  {
+    "id": "sm10",
+    "exam": "sat",
+    "section": "math",
+    "skill": "Problem solving",
+    "level": "Foundation",
+    "prompt": "The mean of 4, 6, 8, and x is 7. What is x?",
+    "options": [
+      "7",
+      "9",
+      "10",
+      "12"
+    ],
+    "answer": 2,
+    "explanation": "Four numbers with mean 7 total 28. Since 4 + 6 + 8 = 18, x = 10."
+  },
+  {
+    "id": "sm11",
+    "exam": "sat",
+    "section": "math",
+    "skill": "Geometry",
+    "level": "Foundation",
+    "prompt": "A right triangle has legs of length 6 and 8. What is its hypotenuse?",
+    "options": [
+      "7",
+      "10",
+      "12",
+      "14"
+    ],
+    "answer": 1,
+    "explanation": "The Pythagorean theorem gives c² = 6² + 8² = 100, so c = 10."
+  },
+  {
+    "id": "sm12",
+    "exam": "sat",
+    "section": "math",
+    "skill": "Geometry",
+    "level": "Transfer",
+    "prompt": "A circle's radius doubles. Its area is multiplied by what factor?",
+    "options": [
+      "2",
+      "4",
+      "6",
+      "8"
+    ],
+    "answer": 1,
+    "explanation": "Area is πr². Replacing r by 2r gives π(2r)² = 4πr²."
+  },
+  {
+    "id": "sr01",
+    "exam": "sat",
+    "section": "reading_writing",
+    "skill": "Information & ideas",
+    "level": "Foundation",
+    "prompt": "Which conclusion is supported?",
+    "options": [
+      "Blue light always improves plant health.",
+      "Light color can affect more than one growth characteristic.",
+      "White light prevents leaves from growing.",
+      "Short plants always produce more fruit."
+    ],
+    "answer": 1,
+    "explanation": "The passage reports differences in height and leaf count. It says nothing about fruit or overall health.",
+    "passage": "Seedlings grown under blue light were shorter but had more leaves than seedlings grown under white light."
+  },
+  {
+    "id": "sr02",
+    "exam": "sat",
+    "section": "reading_writing",
+    "skill": "Craft & structure",
+    "level": "Transfer",
+    "prompt": "As used in the passage, “tempered” most nearly means:",
+    "options": [
+      "heated",
+      "moderated",
+      "created",
+      "ignored"
+    ],
+    "answer": 1,
+    "explanation": "The limited observation period reduces the strength of the optimism. Here, tempered means moderated.",
+    "passage": "The initial results encouraged the researchers, but the short observation period tempered their optimism."
+  },
+  {
+    "id": "sr03",
+    "exam": "sat",
+    "section": "reading_writing",
+    "skill": "Standard English conventions",
+    "level": "Foundation",
+    "prompt": "Choose the verb that completes the sentence: “The collection of rare maps ___ in a climate-controlled room.”",
+    "options": [
+      "are stored",
+      "were stored",
+      "is stored",
+      "have been stored"
+    ],
+    "answer": 2,
+    "explanation": "The subject is the singular noun collection. The phrase of rare maps does not change the subject's number."
+  },
+  {
+    "id": "sr04",
+    "exam": "sat",
+    "section": "reading_writing",
+    "skill": "Expression of ideas",
+    "level": "Foundation",
+    "prompt": "Choose the most logical transition: “The first trial produced no measurable change. ___, the second trial showed a substantial improvement.”",
+    "options": [
+      "Similarly",
+      "For example",
+      "In contrast",
+      "Consequently"
+    ],
+    "answer": 2,
+    "explanation": "No change and substantial improvement are contrasting results. No causal relationship is stated."
+  },
+  {
+    "id": "sr05",
+    "exam": "sat",
+    "section": "reading_writing",
+    "skill": "Information & ideas",
+    "level": "Transfer",
+    "prompt": "Which finding would most directly support the claim that shaded streets stay cooler?",
+    "options": [
+      "Residents prefer trees to benches.",
+      "Shaded streets averaged 4°C cooler than nearby unshaded streets at the same time.",
+      "The city planted more trees last year.",
+      "Trees require regular watering."
+    ],
+    "answer": 1,
+    "explanation": "A same-time comparison directly measures the claimed temperature difference. Preferences and planting counts do not."
+  },
+  {
+    "id": "sr06",
+    "exam": "sat",
+    "section": "reading_writing",
+    "skill": "Standard English conventions",
+    "level": "Transfer",
+    "prompt": "Which choice completes the sentence correctly? “The archive contains three types of records___ letters, photographs, and maps.”",
+    "options": [
+      ",",
+      ":",
+      ";",
+      "."
+    ],
+    "answer": 1,
+    "explanation": "A colon can introduce a list after a complete independent clause. The archive contains three types of records can stand alone."
+  },
+  {
+    "id": "sr07",
+    "exam": "sat",
+    "section": "reading_writing",
+    "skill": "Craft & structure",
+    "level": "Transfer",
+    "prompt": "What is the main purpose of the passage?",
+    "options": [
+      "To argue that all old buildings should be demolished",
+      "To illustrate a practical reuse of an existing structure",
+      "To compare the costs of rail and road transport",
+      "To explain why the factory originally closed"
+    ],
+    "answer": 1,
+    "explanation": "The passage focuses on converting a factory into a useful community space, not on transport, demolition, or the closure's cause.",
+    "passage": "An unused textile factory now houses a library and workshop. Rather than removing its large windows, designers used them to light shared reading areas."
+  },
+  {
+    "id": "sr08",
+    "exam": "sat",
+    "section": "reading_writing",
+    "skill": "Expression of ideas",
+    "level": "Foundation",
+    "prompt": "Which revision is most concise while preserving meaning? “Due to the fact that the deadline moved earlier, the team revised its schedule.”",
+    "options": [
+      "Because the deadline moved earlier, the team revised its schedule.",
+      "The team revised its schedule due to the fact of the earlier deadline.",
+      "The deadline moving earlier in time led to the schedule being revised.",
+      "The team made a revision to its schedule because of the fact that the deadline was earlier."
+    ],
+    "answer": 0,
+    "explanation": "Because directly expresses the causal relationship without redundant wording."
+  },
+  {
+    "id": "sr09",
+    "exam": "sat",
+    "section": "reading_writing",
+    "skill": "Information & ideas",
+    "level": "Challenge",
+    "prompt": "Which statement best describes a limitation of this study?",
+    "options": [
+      "It does not measure participants' reading speed.",
+      "Self-selection could explain differences between the groups.",
+      "It proves book clubs reduce stress for everyone.",
+      "It contains no comparison group."
+    ],
+    "answer": 1,
+    "explanation": "People chose whether to join, so pre-existing differences could contribute to the outcome. The study does have a comparison group.",
+    "passage": "Adults chose whether to join a book club. After six weeks, club members reported lower stress than nonmembers. The researchers did not randomly assign participants."
+  },
+  {
+    "id": "sr10",
+    "exam": "sat",
+    "section": "reading_writing",
+    "skill": "Standard English conventions",
+    "level": "Transfer",
+    "prompt": "Which choice correctly completes the sentence? “Mira finished the prototype___ she still needed to test it.”",
+    "options": [
+      "however,",
+      ",",
+      "; however,",
+      " however"
+    ],
+    "answer": 2,
+    "explanation": "Two independent clauses need a period or semicolon here. However is followed by a comma: prototype; however, she still needed..."
+  },
+  {
+    "id": "sr11",
+    "exam": "sat",
+    "section": "reading_writing",
+    "skill": "Craft & structure",
+    "level": "Foundation",
+    "prompt": "As used in the passage, “novel” most nearly means:",
+    "options": [
+      "fictional",
+      "lengthy",
+      "new",
+      "unreliable"
+    ],
+    "answer": 2,
+    "explanation": "Novel describes a new approach here, not a work of fiction or its quality.",
+    "passage": "The team proposed a novel way to recover heat from wastewater, unlike the methods previously used at the facility."
+  },
+  {
+    "id": "sr12",
+    "exam": "sat",
+    "section": "reading_writing",
+    "skill": "Expression of ideas",
+    "level": "Transfer",
+    "prompt": "A student wants to emphasize the project's public reach. Which sentence best uses the notes?",
+    "options": [
+      "The project began in 2022.",
+      "Volunteers created an online archive.",
+      "Since launching in 2022, the volunteer-built archive has attracted 80,000 visitors.",
+      "The archive contains scanned documents."
+    ],
+    "answer": 2,
+    "explanation": "Visitor count directly supports public reach, while the other choices describe origin or format.",
+    "passage": "Notes: • The archive launched in 2022. • Volunteers scanned local documents. • The website has received 80,000 visitors."
+  },
+  {
+    "id": "ir01",
+    "exam": "ielts",
+    "section": "reading",
+    "skill": "True / False / Not Given",
+    "level": "Transfer",
+    "prompt": "Claim: All volunteers attended the training.",
+    "options": [
+      "True",
+      "False",
+      "Not Given"
+    ],
+    "answer": 1,
+    "explanation": "The text explicitly says some volunteers could not attend, which contradicts all.",
+    "passage": "The training was offered to every volunteer. Most attended, although some were unable to come."
+  },
+  {
+    "id": "ir02",
+    "exam": "ielts",
+    "section": "reading",
+    "skill": "True / False / Not Given",
+    "level": "Transfer",
+    "prompt": "Claim: Longer opening hours caused the increase in attendance.",
+    "options": [
+      "True",
+      "False",
+      "Not Given"
+    ],
+    "answer": 2,
+    "explanation": "The increase and extended hours occurred together, but the text does not establish the cause.",
+    "passage": "The museum extended Friday opening hours in May. Attendance increased that month, when a new exhibition also opened."
+  },
+  {
+    "id": "ir03",
+    "exam": "ielts",
+    "section": "reading",
+    "skill": "Matching headings",
+    "level": "Foundation",
+    "prompt": "Choose the best heading.",
+    "options": [
+      "Why urban gardens fail",
+      "Benefits beyond food production",
+      "The cost of imported food",
+      "A history of farming machinery"
+    ],
+    "answer": 1,
+    "explanation": "The paragraph's central idea is the social and educational value of gardens beyond growing food.",
+    "passage": "Community gardens produce vegetables, but their value extends further. Neighbours share tools and knowledge, children learn about insects, and isolated residents find a reason to meet."
+  },
+  {
+    "id": "ir04",
+    "exam": "ielts",
+    "section": "reading",
+    "skill": "Detail",
+    "level": "Foundation",
+    "prompt": "What reduced water use?",
+    "options": [
+      "Replacing every plant",
+      "Collecting rainwater only",
+      "A sensor-controlled watering system",
+      "Watering more frequently"
+    ],
+    "answer": 2,
+    "explanation": "The system uses soil moisture measurements to water only when needed.",
+    "passage": "The greenhouse installed sensors that measured soil moisture. Water was released only when the soil became dry, reducing overall consumption by a third."
+  },
+  {
+    "id": "ir05",
+    "exam": "ielts",
+    "section": "reading",
+    "skill": "True / False / Not Given",
+    "level": "Transfer",
+    "prompt": "Claim: The new route takes less time than the old route.",
+    "options": [
+      "True",
+      "False",
+      "Not Given"
+    ],
+    "answer": 0,
+    "explanation": "The passage directly compares 35 minutes with 50 minutes, confirming a shorter journey.",
+    "passage": "The original bus route took 50 minutes. The revised route bypasses two busy junctions and usually takes 35 minutes."
+  },
+  {
+    "id": "ir06",
+    "exam": "ielts",
+    "section": "reading",
+    "skill": "Inference",
+    "level": "Transfer",
+    "prompt": "Why does the author mention the small sample?",
+    "options": [
+      "To suggest the results may not apply widely",
+      "To prove the experiment was unsuccessful",
+      "To show all participants disagreed",
+      "To argue against future research"
+    ],
+    "answer": 0,
+    "explanation": "A small sample limits how confidently the findings can be generalized; it does not make them automatically false.",
+    "passage": "Participants found the app helpful. However, only twelve people took part, and the researchers recommend testing it with a more diverse group before drawing broad conclusions."
+  },
+  {
+    "id": "il01",
+    "exam": "ielts",
+    "section": "listening",
+    "skill": "Corrections",
+    "level": "Foundation",
+    "prompt": "When will the meeting take place?",
+    "options": [
+      "Tuesday at 3:30",
+      "Tuesday at 4:00",
+      "Thursday at 3:30",
+      "Thursday at 4:00"
+    ],
+    "answer": 2,
+    "explanation": "Tuesday is replaced by Thursday; the time remains 3:30.",
+    "audio": "We planned to meet on Tuesday at three thirty. That clashes with the rehearsal, so let's keep the same time but move the meeting to Thursday."
+  },
+  {
+    "id": "il02",
+    "exam": "ielts",
+    "section": "listening",
+    "skill": "Numbers",
+    "level": "Foundation",
+    "prompt": "How much does a student ticket cost?",
+    "options": [
+      "12 pounds",
+      "15 pounds",
+      "18 pounds",
+      "20 pounds"
+    ],
+    "answer": 0,
+    "explanation": "The regular fare is 18 pounds, but students pay 12.",
+    "audio": "The standard ticket is eighteen pounds. Children pay eight pounds, and students with identification pay twelve pounds."
+  },
+  {
+    "id": "il03",
+    "exam": "ielts",
+    "section": "listening",
+    "skill": "Location",
+    "level": "Transfer",
+    "prompt": "Where should participants go first?",
+    "options": [
+      "The main hall",
+      "The garden",
+      "Room 14",
+      "The reception desk"
+    ],
+    "answer": 3,
+    "explanation": "The speaker directs everyone to reception before going to the main hall.",
+    "audio": "The workshop itself takes place in the main hall. Before you go there, please collect your name badge from the reception desk. Room fourteen is reserved for staff."
+  },
+  {
+    "id": "il04",
+    "exam": "ielts",
+    "section": "listening",
+    "skill": "Purpose",
+    "level": "Transfer",
+    "prompt": "Why was the field trip postponed?",
+    "options": [
+      "The bus was unavailable",
+      "A storm was forecast",
+      "Too few students registered",
+      "The guide was ill"
+    ],
+    "answer": 1,
+    "explanation": "Transport and guide arrangements were ready; the forecast caused the change.",
+    "audio": "The bus and guide were both confirmed, and enough students had signed up. However, a severe storm is expected tomorrow, so we have moved the field trip to next week."
+  },
+  {
+    "id": "il05",
+    "exam": "ielts",
+    "section": "listening",
+    "skill": "Corrections",
+    "level": "Transfer",
+    "prompt": "What should students bring?",
+    "options": [
+      "A printed article",
+      "A laptop only",
+      "A notebook and a pen",
+      "A textbook"
+    ],
+    "answer": 2,
+    "explanation": "The request for an article is withdrawn and replaced by a notebook and pen.",
+    "audio": "I was going to ask you to print the article, but I'll provide copies. You won't need laptops or textbooks. Just bring a notebook and a pen."
+  },
+  {
+    "id": "il06",
+    "exam": "ielts",
+    "section": "listening",
+    "skill": "Opinion",
+    "level": "Transfer",
+    "prompt": "What does the speaker value most about the course?",
+    "options": [
+      "Its low cost",
+      "The flexible timetable",
+      "The practical feedback",
+      "The modern building"
+    ],
+    "answer": 2,
+    "explanation": "The speaker identifies detailed practical feedback as the biggest benefit.",
+    "audio": "The timetable is flexible and the building is pleasant, although the course is rather expensive. For me, the biggest benefit is the detailed practical feedback I receive on every assignment."
+  }
+]

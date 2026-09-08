@@ -1,0 +1,7 @@
+{
+  "name": "univenture-browser-checks",
+  "private": true,
+  "type": "module",
+  "scripts": {"test": "node browser-checks.mjs"},
+  "devDependencies": {"playwright": "1.62.1"}
+}

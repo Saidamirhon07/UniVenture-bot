@@ -5,8 +5,10 @@ __pycache__/
 .pytest_cache/
 /data/
 frontend/node_modules/
+frontend/qa/node_modules/
+frontend/qa/output/
 frontend/dist/
 *.tsbuildinfo
-qa/
+/qa/
 *.log
 .DS_Store

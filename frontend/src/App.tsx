@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { api } from "./api";
 import { Button, Card, ErrorBanner, Input, LoadingScreen, Tag } from "./components/ui";
 import ProfileCopilot from "./components/ProfileCopilot";
+import PracticeStudio from "./components/PracticeStudio";
 import type { Navigate, ScreenId, SessionUser } from "./types";
 import ApplicationPlanScreen from "./screens/ApplicationPlanScreen";
 import EssayLabScreen from "./screens/EssayLabScreen";
@@ -63,6 +64,7 @@ export default function App() {
   const [reloadKey, setReloadKey] = useState(0);
 
   const navigate: Navigate = useCallback((next) => {
+    if (!window.dispatchEvent(new Event("univenture:before-navigate", { cancelable: true }))) return;
     setScreen(next);
     window.scrollTo({ top: 0, behavior: "smooth" });
     window.Telegram?.WebApp.HapticFeedback?.impactOccurred("light");
@@ -108,8 +110,8 @@ export default function App() {
       case "plan": return <ApplicationPlanScreen navigate={navigate} onChanged={markChanged} />;
       case "portfolio": return <PortfolioScreen navigate={navigate} onChanged={markChanged} />;
       case "ec": return <ECBuilderScreen navigate={navigate} onChanged={markChanged} />;
-      case "ielts": return <IELTSWritingScreen navigate={navigate} onChanged={markChanged} />;
-      case "sat": return <SATStudioScreen navigate={navigate} onChanged={markChanged} />;
+      case "ielts": return <PracticeStudio exam="ielts" navigate={navigate} onChanged={markChanged} coach={<IELTSWritingScreen navigate={navigate} onChanged={markChanged} coachOnly />} />;
+      case "sat": return <PracticeStudio exam="sat" navigate={navigate} onChanged={markChanged} coach={<SATStudioScreen navigate={navigate} onChanged={markChanged} />} />;
       case "feedback": return <FeedbackScreen navigate={navigate} />;
       case "recommendation": return <RecommendationScreen navigate={navigate} onChanged={markChanged} />;
       case "portfolio-builder": return <PortfolioBuilderScreen navigate={navigate} onChanged={markChanged} />;

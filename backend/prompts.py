@@ -48,7 +48,7 @@ EVALUATION_SPECS: dict[str, dict[str, Any]] = {
     },
     "ielts_writing": {
         "title": "IELTS Writing",
-        "focus": "Task Response, Coherence and Cohesion, Lexical Resource, and Grammatical Range and Accuracy",
+        "focus": "Task Achievement for Academic Task 1 or Task Response for Task 2, Coherence and Cohesion, Lexical Resource, and Grammatical Range and Accuracy. Make any band estimate provisional, not an official result",
         "keys": [
             ("estimated_band", "Estimated Band"),
             ("weakest_criterion", "Weakest Criterion"),
@@ -59,7 +59,7 @@ EVALUATION_SPECS: dict[str, dict[str, Any]] = {
     },
     "ielts_speaking": {
         "title": "IELTS Speaking response",
-        "focus": "fluency and coherence, lexical resource, grammatical range and accuracy, pronunciation evidence that can be inferred from a transcript, natural examples, and direct answer development",
+        "focus": "transcript coherence, lexical resource, grammatical range and accuracy, natural examples, and direct answer development. Never infer pronunciation, accent, speaking pace, or real-time fluency from text. Mark those aspects as not assessed. Any band estimate is provisional and transcript-only, never an official speaking score",
         "keys": [
             ("estimated_band", "Estimated Band"),
             ("fluency_and_coherence", "Fluency & Coherence"),
