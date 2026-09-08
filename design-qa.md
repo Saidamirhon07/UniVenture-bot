@@ -1,4 +1,19 @@
-# UniVentureAI V8 — Verification status
+# UniVentureAI V10 — Verification status
+
+## Founder analytics update
+
+- TypeScript/Vite production build passes with the new Founder Pulse screen.
+- Analytics aggregation tests cover DAU/WAU/MAU, tool views, SAT accuracy, subscriptions, churn, conversion, campaign revenue and event allow-list privacy.
+- The admin-only API uses the signed Telegram identity and the same configured `ADMIN_IDS` as the bot.
+- `/stats` now rejects non-admin users.
+- Browser fixture coverage was updated for the dashboard. Playwright could not run in this workspace because its package was not locally resolvable, so a fresh pixel-level screenshot is not claimed.
+
+## Paid-entry update
+
+- Added a dedicated mobile-first Pro screen before onboarding and product navigation for accounts without access.
+- Kept the decision compact: one plan, three benefit groups, proof counts, terms consent, one checkout action, access restoration and support.
+- TypeScript/Vite production build passes. The Telegram `openInvoice` callback is typed and the non-Telegram fallback is explicit.
+- Real Telegram checkout, renewal, cancellation and refund require the staging acceptance steps in `V9_APPLY_STEPS.md`; fixture or local browser checks cannot prove them.
 
 ## Scope and consent
 
@@ -10,14 +25,14 @@ The available source at the beginning of this pass was the V6 simplified fronten
 
 - TypeScript check and Vite production build: passed.
 - Python compilation: passed.
-- Python unit tests: 21 passed (including original auth/routing/prompt tests and 11 practice-engine tests).
+- Python unit tests: 26 passed (including billing, auth, routing, prompts and practice engine); six API integration tests require the full runtime.
 - JavaScript practice-selection checks: 8 passed.
 - Browser smoke-runner syntax: passed.
 - Original question inventory: 24 SAT, 6 IELTS Reading, 6 IELTS Listening.
 - Original workbench prompts: 2 Academic Task 1, 3 Task 2, 3 Speaking Part 2.
 - Catalog inventory preserved: 36 opportunities and 30 universities.
 - New practice save routes use the existing active-access dependency; history/library uses authentication.
-- Existing bot, requirements, Dockerfile and Railway configuration are unchanged.
+- Existing bot commands and Railway storage remain compatible; payment handlers and the paid-entry frontend are additive.
 
 ## Pending checks — do not treat as passed
 

@@ -2,7 +2,7 @@
 
 A production-oriented Telegram Mini App added **beside** the existing UniVentureAI chatbot. The chatbot keeps all commands and handlers. FastAPI starts that same Telegram application, exposes secure Mini App APIs, serves the React build, and reads/writes the same paid-user file, user-memory directory, ChromaDB collections, and OpenAI models.
 
-Premium V8 adds a richer mission-led Home, two dedicated practice studios, saved results and mistake review, IELTS writing drafts and local speaking playback. It preserves the 12-tool directory, gamified Plan, guided intake, Venture copilot, 36 opportunities, 30-university atlas, Telegram authentication, paid access, and shared memory. Read V8_APPLY_STEPS.md before applying, and V8_RELEASE_NOTES.md for the verified scope and testing limits.
+Premium V11 adds a manual UZS card-transfer flow with admin receipt approval while preserving the private Founder Pulse analytics. It measures Mini App opens, DAU/WAU/MAU, screen usage, SAT/IELTS completion, the visitor-to-payment-to-approved funnel, subscribers, churn and approved UZS revenue without storing student content. Read `V11_APPLY_STEPS.md` and `V11_RELEASE_NOTES.md` before launch.
 
 ## 1. Architecture
 
@@ -27,7 +27,8 @@ Security flow:
 2. `/api/auth/telegram` validates Telegram’s HMAC and `auth_date` with the bot token.
 3. The server issues a short-lived HMAC-signed session token.
 4. Every protected request derives the user from that server-signed token.
-5. Existing trial/paid access is checked before every AI or write endpoint.
+5. Paid access is checked before the app shell and every AI or write endpoint.
+6. An admin verifies each card transfer before the shared entitlement file is updated.
 
 ## 2. Project structure
 
@@ -36,6 +37,8 @@ univenture_admissions_hub/
 ├── AIBOT.py                     # original bot, preserved and minimally integrated
 ├── backend/
 │   ├── auth.py                  # Telegram initData + signed sessions
+│   ├── analytics.py             # private, content-free product analytics
+│   ├── billing.py               # invoice binding and renewal calculations
 │   ├── legacy.py                # direct bridge to existing bot services
 │   ├── main.py                  # FastAPI routes, shared memory, bot lifespan
 │   ├── product_logic.py         # deterministic routing and streak calculations
@@ -59,7 +62,9 @@ univenture_admissions_hub/
 |---|---|---|
 | `POST` | `/api/auth/telegram` | Validate Telegram `initData`, create session |
 | `POST` | `/api/auth/dev` | Local-only auth when explicitly enabled |
-| `GET` | `/api/me` | Shared profile, portfolio and readiness |
+| `GET` | `/api/me` | Session user and subscription status |
+| `POST` | `/api/analytics/event` | Record an allow-listed, content-free product event |
+| `GET` | `/api/admin/analytics` | Private founder dashboard data for configured admins |
 | `POST` | `/api/profile/name` | Save the student's manually entered display name |
 | `POST` | `/api/profile/onboarding` | Save guided profile, direction and capacity signals |
 | `POST` | `/api/profile/onboarding/skip` | Defer optional guided intake without blocking access |
@@ -159,7 +164,11 @@ Restart the frontend dev server so Vite receives the variable. This tests the sa
    - `DATA_DIR=/data`
    - `PAID_DB_PATH=/data/paid_users.json`
    - `CHROMA_PATH=/data/chroma_store`
+   - `PRODUCT_ANALYTICS_PATH=/data/product_analytics.json`
+   - `ADMIN_IDS=your_telegram_numeric_id`
    - `PAYWALL_ENABLED=1`
+   - `FREE_TRIAL_DAYS=0`
+   - `TELEGRAM_STARS_PRICE=799`
    - `RUN_TELEGRAM_BOT=1`
 6. If this replaces an existing Railway bot deployment, attach or migrate the **same `/data` volume contents** before switching traffic. That preserves paid users, trials, memory and Chroma sources.
 7. Deploy once and generate a Railway public HTTPS domain.
@@ -175,10 +184,11 @@ No migrations are required for existing users.
 
 - Existing fields under `profile`, `writing`, `application`, `history`, and `drafts` remain untouched.
 - New Mini App state is additive under `memory["miniapp"]`.
+- Product analytics are stored separately at `/data/product_analytics.json`; no student writing or profile content is copied there.
 - Practice days, reminders, and notification read state are additive under `memory["miniapp"]`; no migration is required.
 - New portfolio sections (`projects`, `recommendations`, `deadlines`, and `school_list`) are additive under `memory["application"]`.
 - Chroma collection names remain `global_<topic>` and use the bot’s existing embedding configuration.
-- The original slash commands, admin commands, teaching commands, payment proof flow, reminders, menus, file handlers, and chat answers remain registered.
+- The original slash commands, admin commands, teaching commands, reminders, menus, file handlers, and chat answers remain registered. `/pay` now shows the configured card and waits for an admin-reviewed receipt.
 
 ## 7. Verification commands
 
@@ -195,8 +205,10 @@ curl http://localhost:8000/api/health
 
 - Open only through Telegram and confirm first launch asks the student to enter a preferred name manually.
 - Tamper with `initData` and confirm authentication returns `401`.
-- Confirm an expired user can see access status but AI actions return the paywall.
-- Confirm a trial user and an activated paid user can run every tool.
+- Confirm an unpaid user sees the locked Pro screen before onboarding or navigation.
+- Submit one test receipt, verify the bank transfer, approve it, and confirm the app unlocks.
+- Re-send the same successful-payment update in a test environment and confirm access is not extended twice.
+- Confirm `/terms`, `/paysupport`, `/mysub`, and the admin Approve/Reject flow.
 - Update GPA in My Portfolio, then open the chatbot `/profile` and confirm the same value is present.
 - Run one Personal Statement and one supplemental review; confirm the headings and advice are different.
 - Tap **Get Full Detailed Review** and confirm it runs only after the tap.
@@ -208,6 +220,8 @@ curl http://localhost:8000/api/health
 - Generate a plan, return Home, and confirm Today’s Priority uses the latest plan.
 - Upload one PDF, DOCX, and TXT under 5 MB from Essay, AI Coach, EC, IELTS, Recommendation, Portfolio, Boost, and SAT Mistake Lab.
 - Restart Railway and confirm paid users, memory and Chroma sources persist.
+- Confirm non-admin users receive `403` from `/api/admin/analytics` and `⛔ Admin only.` from `/stats`.
+- Open Tools as an admin and verify **Founder Pulse** reports real Mini App activity after fresh navigation.
 - Test `/start`, `/teach`, `/stats`, `/pay`, `/mysub`, `/activate`, uploads, and ordinary chatbot answers after deployment.
 
 See [`docs/AIBOT_INTEGRATION.md`](docs/AIBOT_INTEGRATION.md) for the exact bot modifications.

@@ -4,9 +4,10 @@
 import os
 os.environ['TZ'] = 'UTC'  # Set timezone to UTC
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from telegram import (
     Update,
+    LabeledPrice,
     KeyboardButton,
     ReplyKeyboardMarkup,
     InlineKeyboardButton,
@@ -22,12 +23,14 @@ from telegram.ext import (
     ContextTypes,
     ApplicationHandlerStop,
     CallbackQueryHandler,
+    PreCheckoutQueryHandler,
     filters,
 )
 from dotenv import load_dotenv
 import chromadb
 from chromadb.utils import embedding_functions
 import os, io, logging, json, base64, uuid, re
+import html
 
 # -------- File extraction deps --------
 from pdfminer.high_level import extract_text
@@ -40,6 +43,8 @@ import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 import asyncio
+
+from backend.billing import checkout_is_valid, extended_expiry, invoice_payload, normalize_source
 
 try:
     from openai import RateLimitError
@@ -141,9 +146,10 @@ async def openai_chat(
             return "⚠️ I'm a bit busy right now! Please try again in 60 seconds."
 
 # -------- Admin config --------
-ADMIN_IDS = {
-    886181760,  # TODO: replace with YOUR Telegram user ID (from @userinfobot)
-}
+ADMIN_IDS = {886181760}
+for _admin_id in os.getenv("ADMIN_IDS", "").split(","):
+    if _admin_id.strip().isdigit():
+        ADMIN_IDS.add(int(_admin_id.strip()))
 
 def require_admin(update: Update) -> bool:
     user = update.effective_user
@@ -154,27 +160,32 @@ DATA_DIR = os.getenv("DATA_DIR", "./data")
 os.makedirs(DATA_DIR, exist_ok=True)
 
 # =============================================================================
-# Paid access (Manual verification — Option 3)
-# - 30-day free trial for every new user
-# - Then paid access with admin activation
+# Paid access
+# - Manual UZS transfer to the configured card
+# - Receipt forwarding and explicit admin approval/rejection
+# - Optional free trial controlled by FREE_TRIAL_DAYS (0 means paid-only)
 # - 30-day subscription with auto-expiry
 # - Admin activation (/activate <user_id> [days]) and deactivation
 # - User check expiry (/mysub)
 # - Automatic block for unpaid/expired users
 # - Auto reminders (3 days before expiry + after expiry)
-# - Payment proof: users send screenshot to bot; bot forwards to ADMIN and replies
+# - Payment proof: users send screenshot to bot; bot forwards it with review buttons
 # =============================================================================
 
 PAID_DB_PATH = os.getenv("PAID_DB_PATH", os.path.join(DATA_DIR, "paid_users.json"))
 DEFAULT_SUB_DAYS = int(os.getenv("DEFAULT_SUB_DAYS", "30"))
-FREE_TRIAL_DAYS = int(os.getenv("FREE_TRIAL_DAYS", "30"))
+FREE_TRIAL_DAYS = int(os.getenv("FREE_TRIAL_DAYS", "0"))
+TELEGRAM_STARS_PRICE = max(1, int(os.getenv("TELEGRAM_STARS_PRICE", "799")))
+TELEGRAM_SUBSCRIPTION_PERIOD = 2_592_000
 
-# Payment instructions (set these in Railway Variables)
-PAYMENT_PRICE_USD = os.getenv("PAYMENT_PRICE_USD", "$29")
+# Manual card payment instructions (set these in Railway Variables)
+PAYMENT_PRICE_UZS = max(1, int(os.getenv("PAYMENT_PRICE_UZS", "199000")))
 PAYMENT_CARD = os.getenv("PAYMENT_CARD", "")        # e.g. "8600 1234 5678 9012"
-PAYMENT_CLICK = os.getenv("PAYMENT_CLICK", "")      # e.g. "+998901234567"
-PAYMENT_PAYME = os.getenv("PAYMENT_PAYME", "")      # e.g. "+998901234567"
+PAYMENT_CARD_HOLDER = os.getenv("PAYMENT_CARD_HOLDER", "")
+PAYMENT_BANK = os.getenv("PAYMENT_BANK", "")
+PAYMENT_BOT_USERNAME = os.getenv("PAYMENT_BOT_USERNAME", "").strip().lstrip("@")
 PAYMENT_NOTE = os.getenv("PAYMENT_NOTE", "")        # optional extra line
+SUPPORT_HANDLE = os.getenv("SUPPORT_HANDLE", "@UniVentureSupport_bot")
 
 _paid_lock = threading.RLock()
 
@@ -215,7 +226,7 @@ def _ensure_user_trial_record(
 ) -> dict:
     """
     Ensure every user has a record with first_seen_at.
-    This is used for the 30-day free trial.
+    The same record holds paid access, payment history and optional trial state.
     """
     db = _paid_load()
     uid_str = str(user_id)
@@ -233,6 +244,7 @@ def _ensure_user_trial_record(
             "activated_by": None,
             "reminded_3day": False,
             "expired_notified": False,
+            "payments": [],
         }
         db[uid_str] = rec
         _paid_save(db)
@@ -257,6 +269,8 @@ def _ensure_user_trial_record(
 
 
 def has_free_trial_access(user_id: int) -> bool:
+    if FREE_TRIAL_DAYS <= 0:
+        return False
     rec = get_paid_record(user_id)
     if not rec:
         return False
@@ -293,7 +307,7 @@ def remaining_days(user_id: int) -> int | None:
         return (exp - datetime.utcnow()).days
 
     first_seen = _parse_iso(rec.get("first_seen_at", ""))
-    if first_seen:
+    if first_seen and FREE_TRIAL_DAYS > 0:
         trial_until = first_seen + timedelta(days=FREE_TRIAL_DAYS)
         if datetime.utcnow() <= trial_until:
             return max(0, (trial_until - datetime.utcnow()).days)
@@ -323,6 +337,7 @@ def activate_paid(user_id: int,
         "activated_by": activated_by,
         "reminded_3day": False,
         "expired_notified": False,
+        "payments": old.get("payments", []),
     }
 
     _paid_save(db)
@@ -335,41 +350,273 @@ def deactivate_paid(user_id: int) -> bool:
         return True
     return False
 
+
+def set_acquisition_source(user_id: int, source: str) -> str | None:
+    cleaned = normalize_source(source)
+    if not cleaned:
+        return None
+    with _paid_lock:
+        db = _paid_load()
+        rec = db.get(str(user_id)) or {"user_id": user_id, "first_seen_at": datetime.utcnow().isoformat()}
+        if rec.get("acquisition_source"):
+            return str(rec["acquisition_source"])
+        rec["acquisition_source"] = cleaned
+        db[str(user_id)] = rec
+        _paid_save(db)
+    return cleaned
+
+
+def create_manual_payment_request(
+    user_id: int,
+    *,
+    username: str | None = None,
+    first_name: str | None = None,
+    full_name: str | None = None,
+) -> str:
+    """Create a pending receipt review without storing the receipt itself."""
+    reference = uuid.uuid4().hex[:12]
+    now = datetime.utcnow().isoformat()
+    with _paid_lock:
+        db = _paid_load()
+        uid_str = str(user_id)
+        rec = db.get(uid_str, {})
+        requests = list(rec.get("manual_payment_requests") or [])
+        requests.append({
+            "reference": reference,
+            "status": "pending",
+            "amount": PAYMENT_PRICE_UZS,
+            "currency": "UZS",
+            "submitted_at": now,
+            "reviewed_at": None,
+            "reviewed_by": None,
+        })
+        rec.update({
+            "user_id": user_id,
+            "username": username or rec.get("username"),
+            "first_name": first_name or rec.get("first_name"),
+            "full_name": full_name or rec.get("full_name"),
+            "first_seen_at": rec.get("first_seen_at") or now,
+            "manual_payment_requests": requests[-12:],
+        })
+        db[uid_str] = rec
+        _paid_save(db)
+    return reference
+
+
+def review_manual_payment(user_id: int, reference: str, *, approved: bool, admin_id: int) -> tuple[bool, datetime | None]:
+    """Approve/reject one receipt idempotently and grant access only on approval."""
+    with _paid_lock:
+        db = _paid_load()
+        uid_str = str(user_id)
+        rec = db.get(uid_str)
+        if not rec:
+            raise ValueError("Payment request not found.")
+        requests = list(rec.get("manual_payment_requests") or [])
+        request = next((item for item in requests if item.get("reference") == reference), None)
+        if not request:
+            raise ValueError("Payment request not found.")
+        if request.get("status") != "pending":
+            return False, _parse_iso(rec.get("expires_at", ""))
+
+        now = datetime.utcnow()
+        request["status"] = "approved" if approved else "rejected"
+        request["reviewed_at"] = now.isoformat()
+        request["reviewed_by"] = admin_id
+        rec["manual_payment_requests"] = requests
+
+        expires_at = _parse_iso(rec.get("expires_at", ""))
+        if approved:
+            expires_at = extended_expiry(now, expires_at, DEFAULT_SUB_DAYS)
+            payments = list(rec.get("payments") or [])
+            payments.append({
+                "provider": "manual_card",
+                "charge_id": f"manual:{reference}",
+                "amount": int(request.get("amount") or PAYMENT_PRICE_UZS),
+                "currency": "UZS",
+                "paid_at": now.isoformat(),
+                "proof_submitted_at": request.get("submitted_at"),
+                "approved_by": admin_id,
+                "refunded_at": None,
+                "acquisition_source": rec.get("acquisition_source") or "direct",
+            })
+            rec.update({
+                "activated_at": now.isoformat(),
+                "expires_at": expires_at.isoformat(),
+                "activated_by": admin_id,
+                "payments": payments[-36:],
+                "reminded_3day": False,
+                "expired_notified": False,
+            })
+        db[uid_str] = rec
+        _paid_save(db)
+        return True, expires_at
+
+
+def latest_manual_payment_status(user_id: int) -> str | None:
+    rec = get_paid_record(user_id) or {}
+    requests = rec.get("manual_payment_requests") or []
+    return str(requests[-1].get("status")) if requests else None
+
+
+def record_star_payment(
+    user_id: int,
+    *,
+    charge_id: str,
+    amount: int,
+    invoice_payload_value: str,
+    username: str | None = None,
+    first_name: str | None = None,
+    is_recurring: bool = False,
+    is_first_recurring: bool = False,
+    subscription_expiration_date: datetime | None = None,
+) -> tuple[bool, datetime]:
+    """Idempotently grant access after Telegram confirms a Stars payment."""
+    if not checkout_is_valid(
+        payload=invoice_payload_value,
+        user_id=user_id,
+        currency="XTR",
+        total_amount=amount,
+        expected_amount=TELEGRAM_STARS_PRICE,
+    ):
+        raise ValueError("Invalid Stars payment details.")
+    if not charge_id:
+        raise ValueError("Missing Telegram payment charge ID.")
+
+    with _paid_lock:
+        db = _paid_load()
+        uid_str = str(user_id)
+        old = db.get(uid_str, {})
+        payments = list(old.get("payments") or [])
+        existing = next((item for item in payments if item.get("charge_id") == charge_id), None)
+        current_expiry = _parse_iso(old.get("expires_at", ""))
+        if current_expiry and current_expiry.tzinfo is not None:
+            current_expiry = current_expiry.astimezone(timezone.utc).replace(tzinfo=None)
+        if existing:
+            return False, current_expiry or datetime.utcnow()
+
+        now = datetime.utcnow()
+        expires_at = extended_expiry(now, current_expiry, DEFAULT_SUB_DAYS)
+        telegram_expiry = subscription_expiration_date
+        if telegram_expiry and telegram_expiry.tzinfo is not None:
+            telegram_expiry = telegram_expiry.astimezone(timezone.utc).replace(tzinfo=None)
+        if telegram_expiry and telegram_expiry > expires_at:
+            expires_at = telegram_expiry
+        payments.append({
+            "provider": "telegram_stars",
+            "charge_id": charge_id,
+            "amount": int(amount),
+            "currency": "XTR",
+            "payload": invoice_payload_value,
+            "paid_at": now.isoformat(),
+            "is_recurring": bool(is_recurring),
+            "is_first_recurring": bool(is_first_recurring),
+            "subscription_expiration_date": telegram_expiry.isoformat() if telegram_expiry else None,
+            "refunded_at": None,
+            "acquisition_source": old.get("acquisition_source") or "direct",
+        })
+        db[uid_str] = {
+            **old,
+            "user_id": user_id,
+            "username": username or old.get("username"),
+            "first_name": first_name or old.get("first_name"),
+            "first_seen_at": old.get("first_seen_at") or now.isoformat(),
+            "activated_at": now.isoformat(),
+            "expires_at": expires_at.isoformat(),
+            "activated_by": "telegram_stars",
+            "reminded_3day": False,
+            "expired_notified": False,
+            "payments": payments[-36:],
+            "acquisition_source": old.get("acquisition_source"),
+            "subscription_charge_id": charge_id if is_first_recurring else (old.get("subscription_charge_id") or charge_id),
+        }
+        _paid_save(db)
+        return True, expires_at
+
+
+def record_star_refund(user_id: int, charge_id: str) -> bool:
+    with _paid_lock:
+        db = _paid_load()
+        rec = db.get(str(user_id))
+        if not rec:
+            return False
+        payments = list(rec.get("payments") or [])
+        match = next((item for item in payments if item.get("charge_id") == charge_id), None)
+        if not match:
+            return False
+        match["refunded_at"] = datetime.utcnow().isoformat()
+        rec["payments"] = payments
+        rec["expires_at"] = datetime.utcnow().isoformat()
+        rec["expired_notified"] = False
+        db[str(user_id)] = rec
+        _paid_save(db)
+        return True
+
+
+def latest_star_charge_id(user_id: int) -> str | None:
+    rec = get_paid_record(user_id) or {}
+    if rec.get("subscription_charge_id"):
+        return str(rec["subscription_charge_id"])
+    for payment in reversed(rec.get("payments") or []):
+        if payment.get("provider") == "telegram_stars" and not payment.get("refunded_at"):
+            return str(payment.get("charge_id") or "") or None
+    return None
+
+
+def mark_star_subscription_cancelled(user_id: int, charge_id: str) -> None:
+    with _paid_lock:
+        db = _paid_load()
+        rec = db.get(str(user_id))
+        if not rec:
+            return
+        for payment in reversed(rec.get("payments") or []):
+            if payment.get("charge_id") == charge_id:
+                payment["cancelled_at"] = datetime.utcnow().isoformat()
+                break
+        db[str(user_id)] = rec
+        _paid_save(db)
+
+
+async def create_subscription_invoice_link(bot, user_id: int) -> str:
+    return await bot.create_invoice_link(
+        title="UniVentureAI Pro",
+        description="Full admissions hub, AI evaluations, roadmap, SAT and IELTS practice for 30 days.",
+        payload=invoice_payload(user_id),
+        provider_token="",
+        currency="XTR",
+        prices=[LabeledPrice("30-day Pro access", TELEGRAM_STARS_PRICE)],
+        subscription_period=TELEGRAM_SUBSCRIPTION_PERIOD,
+    )
+
 def _payment_instructions_text(user_id: int) -> str:
+    card = html.escape(PAYMENT_CARD or "Card is not configured yet")
+    holder = html.escape(PAYMENT_CARD_HOLDER or "")
+    bank = html.escape(PAYMENT_BANK or "")
     parts = [
-        "🔒 <b>Paid access required</b>",
+        "🔐 <b>Unlock UniVentureAI Pro</b>",
         "",
-        "💳 <b>Limited Offer</b>",
-        "Old price: <s>$75</s>",
-        f"Now: <b>$29</b> (valid for {DEFAULT_SUB_DAYS} days)",
+        f"💳 <b>{PAYMENT_PRICE_UZS:,} UZS for 30 days</b>",
         "",
-        "Pay using any of these methods and then send a screenshot here:",
-    ]
-
-    if PAYMENT_CLICK:
-        parts.append(f"• Click: {PAYMENT_CLICK}")
-    if PAYMENT_PAYME:
-        parts.append(f"• Payme: {PAYMENT_PAYME}")
-    if PAYMENT_CARD:
-        parts.append(f"• Card (HUMO):\n {PAYMENT_CARD}\n SAIDAMIRKHON YUSUPOV")
-    if PAYMENT_NOTE:
-        parts.append(PAYMENT_NOTE)
-
-    if not (PAYMENT_CLICK or PAYMENT_PAYME or PAYMENT_CARD):
-        parts.append("• Contact admin for payment details.")
-
-    parts.extend([
+        f"Card: <code>{card}</code>",
+        f"Cardholder: <b>{holder}</b>" if holder else "",
+        f"Bank: {bank}" if bank else "",
+        "",
+        "Your membership includes:",
+        "• Personal admissions roadmap and reminders",
+        "• Essay, EC and recommendation feedback",
+        "• SAT and IELTS practice studios",
+        "• School fit, opportunities and AI copilot",
+        "",
+        "1. Transfer the exact amount to the card above.",
+        "2. Send the payment screenshot here as a photo or document.",
+        "3. Access unlocks after an admin verifies the receipt.",
+        "",
+        html.escape(PAYMENT_NOTE) if PAYMENT_NOTE else "",
+        "By paying, you agree to /terms. For help, use /paysupport.",
         "",
         f"🆔 Your user ID: <code>{user_id}</code>",
-        "After you send the screenshot, an admin will verify and activate your access.",
-        "",
-        "<b>Commands:</b>",
-        "• /pay — show payment details",
-        "• /id — show your user ID",
-        "• /mysub — check subscription status",
-    ])
+    ]
 
-    return "\n".join(parts)
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(parts)).strip()
 
 async def how_to_use_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -473,15 +720,161 @@ async def feedback_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def pay_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_typing(update, context)
     uid = update.effective_user.id
-
-    # After /pay, treat the next photo/document from this user as payment proof.
-    # This works even if the user is still inside free trial or the paywall is disabled.
+    if not PAYMENT_CARD:
+        await update.message.reply_text(
+            f"Card payment is temporarily unavailable. Please contact {SUPPORT_HANDLE}."
+        )
+        return
     context.user_data["awaiting_payment_proof"] = True
-
     await update.message.reply_text(
         _payment_instructions_text(uid),
-        parse_mode="HTML"
+        parse_mode="HTML",
     )
+
+
+async def stars_precheckout(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.pre_checkout_query
+    if not query:
+        return
+    valid = checkout_is_valid(
+        payload=query.invoice_payload,
+        user_id=query.from_user.id,
+        currency=query.currency,
+        total_amount=query.total_amount,
+        expected_amount=TELEGRAM_STARS_PRICE,
+    )
+    if not valid:
+        await query.answer(ok=False, error_message="This subscription invoice is no longer valid. Open /pay to create a new one.")
+        return
+    await query.answer(ok=True)
+
+
+async def stars_payment_success(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.effective_message
+    user = update.effective_user
+    payment = getattr(message, "successful_payment", None) if message else None
+    if not user or not payment:
+        return
+    if not checkout_is_valid(
+        payload=payment.invoice_payload,
+        user_id=user.id,
+        currency=payment.currency,
+        total_amount=payment.total_amount,
+        expected_amount=TELEGRAM_STARS_PRICE,
+    ):
+        logging.error("Rejected mismatched successful payment for user %s", user.id)
+        return
+
+    created, expires_at = record_star_payment(
+        user.id,
+        charge_id=payment.telegram_payment_charge_id,
+        amount=payment.total_amount,
+        invoice_payload_value=payment.invoice_payload,
+        username=user.username or None,
+        first_name=user.first_name or None,
+        is_recurring=bool(getattr(payment, "is_recurring", False)),
+        is_first_recurring=bool(getattr(payment, "is_first_recurring", False)),
+        subscription_expiration_date=getattr(payment, "subscription_expiration_date", None),
+    )
+    if created:
+        acquisition_source = (get_paid_record(user.id) or {}).get("acquisition_source") or "direct"
+        try:
+            from backend.analytics import record_event as record_product_event
+            record_product_event(user.id, "payment_success", {
+                "currency": payment.currency,
+                "amount": payment.total_amount,
+                "provider": "telegram_stars",
+            }, source=acquisition_source)
+        except Exception:
+            logging.exception("Could not record payment analytics")
+        await message.reply_text(
+            "✅ Payment confirmed — UniVentureAI Pro is active.\n\n"
+            f"Access is available through {expires_at.date()}. Open the Admissions Hub to continue.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🚀 Open Admissions Hub", web_app=WebAppInfo(url=MINI_APP_URL))]
+            ]) if MINI_APP_URL else None,
+        )
+        for admin_id in ADMIN_IDS:
+            try:
+                await context.bot.send_message(
+                    chat_id=admin_id,
+                    text=(
+                        "⭐ Telegram Stars payment received\n\n"
+                        f"Name: {user.full_name}\n"
+                        f"Username: @{user.username or 'No username'}\n"
+                        f"User ID: {user.id}\n"
+                        f"Amount: {payment.total_amount} Stars\n"
+                        f"Source: {acquisition_source}\n"
+                        f"Charge ID: {payment.telegram_payment_charge_id}\n"
+                        f"Access through: {expires_at.date()}"
+                    ),
+                )
+            except Exception:
+                logging.exception("Could not notify admin about Stars payment")
+
+
+async def terms_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "📄 UniVentureAI subscription terms\n\n"
+        f"• Price: {PAYMENT_PRICE_UZS:,} UZS for 30 days.\n"
+        "• Billing: manual card transfer; there is no automatic renewal.\n"
+        "• Activation: access begins only after an admin verifies the receipt.\n"
+        "• Access: Admissions Hub, AI feedback, planning, SAT and IELTS tools.\n"
+        "• Results: guidance and practice do not guarantee admission or an official test score.\n"
+        "• Refunds and payment problems: contact /paysupport with your receipt.\n"
+        "• Your saved work remains stored if access expires.\n\n"
+        "Paying confirms that you accept these terms."
+    )
+
+
+async def paysupport_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "💬 Payment support\n\n"
+        f"Contact {SUPPORT_HANDLE or 'the UniVentureAI team'} and include your Telegram user ID: {update.effective_user.id}.\n"
+        "Include your receipt reference or screenshot so the admin can check it."
+    )
+
+
+async def cancel_subscription_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "There is no automatic renewal. Your access ends on the date shown by /mysub; pay manually again only if you want another 30 days."
+    )
+
+
+async def refundstars_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not require_admin(update):
+        await update.message.reply_text("⛔ Admin only.")
+        return
+    if len(context.args) != 2:
+        await update.message.reply_text("Usage: /refundstars <user_id> <telegram_charge_id>")
+        return
+    try:
+        user_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("Usage: /refundstars <user_id> <telegram_charge_id>")
+        return
+    charge_id = context.args[1].strip()
+    try:
+        await context.bot.refund_star_payment(user_id=user_id, telegram_payment_charge_id=charge_id)
+    except Exception as exc:
+        logging.exception("Telegram Stars refund failed")
+        await update.message.reply_text(f"Refund failed: {exc}")
+        return
+    subscription_charge_id = latest_star_charge_id(user_id)
+    renewal_canceled = not subscription_charge_id
+    if subscription_charge_id:
+        try:
+            await context.bot.edit_user_star_subscription(
+                user_id=user_id,
+                telegram_payment_charge_id=subscription_charge_id,
+                is_canceled=True,
+            )
+            renewal_canceled = True
+        except Exception:
+            logging.exception("Refund succeeded but recurring renewal could not be canceled for user %s", user_id)
+    record_star_refund(user_id, charge_id)
+    suffix = " Renewal was canceled." if renewal_canceled else " Renewal cancellation needs manual follow-up."
+    await update.message.reply_text(f"✅ Refunded Stars payment for user {user_id} and closed current access.{suffix}")
 
 async def id_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
@@ -506,12 +899,13 @@ async def mysub_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "💎 Active paid subscription\n\n"
             f"Days remaining: {days_left}\n"
-            f"Expires on: {exp.date()}"
+            f"Expires on: {exp.date()}\n"
+            "Automatic renewal: off"
         )
         return
 
     first_seen = _parse_iso(rec.get("first_seen_at", ""))
-    if first_seen:
+    if first_seen and FREE_TRIAL_DAYS > 0:
         trial_until = first_seen + timedelta(days=FREE_TRIAL_DAYS)
         if now <= trial_until:
             days_left = max(0, (trial_until - now).days)
@@ -523,7 +917,7 @@ async def mysub_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     await update.message.reply_text(
-        "⚠️ Your free trial has ended and you do not have an active paid subscription.\n\nUse /pay to unlock access."
+        "🔒 You do not have an active UniVentureAI Pro subscription.\n\nUse /pay to unlock access."
     )
 
 async def activate_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -604,6 +998,45 @@ async def paidusers_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     await send_long(update, "\n".join(lines))
 
+
+async def sales_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not require_admin(update):
+        await update.message.reply_text("⛔ Admin only.")
+        return
+    now = datetime.utcnow()
+    windows = {"today": now - timedelta(days=1), "7 days": now - timedelta(days=7), "30 days": now - timedelta(days=30)}
+    totals = {label: {"uzs": 0, "payments": 0, "users": set()} for label in windows}
+    sources: dict[str, dict[str, int]] = {}
+    for uid, rec in _paid_load().items():
+        for payment in rec.get("payments") or []:
+            if payment.get("provider") != "manual_card" or payment.get("refunded_at"):
+                continue
+            paid_at = _parse_iso(payment.get("paid_at", ""))
+            if not paid_at:
+                continue
+            amount = int(payment.get("amount", 0) or 0)
+            source = str(payment.get("acquisition_source") or rec.get("acquisition_source") or "direct")
+            if paid_at >= windows["30 days"]:
+                source_row = sources.setdefault(source, {"uzs": 0, "payments": 0})
+                source_row["uzs"] += amount
+                source_row["payments"] += 1
+            for label, cutoff in windows.items():
+                if paid_at >= cutoff:
+                    totals[label]["uzs"] += amount
+                    totals[label]["payments"] += 1
+                    totals[label]["users"].add(uid)
+    lines = ["📈 Verified card sales", ""]
+    for label in ("today", "7 days", "30 days"):
+        row = totals[label]
+        lines.append(f"{label.title()}: {row['uzs']:,} UZS · {row['payments']} payments · {len(row['users'])} buyers")
+    if sources:
+        lines.extend(["", "Top sources (30 days):"])
+        for source, row in sorted(sources.items(), key=lambda item: item[1]["uzs"], reverse=True)[:8]:
+            lines.append(f"• {source}: {row['uzs']:,} UZS · {row['payments']} payments")
+    else:
+        lines.extend(["", "No approved card payments in the last 30 days."])
+    await update.message.reply_text("\n".join(lines))
+
 async def _forward_payment_proof_to_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Forward the user's screenshot/document to all admins + send a helper message
     msg = update.effective_message
@@ -616,6 +1049,12 @@ async def _forward_payment_proof_to_admin(update: Update, context: ContextTypes.
     last_name = update.effective_user.last_name or ""
     full_name = " ".join([x for x in [first_name, last_name] if x]).strip() or "Unknown"
     chat_id = update.effective_chat.id
+    reference = create_manual_payment_request(
+        uid,
+        username=username or None,
+        first_name=first_name or None,
+        full_name=full_name,
+    )
 
     for admin_id in ADMIN_IDS:
         try:
@@ -631,8 +1070,14 @@ async def _forward_payment_proof_to_admin(update: Update, context: ContextTypes.
                     f"Name: {full_name}\n"
                     f"Username: @{username if username else 'No username'}\n"
                     f"User ID: {uid}\n\n"
-                    f"Activate: /activate {uid} 30"
+                    f"Expected: {PAYMENT_PRICE_UZS:,} UZS\n"
+                    f"Reference: {reference}\n\n"
+                    "Verify the transfer in your banking app before approving."
                 ),
+                reply_markup=InlineKeyboardMarkup([[ 
+                    InlineKeyboardButton("✅ Approve 30 days", callback_data=f"manualpay:approve:{uid}:{reference}"),
+                    InlineKeyboardButton("❌ Reject", callback_data=f"manualpay:reject:{uid}:{reference}"),
+                ]]),
             )
         except Exception as e:
             logging.error(f"Failed to forward payment proof to admin {admin_id}: {e}")
@@ -652,14 +1097,68 @@ async def _forward_payment_proof_to_admin(update: Update, context: ContextTypes.
     db[uid_str]["full_name"] = full_name
 
     _paid_save(db)
+    return reference
+
+
+async def manual_payment_review_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if not query or not query.from_user or query.from_user.id not in ADMIN_IDS:
+        if query:
+            await query.answer("Admin only.", show_alert=True)
+        return
+    try:
+        _, action, uid_text, reference = (query.data or "").split(":", 3)
+        user_id = int(uid_text)
+        approved = action == "approve"
+        changed, expires_at = review_manual_payment(
+            user_id,
+            reference,
+            approved=approved,
+            admin_id=query.from_user.id,
+        )
+    except (ValueError, TypeError) as exc:
+        await query.answer(str(exc), show_alert=True)
+        return
+    if not changed:
+        await query.answer("This receipt was already reviewed.", show_alert=True)
+        return
+
+    if approved:
+        rec = get_paid_record(user_id) or {}
+        source = rec.get("acquisition_source") or "direct"
+        try:
+            from backend.analytics import record_event as record_product_event
+            record_product_event(user_id, "payment_success", {
+                "currency": "UZS",
+                "amount": PAYMENT_PRICE_UZS,
+                "provider": "manual_card",
+            }, source=source)
+        except Exception:
+            logging.exception("Could not record manual payment analytics")
+        admin_text = f"✅ Approved · {PAYMENT_PRICE_UZS:,} UZS · access through {expires_at.date() if expires_at else '—'}"
+        user_text = (
+            "✅ Your payment was approved. UniVentureAI Pro is active for 30 days.\n\n"
+            f"Access through: {expires_at.date() if expires_at else '—'}"
+        )
+    else:
+        admin_text = "❌ Receipt rejected · no access granted"
+        user_text = f"❌ We could not verify your payment receipt. Please use /pay to try again or contact {SUPPORT_HANDLE}."
+    await query.answer("Saved")
+    await query.edit_message_text(f"{query.message.text}\n\n{admin_text}")
+    try:
+        await context.bot.send_message(chat_id=user_id, text=user_text)
+    except Exception:
+        logging.exception("Could not notify user %s about manual payment review", user_id)
     
 async def payment_proof_received_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # user-facing confirmation (always)
     uid = update.effective_user.id
+    reference = latest_manual_payment_status(uid)
     await update.message.reply_text(
         "📸 Screenshot received.\n"
         "✅ Please wait for admin verification.\n\n"
-        f"🆔 Your user ID: {uid}"
+        f"🆔 Your user ID: {uid}\n"
+        f"Status: {reference or 'pending'}"
     )
 
 async def paid_access_gate(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -680,6 +1179,11 @@ async def paid_access_gate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Ensure user has a first_seen_at record for free trial tracking.
         _ensure_user_trial_record(uid, username=username, first_name=first_name)
 
+        # Let the next photo/document reach the receipt handler after /pay.
+        has_receipt = bool(getattr(msg, "photo", None)) or bool(getattr(msg, "document", None))
+        if has_receipt and context.user_data.get("awaiting_payment_proof"):
+            return
+
         # Check if user has access via the unified function.
         if is_pro_user(update):
             return
@@ -689,27 +1193,12 @@ async def paid_access_gate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if getattr(msg, "text", None) and msg.text.startswith("/"):
             cmd = msg.text.split()[0].lower()
 
-        WHITELIST = {"/start", "/pay", "/id", "/mysub"}
+        WHITELIST = {"/start", "/pay", "/id", "/mysub", "/terms", "/paysupport", "/cancel"}
         if cmd in WHITELIST:
             return
 
-        # Block access and either forward proof or show payment instructions.
-        is_photo = bool(getattr(msg, "photo", None))
-        is_doc = bool(getattr(msg, "document", None))
-
-        if is_photo or is_doc:
-            # User sent a file (payment proof?). Forward it to admins and confirm.
-            await _forward_payment_proof_to_admin(update, context)
-            await payment_proof_received_reply(update, context)
-            raise ApplicationHandlerStop()
-
-        # User sent text without access. Show payment instructions and wait for proof.
-        context.user_data["awaiting_payment_proof"] = True
-        await show_typing(update, context)
-        await msg.reply_text(
-            _payment_instructions_text(uid),
-            parse_mode="HTML"
-        )
+        # Unpaid users can only open payment/support/status flows.
+        await pay_cmd(update, context)
         raise ApplicationHandlerStop()
 
     except ApplicationHandlerStop:
@@ -905,7 +1394,7 @@ os.makedirs(USER_MEM_DIR, exist_ok=True)
 _memory_lock = threading.RLock()
 
 PAYWALL_ENABLED = os.getenv("PAYWALL_ENABLED", "0").strip() == "1"
-SUPPORT_HANDLE = os.getenv("SUPPORT_HANDLE", "")  # e.g. @UniVentureSupport
+SUPPORT_HANDLE = os.getenv("SUPPORT_HANDLE", "@UniVentureSupport_bot")
 PRO_USER_IDS = set()
 try:
     _raw = os.getenv("PRO_USER_IDS", "")
@@ -2384,6 +2873,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if user:
         record_event(user.id, 'start', kind='start')
+        if context.args:
+            start_arg = context.args[0].strip()
+            if start_arg.lower() == "pay":
+                await pay_cmd(update, context)
+                return
+            set_acquisition_source(user.id, start_arg)
     # Non-fatal memory init
     try:
         mem = get_user_memory_cached(update, context)
@@ -3839,6 +4334,9 @@ async def photo_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ---------- STATS ----------
 async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not require_admin(update):
+        await update.message.reply_text("⛔ Admin only.")
+        return
     stats = load_stats()
     total_users = len(stats.get("users", []))
     total_msgs = stats.get("messages_total", 0)
@@ -6896,11 +7394,16 @@ app.add_handler(MessageHandler(filters.ALL, paid_access_gate), group=-1)
 # ===== GROUP 0: COMMANDS ONLY =====
 app.add_handler(CommandHandler("start", start), group=0)
 app.add_handler(CommandHandler("pay", pay_cmd), group=0)
+app.add_handler(CommandHandler("terms", terms_cmd), group=0)
+app.add_handler(CommandHandler("paysupport", paysupport_cmd), group=0)
+app.add_handler(CommandHandler("cancel", cancel_subscription_cmd), group=0)
 app.add_handler(CommandHandler("id", id_cmd), group=0)
 app.add_handler(CommandHandler("mysub", mysub_cmd), group=0)
 app.add_handler(CommandHandler("activate", activate_cmd), group=0)
 app.add_handler(CommandHandler("deactivate", deactivate_cmd), group=0)
 app.add_handler(CommandHandler("paidusers", paidusers_cmd), group=0)
+app.add_handler(CommandHandler("sales", sales_cmd), group=0)
+app.add_handler(CallbackQueryHandler(manual_payment_review_callback, pattern=r"^manualpay:(approve|reject):\d+:[a-f0-9]{12}$"), group=0)
 app.add_handler(CommandHandler("teach", teach), group=0)
 app.add_handler(CommandHandler("teachrubric", teachrubric), group=0)
 app.add_handler(CommandHandler("teachfile", teachfile), group=0)

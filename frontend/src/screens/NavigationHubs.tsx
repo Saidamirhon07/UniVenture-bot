@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
   Award,
+  BarChart3,
   BrainCircuit,
   BriefcaseBusiness,
   Calculator,
@@ -89,7 +90,7 @@ function categoryPercent(data: DashboardData, keys: string[]) {
   return max ? Math.round((score / max) * 100) : 0;
 }
 
-export function ToolsHubScreen({ navigate }: { navigate: Navigate }) {
+export function ToolsHubScreen({ navigate, isAdmin = false }: { navigate: Navigate; isAdmin?: boolean }) {
   const [query, setQuery] = useState("");
   const normalizedQuery = query.trim().toLowerCase();
   const groups = useMemo(() => {
@@ -110,6 +111,8 @@ export function ToolsHubScreen({ navigate }: { navigate: Navigate }) {
         <input aria-label="Search tools" placeholder="Search essay, EC, SAT…" value={query} onChange={(event) => setQuery(event.target.value)} />
         {query ? <button type="button" onClick={() => setQuery("")} aria-label="Clear search">×</button> : null}
       </label>
+
+      {isAdmin ? <button className="founder-entry" onClick={() => navigate("founder")}><span><BarChart3 size={20} /></span><div><small>PRIVATE FOUNDER VIEW</small><strong>Open growth analytics</strong></div><ChevronRight size={17} /></button> : null}
 
       {groups.length ? groups.map((group) => (
         <section className="simple-tool-group" key={group.title}>

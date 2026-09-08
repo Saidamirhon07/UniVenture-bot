@@ -1,4 +1,4 @@
-import type { SessionUser } from "./types";
+import type { SessionUser, SubscriptionStatus } from "./types";
 
 const TOKEN_KEY = "univenture_hub_session";
 
@@ -36,11 +36,10 @@ class ApiClient {
     return data as T;
   }
 
-  async authenticate(): Promise<{ user: SessionUser; subscription: Record<string, unknown> }> {
+  async authenticate(): Promise<{ user: SessionUser; subscription: SubscriptionStatus }> {
     if (this.token) {
       try {
-        const existing = await this.get<{ user: SessionUser }>("/api/me");
-        return { user: existing.user, subscription: {} };
+        return await this.get<{ user: SessionUser; subscription: SubscriptionStatus }>("/api/me");
       } catch (error) {
         if (!(error instanceof ApiError) || error.status !== 401) throw error;
         this.clearSession();
@@ -49,8 +48,8 @@ class ApiClient {
 
     const telegramInitData = window.Telegram?.WebApp.initData || import.meta.env.VITE_TELEGRAM_INIT_DATA || "";
     const payload = telegramInitData
-      ? await this.post<{ token: string; user: SessionUser; subscription: Record<string, unknown> }>("/api/auth/telegram", { init_data: telegramInitData })
-      : await this.post<{ token: string; user: SessionUser; subscription: Record<string, unknown> }>("/api/auth/dev", {
+      ? await this.post<{ token: string; user: SessionUser; subscription: SubscriptionStatus }>("/api/auth/telegram", { init_data: telegramInitData })
+      : await this.post<{ token: string; user: SessionUser; subscription: SubscriptionStatus }>("/api/auth/dev", {
           user_id: Number(import.meta.env.VITE_DEV_USER_ID || 8489671503),
           first_name: import.meta.env.VITE_DEV_FIRST_NAME || "Saidamirkhon",
           username: "local_student",
@@ -78,7 +77,11 @@ class ApiClient {
     form.append("file", file);
     return this.request<T>(path, { method: "POST", body: form });
   }
+
+  track(event: "app_open" | "screen_view" | "paywall_view" | "checkout_started" | "onboarding_completed", properties: Record<string, unknown> = {}, source?: string) {
+    if (!this.token) return Promise.resolve({ recorded: false });
+    return this.post<{ recorded: boolean }>("/api/analytics/event", { event, properties, source }).catch(() => ({ recorded: false }));
+  }
 }
 
 export const api = new ApiClient();
-

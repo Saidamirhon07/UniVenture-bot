@@ -5,13 +5,15 @@ import { api } from "./api";
 import { Button, Card, ErrorBanner, Input, LoadingScreen, Tag } from "./components/ui";
 import ProfileCopilot from "./components/ProfileCopilot";
 import PracticeStudio from "./components/PracticeStudio";
-import type { Navigate, ScreenId, SessionUser } from "./types";
+import PaywallScreen from "./components/PaywallScreen";
+import type { Navigate, ScreenId, SessionUser, SubscriptionStatus } from "./types";
 import ApplicationPlanScreen from "./screens/ApplicationPlanScreen";
 import EssayLabScreen from "./screens/EssayLabScreen";
 import HomeScreen from "./screens/HomeScreen";
 import PortfolioScreen from "./screens/PortfolioScreen";
 import ProfileSetupScreen from "./screens/ProfileSetupScreen";
 import SchoolFinderScreen from "./screens/SchoolFinderScreen";
+import FounderAnalyticsScreen from "./screens/FounderAnalyticsScreen";
 import { BoostToolsScreen, ECBuilderScreen, IELTSWritingScreen, PortfolioBuilderScreen, RecommendationScreen } from "./screens/FocusedTools";
 import { AICoachScreen, DiscoverScreen, FeedbackScreen, PrepHubScreen, SATStudioScreen } from "./screens/GrowthScreens";
 import { RoadmapScreen, ToolsHubScreen } from "./screens/NavigationHubs";
@@ -25,7 +27,7 @@ const primaryNav: Array<{ screen: ScreenId; label: string; icon: typeof Home; fe
 ];
 
 function navScreen(screen: ScreenId): ScreenId {
-  if (["sat", "ielts", "prep", "coach", "brainstorm", "rewrite", "essay", "ec", "recommendation", "portfolio-builder", "boost"].includes(screen)) return "tools";
+  if (["sat", "ielts", "prep", "coach", "brainstorm", "rewrite", "essay", "ec", "recommendation", "portfolio-builder", "boost", "founder"].includes(screen)) return "tools";
   if (["school"].includes(screen)) return "discover";
   if (["plan"].includes(screen)) return "roadmap";
   return screen;
@@ -60,6 +62,7 @@ function NameSetup({ onSaved }: { onSaved: (user: SessionUser) => void }) {
 export default function App() {
   const [screen, setScreen] = useState<ScreenId>("home");
   const [user, setUser] = useState<SessionUser | null>(null);
+  const [subscription, setSubscription] = useState<SubscriptionStatus | null>(null);
   const [authError, setAuthError] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
 
@@ -79,8 +82,18 @@ export default function App() {
     webApp?.setHeaderColor("#fbf7f1");
     webApp?.setBackgroundColor("#fbf7f1");
     webApp?.enableClosingConfirmation?.();
-    api.authenticate().then(({ user: authenticatedUser }) => setUser(authenticatedUser)).catch((error) => setAuthError(error instanceof Error ? error.message : "Authentication failed."));
+    api.authenticate()
+      .then(({ user: authenticatedUser, subscription: access }) => {
+        setUser(authenticatedUser); setSubscription(access);
+        const source = webApp?.initDataUnsafe?.start_param || new URLSearchParams(window.location.search).get("startapp") || undefined;
+        void api.track("app_open", { session_id: crypto.randomUUID?.() || String(Date.now()) }, source);
+      })
+      .catch((error) => setAuthError(error instanceof Error ? error.message : "Authentication failed."));
   }, []);
+
+  useEffect(() => {
+    if (user) void api.track("screen_view", { screen });
+  }, [screen, user]);
 
   useEffect(() => {
     const back = window.Telegram?.WebApp.BackButton;
@@ -91,7 +104,8 @@ export default function App() {
   }, [screen, navigate]);
 
   if (authError) return <AuthFailure message={authError} />;
-  if (!user) return <LoadingScreen />;
+  if (!user || !subscription) return <LoadingScreen />;
+  if (!subscription.has_access) return <PaywallScreen subscription={subscription} onUnlocked={setSubscription} />;
   if (!user.has_manual_name || !user.name) return <NameSetup onSaved={setUser} />;
   if (!user.onboarding_complete) return <ProfileSetupScreen name={user.name} onComplete={setUser} />;
 
@@ -99,7 +113,7 @@ export default function App() {
     switch (screen) {
       case "home": return <HomeScreen navigate={navigate} reloadKey={reloadKey} />;
       case "roadmap": return <RoadmapScreen navigate={navigate} reloadKey={reloadKey} />;
-      case "tools": return <ToolsHubScreen navigate={navigate} />;
+      case "tools": return <ToolsHubScreen navigate={navigate} isAdmin={Boolean(user.is_admin)} />;
       case "discover": return <DiscoverScreen navigate={navigate} />;
       case "prep": return <PrepHubScreen navigate={navigate} />;
       case "coach": return <AICoachScreen navigate={navigate} />;
@@ -116,6 +130,7 @@ export default function App() {
       case "recommendation": return <RecommendationScreen navigate={navigate} onChanged={markChanged} />;
       case "portfolio-builder": return <PortfolioBuilderScreen navigate={navigate} onChanged={markChanged} />;
       case "boost": return <BoostToolsScreen navigate={navigate} />;
+      case "founder": return user.is_admin ? <FounderAnalyticsScreen navigate={navigate} /> : <ToolsHubScreen navigate={navigate} isAdmin={false} />;
     }
   })();
 

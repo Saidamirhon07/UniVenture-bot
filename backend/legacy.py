@@ -29,15 +29,25 @@ def save_memory(user_id: int, memory: dict[str, Any]) -> None:
     module().save_user_memory(user_id, memory)
 
 
+def is_admin(user_id: int) -> bool:
+    return int(user_id) in module().ADMIN_IDS
+
+
+def paid_records() -> dict[str, Any]:
+    return module()._paid_load()
+
+
 def subscription_status(user_id: int) -> dict[str, Any]:
     bot = module()
     rec = bot.get_paid_record(user_id) or {}
     now = bot.datetime.utcnow()
     expires_at = bot._parse_iso(rec.get("expires_at", ""))
     first_seen = bot._parse_iso(rec.get("first_seen_at", ""))
-    trial_ends_at = first_seen + bot.timedelta(days=bot.FREE_TRIAL_DAYS) if first_seen else None
-
-    if not bot.PAYWALL_ENABLED:
+    trial_ends_at = first_seen + bot.timedelta(days=bot.FREE_TRIAL_DAYS) if first_seen and bot.FREE_TRIAL_DAYS > 0 else None
+    if int(user_id) in bot.ADMIN_IDS:
+        access_type = "admin"
+        has_access = True
+    elif not bot.PAYWALL_ENABLED:
         access_type = "unrestricted"
         has_access = True
     elif expires_at and now <= expires_at:
@@ -56,7 +66,18 @@ def subscription_status(user_id: int) -> dict[str, Any]:
         "remaining_days": bot.remaining_days(user_id),
         "expires_at": expires_at.isoformat() if expires_at else None,
         "trial_ends_at": trial_ends_at.isoformat() if trial_ends_at else None,
-        "price": bot.PAYMENT_PRICE_USD,
+        "price": f"{bot.PAYMENT_PRICE_UZS:,} UZS",
+        "price_uzs": bot.PAYMENT_PRICE_UZS,
+        "period_days": bot.DEFAULT_SUB_DAYS,
+        "recurring": False,
+        "support_handle": bot.SUPPORT_HANDLE,
+        "auto_renews": False,
+        "payment_method": "manual_card",
+        "card_number": bot.PAYMENT_CARD,
+        "card_holder": bot.PAYMENT_CARD_HOLDER,
+        "bank_name": bot.PAYMENT_BANK,
+        "payment_bot_url": f"https://t.me/{bot.PAYMENT_BOT_USERNAME}?start=pay" if bot.PAYMENT_BOT_USERNAME else None,
+        "payment_status": bot.latest_manual_payment_status(user_id),
     }
 
 
@@ -124,4 +145,3 @@ async def stop_bot() -> None:
 
 async def load_rag(topic: str, query: str) -> str:
     return await asyncio.to_thread(rag_context, topic, query)
-

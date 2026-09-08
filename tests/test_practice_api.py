@@ -29,6 +29,7 @@ class PracticeAPITests(unittest.TestCase):
             patch.object(main.legacy,"subscription_status",side_effect=lambda uid:{"has_access":self.paid}),
             patch.object(main,"_ensure_memory",side_effect=lambda memory: ({},memory.setdefault("miniapp",{}))),
             patch.object(main,"_local_today",return_value=date(2026,9,8)),
+            patch.object(main,"_track_product_event"),
         ]
         for p in self.patches: p.start()
         main.app.dependency_overrides[main.current_identity] = lambda: TelegramIdentity(user_id=self.user,first_name="Fixture",username="fixture")
@@ -60,11 +61,11 @@ class PracticeAPITests(unittest.TestCase):
         self.user = 202
         self.assertEqual(self.client.get("/api/practice/library").json()["sessions"],[])
 
-    def test_expired_access_blocks_writes_not_history(self):
+    def test_expired_access_blocks_practice_content_and_writes(self):
         self.paid = False
         self.assertEqual(self.client.post("/api/practice/session",json=self.payload).status_code,402)
         self.assertEqual(self.client.post("/api/practice/draft",json={"key":"speaking","prompt":"Example","content":"Draft"}).status_code,402)
-        self.assertEqual(self.client.get("/api/practice/library").status_code,200)
+        self.assertEqual(self.client.get("/api/practice/library").status_code,402)
 
     def test_invalid_questions_and_boolean_answers(self):
         for answers in [[{"question_id":"unknown","choice":1}],[{"question_id":"ir01","choice":1}],[{"question_id":"sm01","choice":True}],[]]:

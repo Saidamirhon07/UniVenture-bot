@@ -17,7 +17,8 @@ export type ScreenId =
   | "feedback"
   | "recommendation"
   | "portfolio-builder"
-  | "boost";
+  | "boost"
+  | "founder";
 
 export type Navigate = (screen: ScreenId) => void;
 
@@ -26,6 +27,40 @@ export interface SessionUser {
   name: string;
   has_manual_name?: boolean;
   onboarding_complete?: boolean;
+  is_admin?: boolean;
+}
+
+export interface FounderAnalytics {
+  generated_at: string;
+  window_days: number;
+  audience: { dau: number; wau: number; mau: number; total_users: number };
+  subscriptions: { active_paid: number; ever_paid: number; churned: number; churn_rate: number; cancelled_active: number };
+  funnel: { visitors: number; checkout_started: number; paid: number; visitor_to_paid: number; visitor_to_checkout: number };
+  tools: Array<{ name: string; views: number }>;
+  practice: Record<"sat" | "ielts", { sessions: number; students: number; questions: number; correct: number; accuracy: number }>;
+  revenue_by_source: Array<{ source: string; currency: string; amount: number; payments: number; buyers: number }>;
+  timeline: Array<{ date: string; active_users: number; opens: number; tool_views: number }>;
+  privacy: string;
+}
+
+export interface SubscriptionStatus {
+  has_access: boolean;
+  access_type: "paid" | "trial" | "expired" | "unrestricted" | string;
+  remaining_days: number | null;
+  expires_at?: string | null;
+  trial_ends_at?: string | null;
+  price: string;
+  price_uzs: number;
+  period_days: number;
+  recurring: boolean;
+  auto_renews?: boolean;
+  support_handle?: string;
+  payment_method?: "manual_card" | string;
+  card_number?: string;
+  card_holder?: string;
+  bank_name?: string;
+  payment_bot_url?: string | null;
+  payment_status?: "pending" | "approved" | "rejected" | null;
 }
 
 export interface ProfileCompleteness {
@@ -82,7 +117,7 @@ export interface DashboardData {
   practice_streak: PracticeStreak;
   notifications: NotificationItem[];
   unread_notifications: number;
-  subscription: { has_access: boolean; access_type: string; remaining_days: number | null; price: string };
+  subscription: SubscriptionStatus;
 }
 
 export interface EvaluationResponse {

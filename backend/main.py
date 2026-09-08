@@ -23,6 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from pdfminer.high_level import extract_text as extract_pdf_text
 
 from . import legacy
+from .analytics import founder_snapshot, record_event as record_product_event
 from .practice import BANK as PRACTICE_BANK, record_session
 from .auth import (
     AuthError,
@@ -47,6 +48,7 @@ from .prompts import (
 from .product_logic import practice_snapshot as build_practice_snapshot, task_action as _task_action
 from .schemas import (
     ApplicationPlanRequest,
+    AnalyticsEventRequest,
     AuthRequest,
     BoostRequest,
     CoachRequest,
@@ -151,6 +153,19 @@ def active_identity(identity: TelegramIdentity = Depends(current_identity)) -> T
             detail={"message": "Your trial or subscription has ended.", "subscription": access},
         )
     return identity
+
+
+def admin_identity(identity: TelegramIdentity = Depends(current_identity)) -> TelegramIdentity:
+    if not legacy.is_admin(identity.user_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Founder access only.")
+    return identity
+
+
+def _track_product_event(user_id: int, event: str, properties: dict[str, Any] | None = None, source: str | None = None) -> None:
+    try:
+        record_product_event(user_id, event, properties, source=source)
+    except Exception:
+        logger.exception("Could not record product analytics event")
 
 
 def _parse_ai_json(raw: str) -> dict[str, Any]:
@@ -426,6 +441,7 @@ def _public_user(identity: TelegramIdentity, memory: dict[str, Any]) -> dict[str
         "name": _preferred_name(memory),
         "has_manual_name": bool(_preferred_name(memory)),
         "onboarding_complete": bool(miniapp.get("onboarding_complete")),
+        "is_admin": legacy.is_admin(identity.user_id),
     }
 
 
@@ -581,11 +597,25 @@ async def auth_dev(payload: DevAuthRequest) -> dict[str, Any]:
 @app.get("/api/me")
 async def me(identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
     memory = legacy.load_memory(identity.user_id)
-    return {"user": _public_user(identity, memory), "portfolio": _portfolio(memory), "readiness": readiness_snapshot(memory), "profile_completeness": _profile_completeness(memory)}
+    return {
+        "user": _public_user(identity, memory),
+        "subscription": legacy.subscription_status(identity.user_id),
+    }
+
+
+@app.post("/api/analytics/event")
+async def analytics_event(payload: AnalyticsEventRequest, identity: TelegramIdentity = Depends(current_identity)) -> dict[str, bool]:
+    _track_product_event(identity.user_id, payload.event, payload.properties, payload.source)
+    return {"recorded": True}
+
+
+@app.get("/api/admin/analytics")
+async def admin_analytics(days: int = 30, _: TelegramIdentity = Depends(admin_identity)) -> dict[str, Any]:
+    return founder_snapshot(legacy.paid_records(), days=days)
 
 
 @app.post("/api/profile/name")
-async def profile_name(payload: NameUpdateRequest, identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
+async def profile_name(payload: NameUpdateRequest, identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
     memory = legacy.load_memory(identity.user_id)
     memory.setdefault("profile", {})["preferred_name"] = payload.name
     _save_memory(identity.user_id, memory)
@@ -593,7 +623,7 @@ async def profile_name(payload: NameUpdateRequest, identity: TelegramIdentity = 
 
 
 @app.post("/api/profile/onboarding")
-async def profile_onboarding(payload: OnboardingRequest, identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
+async def profile_onboarding(payload: OnboardingRequest, identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
     memory = legacy.load_memory(identity.user_id)
     application, miniapp = _ensure_memory(memory)
     data = payload.model_dump()
@@ -624,6 +654,7 @@ async def profile_onboarding(payload: OnboardingRequest, identity: TelegramIdent
     })
     miniapp["onboarding_complete"] = True
     _save_memory(identity.user_id, memory)
+    _track_product_event(identity.user_id, "onboarding_completed")
     return {
         "saved": True,
         "user": _public_user(identity, memory),
@@ -633,7 +664,7 @@ async def profile_onboarding(payload: OnboardingRequest, identity: TelegramIdent
 
 
 @app.post("/api/profile/onboarding/skip")
-async def profile_onboarding_skip(identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
+async def profile_onboarding_skip(identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
     memory = legacy.load_memory(identity.user_id)
     _, miniapp = _ensure_memory(memory)
     miniapp["onboarding_complete"] = True
@@ -642,7 +673,7 @@ async def profile_onboarding_skip(identity: TelegramIdentity = Depends(current_i
 
 
 @app.get("/api/dashboard")
-async def dashboard(identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
+async def dashboard(identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
     return _dashboard(legacy.load_memory(identity.user_id), identity)
 
 
@@ -831,7 +862,7 @@ async def application_plan_task_status(payload: PlanTaskStatusRequest, identity:
 
 
 @app.get("/api/practice/library")
-async def practice_library(identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
+async def practice_library(identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
     memory = legacy.load_memory(identity.user_id)
     _, miniapp = _ensure_memory(memory)
     practice = miniapp.get("practice", {})
@@ -850,6 +881,9 @@ async def practice_session(payload: PracticeSessionRequest, identity: TelegramId
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     _save_memory(identity.user_id, memory)
+    _track_product_event(identity.user_id, "practice_completed", {
+        "exam": session["exam"], "mode": session["mode"], "correct": session["correct"], "total": session["total"], "session_id": session["id"],
+    })
     return {"session": session, "records": practice.get("questions", {}), "streak": _practice_snapshot(memory)}
 
 
@@ -878,13 +912,14 @@ async def practice_complete(payload: PracticeCompletionRequest, identity: Telegr
     cutoff = (_local_today() - timedelta(days=180)).isoformat()
     practice["days"] = {key: value for key, value in days.items() if key >= cutoff}
     _save_memory(identity.user_id, memory)
+    _track_product_event(identity.user_id, "practice_completed", {"exam": payload.skill, "mode": "workbench", "correct": 0, "total": 0})
     window = _practice_snapshot(memory)
     window["just_recorded"] = payload.skill
     return window
 
 
 @app.get("/api/practice/streak")
-async def practice_streak(identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
+async def practice_streak(identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
     return _practice_snapshot(legacy.load_memory(identity.user_id))
 
 
@@ -909,7 +944,7 @@ async def create_reminder(payload: ReminderCreateRequest, identity: TelegramIden
 
 
 @app.post("/api/notifications/read")
-async def notifications_read(payload: NotificationsReadRequest, identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
+async def notifications_read(payload: NotificationsReadRequest, identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
     memory = legacy.load_memory(identity.user_id)
     _, miniapp = _ensure_memory(memory)
     seen = [str(item) for item in miniapp.get("seen_notifications", [])]

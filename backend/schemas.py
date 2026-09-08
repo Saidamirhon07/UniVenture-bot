@@ -15,6 +15,18 @@ class DevAuthRequest(BaseModel):
     username: str = Field(default="local_student", max_length=64)
 
 
+class AnalyticsEventRequest(BaseModel):
+    event: Literal[
+        "app_open",
+        "screen_view",
+        "paywall_view",
+        "checkout_started",
+        "onboarding_completed",
+    ]
+    properties: dict[str, Any] = Field(default_factory=dict)
+    source: str | None = Field(default=None, max_length=80)
+
+
 PortfolioSection = Literal[
     "academic_profile",
     "test_scores",

@@ -1,4 +1,32 @@
-# UniVentureAI Mini App — Premium V8 Practice Studios
+# UniVentureAI Mini App — Premium V10 Founder Analytics
+
+## V10: measurable product growth
+
+- Private Founder Pulse screen visible only to Telegram IDs in `ADMIN_IDS`.
+- Real Mini App `app_open` and `screen_view` events power DAU, WAU, MAU, activity trends and tool rankings.
+- SAT and IELTS completions are recorded server-side, so completion metrics do not depend on a fragile browser-only event.
+- Paid records power active subscriber, expired subscriber, cancellation, churn and campaign-revenue metrics.
+- The funnel separates active visitors, checkout starters and confirmed payers.
+- Analytics stores only IDs, timestamps, event names and coarse numeric metadata; student text, test answers, profiles and chats are excluded.
+- `/stats` now requires an admin account.
+- Admins bypass the student paywall so the dashboard cannot lock its owner out.
+- Uzbek personal-card checkout was not added: automated CLICK/Payme web settlement requires merchant onboarding, and Telegram requires Stars for digital access inside a Mini App.
+
+# Premium V9 Paid Launch
+
+## V9: Telegram Stars subscription
+
+- Paid-only entry before onboarding and all product navigation.
+- Recurring 30-day Telegram Stars invoice from the Mini App or `/pay`.
+- Checkout payload is bound to the authenticated user; currency and amount are checked before approval.
+- Access activates only after Telegram sends a successful-payment update.
+- Payment charge IDs are stored in the existing `/data/paid_users.json` record for idempotency, support and refunds.
+- Renewals extend remaining access instead of resetting it; duplicate updates do not add time twice.
+- `/terms`, `/paysupport`, `/mysub`, and admin `/refundstars` cover the required support flow.
+- Founders price defaults to 799 Stars and remains configurable with `TELEGRAM_STARS_PRICE`.
+- `FREE_TRIAL_DAYS=0` makes the release paid-only; the setting remains configurable for later experiments.
+
+# Premium V8 Practice Studios
 
 ## V8: creative Home + meaningful practice
 
