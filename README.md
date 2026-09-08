@@ -2,7 +2,7 @@
 
 A production-oriented Telegram Mini App added **beside** the existing UniVentureAI chatbot. The chatbot keeps all commands and handlers. FastAPI starts that same Telegram application, exposes secure Mini App APIs, serves the React build, and reads/writes the same paid-user file, user-memory directory, ChromaDB collections, and OpenAI models.
 
-Premium V11 adds a manual UZS card-transfer flow with admin receipt approval while preserving the private Founder Pulse analytics. It measures Mini App opens, DAU/WAU/MAU, screen usage, SAT/IELTS completion, the visitor-to-payment-to-approved funnel, subscribers, churn and approved UZS revenue without storing student content. Read `V11_APPLY_STEPS.md` and `V11_RELEASE_NOTES.md` before launch.
+Premium V12 turns the app into a freemium product and fixes the manual UZS receipt handoff. Free students can explore Home, Tools, Discover, a 60-second readiness check, and three original practice questions per day. Profile building, personalized planning, AI evaluation, saved work, advanced practice, and the remaining premium tools are protected on the server. When a student taps the payment action, the backend sends that exact Telegram account a receipt request; the student uploads proof in the bot and an admin verifies the bank transfer before access is granted. Read `V12_APPLY_STEPS.md` and `V12_RELEASE_NOTES.md` before launch.
 
 ## 1. Architecture
 
@@ -27,7 +27,7 @@ Security flow:
 2. `/api/auth/telegram` validates Telegram’s HMAC and `auth_date` with the bot token.
 3. The server issues a short-lived HMAC-signed session token.
 4. Every protected request derives the user from that server-signed token.
-5. Paid access is checked before the app shell and every AI or write endpoint.
+5. Premium access is checked on the server before every protected AI, profile, planning, and write endpoint.
 6. An admin verifies each card transfer before the shared entitlement file is updated.
 
 ## 2. Project structure
@@ -92,6 +92,7 @@ univenture_admissions_hub/
 | `POST` | `/api/files/extract` | Extract PDF, DOCX, TXT or Markdown |
 | `POST` | `/api/feedback` | Persist feedback and forward it to configured bot admins |
 | `GET` | `/api/subscription` | Existing trial/paid status |
+| `POST` | `/api/payment/start` | Send a receipt-upload request to the authenticated Telegram user |
 | `GET` | `/api/health` | Railway health check |
 
 All AI evaluation types have distinct compact schemas. Full reviews are not generated—and therefore do not consume full-review tokens—until the student taps the button. Saved Mini App evaluation IDs are preserved across memory reloads so that the full-review button remains valid.
@@ -168,7 +169,12 @@ Restart the frontend dev server so Vite receives the variable. This tests the sa
    - `ADMIN_IDS=your_telegram_numeric_id`
    - `PAYWALL_ENABLED=1`
    - `FREE_TRIAL_DAYS=0`
-   - `TELEGRAM_STARS_PRICE=799`
+   - `PAYMENT_PRICE_UZS=199000`
+   - `PAYMENT_CARD=your_real_card_number`
+   - `PAYMENT_CARD_HOLDER=your_real_cardholder_name`
+   - `PAYMENT_BANK=your_real_bank`
+   - `FREE_PRACTICE_QUESTIONS_PER_DAY=3`
+   - `AI_MAX_CONCURRENCY=10`
    - `RUN_TELEGRAM_BOT=1`
 6. If this replaces an existing Railway bot deployment, attach or migrate the **same `/data` volume contents** before switching traffic. That preserves paid users, trials, memory and Chroma sources.
 7. Deploy once and generate a Railway public HTTPS domain.
@@ -205,9 +211,11 @@ curl http://localhost:8000/api/health
 
 - Open only through Telegram and confirm first launch asks the student to enter a preferred name manually.
 - Tamper with `initData` and confirm authentication returns `401`.
-- Confirm an unpaid user sees the locked Pro screen before onboarding or navigation.
-- Submit one test receipt, verify the bank transfer, approve it, and confirm the app unlocks.
-- Re-send the same successful-payment update in a test environment and confirm access is not extended twice.
+- Confirm a free user can open Home, Tools, Discover, the readiness check, and three practice questions—but cannot save a full profile or call a protected AI endpoint.
+- Tap a locked tool and confirm the compact upgrade sheet opens.
+- Tap **I paid — ask me for the receipt** and confirm the bot sends that same user an upload request without requiring `/start` or `/pay`.
+- Upload one test receipt, verify the bank transfer in the banking app, approve it, and confirm the app unlocks.
+- Tap the same approval twice and confirm access and revenue are not extended twice.
 - Confirm `/terms`, `/paysupport`, `/mysub`, and the admin Approve/Reject flow.
 - Update GPA in My Portfolio, then open the chatbot `/profile` and confirm the same value is present.
 - Run one Personal Statement and one supplemental review; confirm the headings and advice are different.

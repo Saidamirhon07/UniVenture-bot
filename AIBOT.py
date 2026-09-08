@@ -90,7 +90,11 @@ except Exception as e:
     USE_NEW_OPENAI = False
     logging.info("Using OpenAI SDK v0.28.x or earlier")
 
-async def openai_chat(
+AI_MAX_CONCURRENCY = max(1, min(32, int(os.getenv("AI_MAX_CONCURRENCY", "10"))))
+_openai_semaphore = asyncio.Semaphore(AI_MAX_CONCURRENCY)
+
+
+async def _openai_chat_request(
     model: str,
     messages: list,
     temperature: float = 0.4,
@@ -145,6 +149,18 @@ async def openai_chat(
             logging.exception("OpenAI unexpected error")
             return "⚠️ I'm a bit busy right now! Please try again in 60 seconds."
 
+
+async def openai_chat(
+    model: str,
+    messages: list,
+    temperature: float = 0.4,
+    max_tokens: int | None = None,
+    response_format: dict | None = None,
+) -> str:
+    """Bound AI concurrency so traffic spikes do not exhaust the service."""
+    async with _openai_semaphore:
+        return await _openai_chat_request(model, messages, temperature, max_tokens, response_format)
+
 # -------- Admin config --------
 ADMIN_IDS = {886181760}
 for _admin_id in os.getenv("ADMIN_IDS", "").split(","):
@@ -183,7 +199,6 @@ PAYMENT_PRICE_UZS = max(1, int(os.getenv("PAYMENT_PRICE_UZS", "199000")))
 PAYMENT_CARD = os.getenv("PAYMENT_CARD", "")        # e.g. "8600 1234 5678 9012"
 PAYMENT_CARD_HOLDER = os.getenv("PAYMENT_CARD_HOLDER", "")
 PAYMENT_BANK = os.getenv("PAYMENT_BANK", "")
-PAYMENT_BOT_USERNAME = os.getenv("PAYMENT_BOT_USERNAME", "").strip().lstrip("@")
 PAYMENT_NOTE = os.getenv("PAYMENT_NOTE", "")        # optional extra line
 SUPPORT_HANDLE = os.getenv("SUPPORT_HANDLE", "@UniVentureSupport_bot")
 
@@ -458,6 +473,41 @@ def latest_manual_payment_status(user_id: int) -> str | None:
     return str(requests[-1].get("status")) if requests else None
 
 
+def latest_manual_payment_request(user_id: int) -> dict:
+    requests = (get_paid_record(user_id) or {}).get("manual_payment_requests") or []
+    return dict(requests[-1]) if requests else {}
+
+
+def begin_manual_payment_session(user_id: int, minutes: int = 30) -> datetime:
+    """Persist receipt mode so it survives Mini App close and bot restarts."""
+    expires_at = datetime.utcnow() + timedelta(minutes=max(5, min(minutes, 120)))
+    with _paid_lock:
+        db = _paid_load()
+        rec = db.get(str(user_id)) or {"user_id": user_id, "first_seen_at": datetime.utcnow().isoformat()}
+        rec["awaiting_payment_proof_until"] = expires_at.isoformat()
+        rec["payment_flow_started_at"] = datetime.utcnow().isoformat()
+        db[str(user_id)] = rec
+        _paid_save(db)
+    return expires_at
+
+
+def manual_payment_session_active(user_id: int) -> bool:
+    rec = get_paid_record(user_id) or {}
+    expires_at = _parse_iso(rec.get("awaiting_payment_proof_until", ""))
+    return bool(expires_at and datetime.utcnow() <= expires_at)
+
+
+def clear_manual_payment_session(user_id: int) -> None:
+    with _paid_lock:
+        db = _paid_load()
+        rec = db.get(str(user_id))
+        if not rec:
+            return
+        rec.pop("awaiting_payment_proof_until", None)
+        db[str(user_id)] = rec
+        _paid_save(db)
+
+
 def record_star_payment(
     user_id: int,
     *,
@@ -726,6 +776,7 @@ async def pay_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     context.user_data["awaiting_payment_proof"] = True
+    begin_manual_payment_session(uid)
     await update.message.reply_text(
         _payment_instructions_text(uid),
         parse_mode="HTML",
@@ -1049,6 +1100,7 @@ async def _forward_payment_proof_to_admin(update: Update, context: ContextTypes.
     last_name = update.effective_user.last_name or ""
     full_name = " ".join([x for x in [first_name, last_name] if x]).strip() or "Unknown"
     chat_id = update.effective_chat.id
+    source = (get_paid_record(uid) or {}).get("acquisition_source") or "direct"
     reference = create_manual_payment_request(
         uid,
         username=username or None,
@@ -1071,6 +1123,7 @@ async def _forward_payment_proof_to_admin(update: Update, context: ContextTypes.
                     f"Username: @{username if username else 'No username'}\n"
                     f"User ID: {uid}\n\n"
                     f"Expected: {PAYMENT_PRICE_UZS:,} UZS\n"
+                    f"Source: {source}\n"
                     f"Reference: {reference}\n\n"
                     "Verify the transfer in your banking app before approving."
                 ),
@@ -1153,12 +1206,13 @@ async def manual_payment_review_callback(update: Update, context: ContextTypes.D
 async def payment_proof_received_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # user-facing confirmation (always)
     uid = update.effective_user.id
-    reference = latest_manual_payment_status(uid)
+    request = latest_manual_payment_request(uid)
     await update.message.reply_text(
         "📸 Screenshot received.\n"
         "✅ Please wait for admin verification.\n\n"
         f"🆔 Your user ID: {uid}\n"
-        f"Status: {reference or 'pending'}"
+        f"Reference: {request.get('reference', '—')}\n"
+        f"Status: {request.get('status', 'pending')}"
     )
 
 async def paid_access_gate(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1181,7 +1235,7 @@ async def paid_access_gate(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Let the next photo/document reach the receipt handler after /pay.
         has_receipt = bool(getattr(msg, "photo", None)) or bool(getattr(msg, "document", None))
-        if has_receipt and context.user_data.get("awaiting_payment_proof"):
+        if has_receipt and (context.user_data.get("awaiting_payment_proof") or manual_payment_session_active(uid)):
             return
 
         # Check if user has access via the unified function.
@@ -4797,12 +4851,13 @@ async def maybe_handle_payment_proof(update: Update, context: ContextTypes.DEFAU
     if not has_file:
         return False
 
-    if not context.user_data.get("awaiting_payment_proof"):
+    if not (context.user_data.get("awaiting_payment_proof") or manual_payment_session_active(update.effective_user.id)):
         return False
 
     await _forward_payment_proof_to_admin(update, context)
     await payment_proof_received_reply(update, context)
     context.user_data.pop("awaiting_payment_proof", None)
+    clear_manual_payment_session(update.effective_user.id)
     return True
 
 def _ensure_application_defaults(mem: dict) -> dict:
@@ -7382,7 +7437,7 @@ async def telegram_post_init(application):
 app = (
     ApplicationBuilder()
     .token(TELEGRAM_TOKEN)
-    .concurrent_updates(True)
+    .concurrent_updates(32)
     .post_init(telegram_post_init)
     .build()
 )

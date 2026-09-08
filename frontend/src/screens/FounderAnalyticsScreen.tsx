@@ -66,6 +66,7 @@ export default function FounderAnalyticsScreen({ navigate }: { navigate: Navigat
           </div>
           <div className="founder-funnel">
             <div><span>Visitors</span><i><b style={{ width: "100%" }} /></i><strong>{data.funnel.visitors}</strong></div>
+            <div><span>Upgrade viewed</span><i><b style={{ width: `${Math.max(3, data.funnel.visitor_to_upgrade)}%` }} /></i><strong>{data.funnel.upgrade_viewed}</strong></div>
             <div><span>Checkout</span><i><b style={{ width: `${Math.max(3, data.funnel.visitor_to_checkout)}%` }} /></i><strong>{data.funnel.checkout_started}</strong></div>
             <div><span>Paid</span><i><b style={{ width: `${Math.max(3, data.funnel.visitor_to_paid)}%` }} /></i><strong>{data.funnel.paid}</strong></div>
           </div>

@@ -4,7 +4,7 @@ Install requirements-dev.txt to run these checks when runtime packages are absen
 import copy
 import unittest
 from datetime import date
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 try:
     from fastapi.testclient import TestClient
@@ -26,7 +26,7 @@ class PracticeAPITests(unittest.TestCase):
         self.patches = [
             patch.object(main.legacy,"load_memory",side_effect=lambda uid: copy.deepcopy(self.memories.get(uid,{}))),
             patch.object(main.legacy,"save_memory",side_effect=lambda uid,memory: self.memories.__setitem__(uid,copy.deepcopy(memory))),
-            patch.object(main.legacy,"subscription_status",side_effect=lambda uid:{"has_access":self.paid}),
+            patch.object(main.legacy,"subscription_status",side_effect=lambda uid:{"has_access":True,"is_premium":self.paid,"price_uzs":199000}),
             patch.object(main,"_ensure_memory",side_effect=lambda memory: ({},memory.setdefault("miniapp",{}))),
             patch.object(main,"_local_today",return_value=date(2026,9,8)),
             patch.object(main,"_track_product_event"),
@@ -61,11 +61,22 @@ class PracticeAPITests(unittest.TestCase):
         self.user = 202
         self.assertEqual(self.client.get("/api/practice/library").json()["sessions"],[])
 
-    def test_expired_access_blocks_practice_content_and_writes(self):
+    def test_free_access_gets_daily_sample_but_not_premium_drafts(self):
         self.paid = False
-        self.assertEqual(self.client.post("/api/practice/session",json=self.payload).status_code,402)
+        library = self.client.get("/api/practice/library")
+        self.assertEqual(library.status_code,200,library.text)
+        self.assertFalse(library.json()["access"]["is_premium"])
+        self.assertEqual(library.json()["access"]["daily_limit"],3)
+        self.assertLessEqual(len(library.json()["questions"]),12)
+        self.assertEqual(self.client.post("/api/practice/session",json=self.payload).status_code,200)
         self.assertEqual(self.client.post("/api/practice/draft",json={"key":"speaking","prompt":"Example","content":"Draft"}).status_code,402)
-        self.assertEqual(self.client.get("/api/practice/library").status_code,402)
+
+    def test_free_daily_practice_limit_is_server_enforced(self):
+        self.paid = False
+        first = {**self.payload, "answers": [{"question_id":"sm01","choice":1},{"question_id":"sm02","choice":2},{"question_id":"sm03","choice":0}]}
+        self.assertEqual(self.client.post("/api/practice/session",json=first).status_code,200)
+        second = {**self.payload, "session_id":"fixture-session-002", "answers":[{"question_id":"sm04","choice":0}]}
+        self.assertEqual(self.client.post("/api/practice/session",json=second).status_code,402)
 
     def test_invalid_questions_and_boolean_answers(self):
         for answers in [[{"question_id":"unknown","choice":1}],[{"question_id":"ir01","choice":1}],[{"question_id":"sm01","choice":True}],[]]:
@@ -76,6 +87,15 @@ class PracticeAPITests(unittest.TestCase):
         draft = {"key":"writing_task_2","prompt":"Original prompt","content":"My private draft"}
         self.assertEqual(self.client.post("/api/practice/draft",json=draft).status_code,200)
         self.assertEqual(self.client.get("/api/practice/library").json()["drafts"][draft["key"]]["content"],draft["content"])
+
+    def test_payment_start_sends_receipt_prompt_for_free_user(self):
+        self.paid = False
+        with patch.object(main.legacy, "start_manual_payment", new_callable=AsyncMock) as start_payment:
+            start_payment.return_value = True
+            response = self.client.post("/api/payment/start", json={})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertTrue(response.json()["started"])
+        start_payment.assert_awaited_once_with(self.user)
 
 
 if __name__ == "__main__": unittest.main()

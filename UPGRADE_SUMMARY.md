@@ -1,4 +1,25 @@
-# UniVentureAI Mini App — Premium V10 Founder Analytics
+# UniVentureAI Mini App — Premium V12 Freemium Release
+
+## V12: value before payment
+
+- Unpaid students now enter a useful free product instead of an all-or-nothing paywall.
+- Home, Tools, Discover, a 60-second readiness check, and three server-enforced SAT/IELTS sample questions per day are free.
+- Profile storage, personal planning, saved work, AI evaluations, school matching, and advanced practice remain Premium and are enforced by the API.
+- Locked actions open a compact upgrade sheet at the moment of intent.
+- The payment action now makes the bot send a direct receipt-upload request to the authenticated student; it no longer depends on a Telegram deep link that only opens `/start`.
+- Receipt mode survives the Mini App closing and stays active for 30 minutes.
+- Duplicate payment prompts and duplicate admin approvals are suppressed.
+- Telegram update concurrency and OpenAI concurrency controls prepare the single-service MVP for an initial 100+ registered-user cohort with moderate activity.
+- The supplied payment screen was reviewed; the updated interaction still requires one live Telegram acceptance pass before launch.
+
+# Premium V11 — Manual UZS Card Payments
+
+## V11: admin-verified local transfer
+
+- One configured UZS card, manual receipt review, admin approval/rejection, and approved-revenue analytics.
+- No automatic renewal; receipts are never treated as bank confirmation without admin review.
+
+# Premium V10 — Founder Analytics
 
 ## V10: measurable product growth
 

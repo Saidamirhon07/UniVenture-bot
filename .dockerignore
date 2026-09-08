@@ -11,6 +11,7 @@ frontend/dist
 qa
 qa-v2
 qa-v3
+qa-v4
 *.zip
 *.log
 .DS_Store

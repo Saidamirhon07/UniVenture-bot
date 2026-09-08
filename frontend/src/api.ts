@@ -78,7 +78,7 @@ class ApiClient {
     return this.request<T>(path, { method: "POST", body: form });
   }
 
-  track(event: "app_open" | "screen_view" | "paywall_view" | "checkout_started" | "onboarding_completed", properties: Record<string, unknown> = {}, source?: string) {
+  track(event: "app_open" | "screen_view" | "paywall_view" | "checkout_started" | "onboarding_completed" | "upgrade_view" | "upgrade_clicked" | "free_limit_reached", properties: Record<string, unknown> = {}, source?: string) {
     if (!this.token) return Promise.resolve({ recorded: false });
     return this.post<{ recorded: boolean }>("/api/analytics/event", { event, properties, source }).catch(() => ({ recorded: false }));
   }

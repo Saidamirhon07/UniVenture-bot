@@ -25,6 +25,9 @@ ALLOWED_EVENTS = {
     "paywall_view",
     "checkout_started",
     "payment_success",
+    "upgrade_view",
+    "upgrade_clicked",
+    "free_limit_reached",
     "practice_completed",
     "onboarding_completed",
 }
@@ -186,6 +189,7 @@ def founder_snapshot(
     cutoff = current - timedelta(days=days)
     period_events = [item for item in events if (_as_utc(item.get("occurred_at")) or datetime.min.replace(tzinfo=timezone.utc)) >= cutoff]
     visitors = active_since(days)
+    upgrade_users = {item["user_id"] for item in period_events if item.get("event") == "upgrade_view"}
     checkout_users = {item["user_id"] for item in period_events if item.get("event") == "checkout_started"}
 
     payments = _payment_rows(paid_records)
@@ -255,8 +259,9 @@ def founder_snapshot(
             "churn_rate": churn_rate, "cancelled_active": cancelled_active,
         },
         "funnel": {
-            "visitors": len(visitors), "checkout_started": len(checkout_users), "paid": len(period_payers),
+            "visitors": len(visitors), "upgrade_viewed": len(upgrade_users), "checkout_started": len(checkout_users), "paid": len(period_payers),
             "visitor_to_paid": round(100 * len(period_payers) / denominator, 1) if denominator else 0.0,
+            "visitor_to_upgrade": round(100 * len(upgrade_users) / len(visitors), 1) if visitors else 0.0,
             "visitor_to_checkout": round(100 * len(checkout_users) / len(visitors), 1) if visitors else 0.0,
         },
         "tools": [{"name": name, "views": count} for name, count in tool_counts.most_common(8)],

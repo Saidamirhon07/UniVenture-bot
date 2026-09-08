@@ -10,5 +10,6 @@ frontend/qa/output/
 frontend/dist/
 *.tsbuildinfo
 /qa/
+/qa-v*/
 *.log
 .DS_Store

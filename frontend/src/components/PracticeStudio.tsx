@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowRight, BookOpen, Check, Clock3, Flag, Headphones, RotateCcw, Target, Trophy } from "lucide-react";
-import { api } from "../api";
+import { ApiError, api } from "../api";
 import type { Navigate, PracticeStreak } from "../types";
 import { Button, Card, ErrorBanner, LoadingScreen, PracticeStreakCard, ScreenHeader, Segmented, Select, Tag } from "./ui";
 import IELTSWorkbench from "./IELTSWorkbench";
@@ -9,7 +9,8 @@ import { choosePractice } from "../lib/practiceSelection";
 export type PracticeQuestion = { id: string; exam: "sat" | "ielts"; section: string; skill: string; level: string; prompt: string; options: string[]; answer: number; explanation: string; passage?: string; audio?: string };
 type QuestionRecord = { attempts: number; correct: number; last_correct: boolean; last_choice: number | null; last_seen: string; review_due: string };
 type Session = { id: string; exam: string; mode: string; correct: number; total: number; seconds: number; created_at: number; answers: { question_id: string; choice: number | null; correct: boolean }[] };
-export type PracticeLibrary = { questions: PracticeQuestion[]; records: Record<string, QuestionRecord>; sessions: Session[]; drafts: Record<string, { prompt: string; content: string }>; streak: PracticeStreak };
+type PracticeAccess = { is_premium: boolean; daily_limit: number | null; used_today: number; remaining_today: number | null };
+export type PracticeLibrary = { questions: PracticeQuestion[]; records: Record<string, QuestionRecord>; sessions: Session[]; drafts: Record<string, { prompt: string; content: string }>; streak: PracticeStreak; access: PracticeAccess };
 type Mode = "learn" | "timed" | "review";
 type Run = { id: string; questions: PracticeQuestion[]; mode: Mode; started: number; deadline: number | null; choices: Record<string, number>; index: number; flagged: string[] };
 const handledLeaveEvents = new WeakSet<Event>();
@@ -41,11 +42,11 @@ function Briefing({ question, revealed }: { question: PracticeQuestion; revealed
   return <div className="practice-briefing"><Button variant="secondary" onClick={play}><Headphones size={17} />Play briefing</Button><small>Synthetic speech · replay allowed for learning</small>{audioError && <ErrorBanner message={audioError} />}{(revealed || audioError) && <p>{question.audio}</p>}</div>;
 }
 
-export default function PracticeStudio({ exam, navigate, onChanged, coach }: { exam: "sat" | "ielts"; navigate: Navigate; onChanged: () => void; coach?: ReactNode }) {
+export default function PracticeStudio({ exam, navigate, onChanged, coach, isPremium, onUpgrade }: { exam: "sat" | "ielts"; navigate: Navigate; onChanged: () => void; coach?: ReactNode; isPremium: boolean; onUpgrade: () => void }) {
   const [data, setData] = useState<PracticeLibrary | null>(null);
   const [error, setError] = useState("");
   const [tab, setTab] = useState<"practice" | "history" | "coach">("practice");
-  const [section, setSection] = useState(exam === "sat" ? "math" : "writing");
+  const [section, setSection] = useState(exam === "sat" ? "math" : isPremium ? "writing" : "reading");
   const [skill, setSkill] = useState("all");
   const [mode, setMode] = useState<Mode>("learn");
   const [run, setRun] = useState<Run | null>(null);
@@ -74,7 +75,9 @@ export default function PracticeStudio({ exam, navigate, onChanged, coach }: { e
   const today = ["year","month","day"].map(type=>parts.find(p=>p.type===type)?.value).join("-");
   const pool = questions.filter(q => q.section === section && (skill === "all" || q.skill === skill));
   const start = () => {
-    const chosen = choosePractice(pool, data.records, mode, today, recent.length * 5);
+    const remaining = data.access.remaining_today;
+    if (!isPremium && (!remaining || remaining <= 0)) { void api.track("free_limit_reached", { feature: `${exam}_practice` }); onUpgrade(); return; }
+    const chosen = choosePractice(pool, data.records, isPremium ? mode : "learn", today, recent.length * 5).slice(0, isPremium ? 5 : Math.min(3, remaining || 0));
     if (!chosen.length) { setError("Nothing is due in this skill yet. Choose Learn or another skill."); return; }
     const now = Date.now();
     setRun({ id: crypto.randomUUID(), questions: chosen, mode, started: now, deadline: mode === "timed" ? now + chosen.length * 90000 : null, choices: {}, index: 0, flagged: [] });
@@ -84,13 +87,13 @@ export default function PracticeStudio({ exam, navigate, onChanged, coach }: { e
     if (!run || saveLock.current || saved) return;
     saveLock.current = true; setSaving(true); setFinished(true); setError("");
     try {
-      const result = await api.post<{ session: Session; records: PracticeLibrary["records"]; streak: PracticeStreak }>("/api/practice/session", {
+      const result = await api.post<{ session: Session; records: PracticeLibrary["records"]; streak: PracticeStreak; access: PracticeAccess }>("/api/practice/session", {
         session_id: run.id, exam, mode: run.mode, seconds: Math.min(14400, Math.max(0, Math.floor(((run.deadline ? Math.min(Date.now(),run.deadline) : Date.now()) - run.started) / 1000))),
         answers: run.questions.map(q => ({ question_id: q.id, choice: run.choices[q.id] ?? null })),
       });
-      setData(current => current && ({ ...current, records: result.records, streak: result.streak, sessions: [...current.sessions.filter(s => s.id !== result.session.id), result.session].slice(-60) }));
+      setData(current => current && ({ ...current, records: result.records, streak: result.streak, access: result.access, sessions: isPremium ? [...current.sessions.filter(s => s.id !== result.session.id), result.session].slice(-60) : current.sessions }));
       setSaved(true); onChanged();
-    } catch (caught) { setError(caught instanceof Error ? caught.message : "Could not save. Your answers are still here; retry below."); }
+    } catch (caught) { if (caught instanceof ApiError && caught.status === 402) onUpgrade(); else setError(caught instanceof Error ? caught.message : "Could not save. Your answers are still here; retry below."); }
     finally { saveLock.current = false; setSaving(false); }
   };
   const review = (session: Session) => {
@@ -115,18 +118,19 @@ export default function PracticeStudio({ exam, navigate, onChanged, coach }: { e
       <div className="practice-actions"><Button variant="ghost" disabled={!run.index} onClick={() => { setRun({ ...run,index:run.index-1 }); setRevealed(false); }}>Previous</Button>{run.index < run.questions.length-1 ? <Button onClick={() => { setRun({ ...run,index:run.index+1 }); setRevealed(false); }}>Next<ArrowRight size={16} /></Button> : <Button onClick={() => void save()}>Finish & review</Button>}</div></Card>
       <div className="practice-jump" aria-label="Question navigator">{run.questions.map((item,index) => <button key={item.id} aria-label={`Question ${index+1}${run.flagged.includes(item.id) ? ", flagged" : ""}`} aria-current={index === run.index ? "step" : undefined} className={`${run.choices[item.id] !== undefined ? "answered" : ""} ${index === run.index ? "current" : ""}`} onClick={() => { setRun({...run,index}); setRevealed(false); }}>{index+1}{run.flagged.includes(item.id) && <Flag size={10} />}</button>)}</div><Button variant="ghost" className="w-full" onClick={() => void save()}>{expired ? "Submit timed set" : "Finish this set now"}</Button><p className="practice-disclaimer">Unanswered questions count as incorrect. Short original drills, not an official test.</p></div>;
   }
-  const sections = exam === "sat" ? [{value:"math",label:"Math"},{value:"reading_writing",label:"Reading & Writing"}] : [{value:"writing",label:"Writing"},{value:"speaking",label:"Speaking"},{value:"reading",label:"Reading"},{value:"listening",label:"Listening"}];
+  const sections = exam === "sat" ? [{value:"math",label:"Math"},{value:"reading_writing",label:"Reading & Writing"}] : isPremium ? [{value:"writing",label:"Writing"},{value:"speaking",label:"Speaking"},{value:"reading",label:"Reading"},{value:"listening",label:"Listening"}] : [{value:"reading",label:"Reading"},{value:"listening",label:"Listening"}];
   return <div className={`practice-studio studio-${exam}`}><ScreenHeader eyebrow="Your daily edge" title={exam === "sat" ? "SAT Studio" : "IELTS Studio"} description={exam === "sat" ? "Build the skill. Then build the pace." : "Four skills. One steady rhythm."} onBack={() => navigate("tools")} />
     <section className="studio-hero"><div><span>{exam === "sat" ? "FOCUS → PRACTICE → REVIEW" : "WRITE · SPEAK · READ · LISTEN"}</span><h2>{exam === "sat" ? "Small sessions. Stronger reasoning." : "Find your voice. Build your range."}</h2></div>{exam === "sat" ? <Target size={42} /> : <Headphones size={42} />}</section>
+    {!isPremium ? <button className="free-practice-banner" onClick={onUpgrade}><span><strong>Free daily sample</strong><small>{data.access.remaining_today || 0} of {data.access.daily_limit || 3} questions left today</small></span><em>Unlock full studio<ArrowRight size={14} /></em></button> : null}
     <div className="studio-stats"><span><strong>{answered ? `${Math.round(100*correct/answered)}%` : "—"}</strong><small>Practice accuracy</small></span><span><strong>{recent.length}</strong><small>Saved sets</small></span><span><strong>{mistakes.length}</strong><small>To revisit</small></span></div>
-    <PracticeStreakCard streak={data.streak} compact /><Segmented value={tab} onChange={value=>{if(window.dispatchEvent(new Event("univenture:before-navigate",{cancelable:true})))setTab(value);}} options={[{value:"practice",label:"Practice"},{value:"history",label:"My progress"},...(coach ? [{value:"coach" as const,label:"AI coach"}] : [])]} />
+    <PracticeStreakCard streak={data.streak} compact />{isPremium ? <Segmented value={tab} onChange={value=>{if(window.dispatchEvent(new Event("univenture:before-navigate",{cancelable:true})))setTab(value);}} options={[{value:"practice",label:"Practice"},{value:"history",label:"My progress"},...(coach ? [{value:"coach" as const,label:"AI coach"}] : [])]} /> : null}
     {error && <ErrorBanner message={error} />}
     {tab === "coach" ? coach : tab === "history" ? <>
       <Card><h2>Your skill map</h2><p className="practice-disclaimer">Based on saved practice, not an exam score.</p>{[...new Set(questions.map(q => q.skill))].map(name => { const records = questions.filter(q => q.skill === name).map(q => data.records[q.id]).filter(Boolean); const n = records.reduce((a,r) => a+r.attempts,0); const c = records.reduce((a,r) => a+r.correct,0); return <div className="studio-skill" key={name}><span>{name}</span><strong>{n ? `${Math.round(100*c/n)}% · ${n} attempts` : "Not practiced"}</strong><progress value={c} max={n || 1} aria-label={`${name} practice accuracy`} /></div>; })}</Card>
       <Card><h2>Recent sessions</h2>{recent.length ? [...recent].reverse().slice(0,10).map(s => <button className="studio-history" key={s.id} onClick={() => review(s)}><span><strong>{s.mode === "review" ? "Mistake review" : s.mode === "timed" ? "Timed set" : "Learning set"}</strong><small>{new Date(s.created_at*1000).toLocaleDateString()} · {Math.ceil(s.seconds/60)} min</small></span><b>{s.correct}/{s.total}</b><ArrowRight size={16} /></button>) : <p>Finish your first set to start your learning history.</p>}</Card></> : <>
       <Segmented value={section} onChange={value => { if(!window.dispatchEvent(new Event("univenture:before-navigate",{cancelable:true})))return; setSection(value); setSkill("all"); setError(""); }} options={sections} />
       {(section === "writing" || section === "speaking") ? <IELTSWorkbench key={section} skill={section} library={data} onChanged={onChanged} onCompleted={streak=>setData(current=>current && ({...current,streak}))} /> : <Card className="studio-launch"><Select label="Practice focus" value={skill} onChange={e=>setSkill(e.target.value)}><option value="all">Mix my skills</option>{[...new Set(questions.filter(q=>q.section===section).map(q=>q.skill))].map(s=><option key={s}>{s}</option>)}</Select>
-      <div className="studio-modes">{([{id:"learn",icon:BookOpen,title:"Learn",note:"Feedback after each answer"},{id:"timed",icon:Clock3,title:"Timed",note:"90 seconds per question"},{id:"review",icon:RotateCcw,title:"Review",note:"Missed + due questions"}] as const).map(({id,icon:Icon,title,note})=><button key={id} aria-pressed={mode===id} className={mode===id ? "active" : ""} onClick={()=>setMode(id)}><Icon size={21}/><strong>{title}</strong><small>{note}</small></button>)}</div><Button className="w-full" onClick={start}>Start {mode === "review" ? "review" : "a short set"}<ArrowRight size={17}/></Button><p className="practice-disclaimer">Up to 5 questions. New questions come first; repeated practice is clearly reflected in your history.</p></Card>}
+      {isPremium ? <div className="studio-modes">{([{id:"learn",icon:BookOpen,title:"Learn",note:"Feedback after each answer"},{id:"timed",icon:Clock3,title:"Timed",note:"90 seconds per question"},{id:"review",icon:RotateCcw,title:"Review",note:"Missed + due questions"}] as const).map(({id,icon:Icon,title,note})=><button key={id} aria-pressed={mode===id} className={mode===id ? "active" : ""} onClick={()=>setMode(id)}><Icon size={21}/><strong>{title}</strong><small>{note}</small></button>)}</div> : null}<Button className="w-full" onClick={start}>{!isPremium && !data.access.remaining_today ? "Unlock unlimited practice" : `Start ${isPremium && mode === "review" ? "review" : "a short set"}`}<ArrowRight size={17}/></Button><p className="practice-disclaimer">{isPremium ? "Up to 5 questions. New questions come first; repeated practice is clearly reflected in your history." : "Three free questions per day. Premium adds unlimited timed sets, AI coaching, saved history and mistake review."}</p></Card>}
       <p className="practice-disclaimer">Original learning exercises, not affiliated with {exam === "sat" ? "College Board" : "the IELTS Partners"}. No official score prediction. {exam === "sat" ? <a href="https://satsuite.collegeboard.org/practice/practice-tests/bluebook" target="_blank" rel="noreferrer">Use Bluebook for full-length official tests.</a> : <a href="https://ielts.org/take-a-test/preparation-resources" target="_blank" rel="noreferrer">Official IELTS preparation.</a>}</p></>}
   </div>;
 }

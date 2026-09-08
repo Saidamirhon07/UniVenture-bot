@@ -25,7 +25,7 @@ import {
 } from "lucide-react";
 import { api } from "../api";
 import type { DashboardData, Navigate } from "../types";
-import { Button, Card, ErrorBanner, LoadingScreen, Tag } from "../components/ui";
+import { Button, ErrorBanner, LoadingScreen } from "../components/ui";
 
 function concise(text: string, max = 105) {
   const clean = String(text || "").replace(/\s+/g, " ").trim();
@@ -68,6 +68,10 @@ export default function HomeScreen({ navigate, reloadKey }: { navigate: Navigate
   const firstName = data.name.trim().split(/\s+/)[0] || "Student";
 
   function startPriority() {
+    if (!currentData.subscription.is_premium) {
+      navigate(currentData.today_action.screen);
+      return;
+    }
     if (currentData.today_action.mode === "reminder") {
       setReminderStatus("");
       setReminderOpen(true);
@@ -139,7 +143,8 @@ export default function HomeScreen({ navigate, reloadKey }: { navigate: Navigate
         <div><span><CalendarCheck2 size={13} />{currentDate}</span><span><MapPin size={13} />{data.location || "Central Asia"}</span></div>
       </header>
 
-      {!data.subscription.has_access ? <Card tone="light" className="paywall-card"><Tag tone="warn">Access paused</Tag><h3>Your trial has ended</h3><p>Use /pay in the bot. Your work stays saved.</p></Card> : null}
+      {!data.subscription.is_premium ? <button className="free-tier-card" onClick={() => navigate("portfolio")}><span><Sparkles size={18} /></span><div><small>FREE EXPLORER</small><strong>Try daily practice. Unlock your full application workspace when ready.</strong></div><em>See Premium<ChevronRight size={15} /></em></button> : null}
+      {!data.subscription.is_premium ? <button className="free-check-entry" onClick={() => navigate("free-check")}><Target size={20} /><span><small>FREE · 60 SECONDS</small><strong>Check your application readiness</strong><em>No profile required or saved</em></span><ArrowRight size={17} /></button> : null}
 
       <section className="simple-today-card mission-v8">
         <div className="simple-today-copy">

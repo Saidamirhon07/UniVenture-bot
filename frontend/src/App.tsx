@@ -5,7 +5,7 @@ import { api } from "./api";
 import { Button, Card, ErrorBanner, Input, LoadingScreen, Tag } from "./components/ui";
 import ProfileCopilot from "./components/ProfileCopilot";
 import PracticeStudio from "./components/PracticeStudio";
-import PaywallScreen from "./components/PaywallScreen";
+import UpgradeSheet from "./components/UpgradeSheet";
 import type { Navigate, ScreenId, SessionUser, SubscriptionStatus } from "./types";
 import ApplicationPlanScreen from "./screens/ApplicationPlanScreen";
 import EssayLabScreen from "./screens/EssayLabScreen";
@@ -14,6 +14,7 @@ import PortfolioScreen from "./screens/PortfolioScreen";
 import ProfileSetupScreen from "./screens/ProfileSetupScreen";
 import SchoolFinderScreen from "./screens/SchoolFinderScreen";
 import FounderAnalyticsScreen from "./screens/FounderAnalyticsScreen";
+import FreeReadinessCheck from "./screens/FreeReadinessCheck";
 import { BoostToolsScreen, ECBuilderScreen, IELTSWritingScreen, PortfolioBuilderScreen, RecommendationScreen } from "./screens/FocusedTools";
 import { AICoachScreen, DiscoverScreen, FeedbackScreen, PrepHubScreen, SATStudioScreen } from "./screens/GrowthScreens";
 import { RoadmapScreen, ToolsHubScreen } from "./screens/NavigationHubs";
@@ -26,7 +27,16 @@ const primaryNav: Array<{ screen: ScreenId; label: string; icon: typeof Home; fe
   { screen: "portfolio", label: "Profile", icon: UserRound },
 ];
 
+const freeScreens = new Set<ScreenId>(["home", "tools", "discover", "sat", "ielts", "feedback", "free-check"]);
+const featureNames: Partial<Record<ScreenId, string>> = {
+  roadmap: "your personal roadmap", portfolio: "your saved profile", essay: "Essay Review", ec: "EC Evaluation",
+  recommendation: "Recommendation Letters", "portfolio-builder": "Portfolio Review", school: "School Finder",
+  plan: "Application Plan", coach: "AI Coach", brainstorm: "Brainstorm Studio", rewrite: "Rewrite Studio",
+  boost: "Quick Checks", prep: "the full Prep Lab",
+};
+
 function navScreen(screen: ScreenId): ScreenId {
+  if (screen === "free-check") return "home";
   if (["sat", "ielts", "prep", "coach", "brainstorm", "rewrite", "essay", "ec", "recommendation", "portfolio-builder", "boost", "founder"].includes(screen)) return "tools";
   if (["school"].includes(screen)) return "discover";
   if (["plan"].includes(screen)) return "roadmap";
@@ -65,13 +75,19 @@ export default function App() {
   const [subscription, setSubscription] = useState<SubscriptionStatus | null>(null);
   const [authError, setAuthError] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
+  const [upgradeFeature, setUpgradeFeature] = useState("");
 
   const navigate: Navigate = useCallback((next) => {
     if (!window.dispatchEvent(new Event("univenture:before-navigate", { cancelable: true }))) return;
+    if (subscription && !subscription.is_premium && !freeScreens.has(next)) {
+      setUpgradeFeature(featureNames[next] || "this feature");
+      window.Telegram?.WebApp.HapticFeedback?.impactOccurred("medium");
+      return;
+    }
     setScreen(next);
     window.scrollTo({ top: 0, behavior: "smooth" });
     window.Telegram?.WebApp.HapticFeedback?.impactOccurred("light");
-  }, []);
+  }, [subscription]);
 
   const markChanged = useCallback(() => setReloadKey((value) => value + 1), []);
 
@@ -105,15 +121,14 @@ export default function App() {
 
   if (authError) return <AuthFailure message={authError} />;
   if (!user || !subscription) return <LoadingScreen />;
-  if (!subscription.has_access) return <PaywallScreen subscription={subscription} onUnlocked={setSubscription} />;
   if (!user.has_manual_name || !user.name) return <NameSetup onSaved={setUser} />;
-  if (!user.onboarding_complete) return <ProfileSetupScreen name={user.name} onComplete={setUser} />;
+  if (subscription.is_premium && !user.onboarding_complete) return <ProfileSetupScreen name={user.name} onComplete={setUser} />;
 
   const content = (() => {
     switch (screen) {
       case "home": return <HomeScreen navigate={navigate} reloadKey={reloadKey} />;
       case "roadmap": return <RoadmapScreen navigate={navigate} reloadKey={reloadKey} />;
-      case "tools": return <ToolsHubScreen navigate={navigate} isAdmin={Boolean(user.is_admin)} />;
+      case "tools": return <ToolsHubScreen navigate={navigate} isAdmin={Boolean(user.is_admin)} isPremium={subscription.is_premium} />;
       case "discover": return <DiscoverScreen navigate={navigate} />;
       case "prep": return <PrepHubScreen navigate={navigate} />;
       case "coach": return <AICoachScreen navigate={navigate} />;
@@ -124,9 +139,10 @@ export default function App() {
       case "plan": return <ApplicationPlanScreen navigate={navigate} onChanged={markChanged} />;
       case "portfolio": return <PortfolioScreen navigate={navigate} onChanged={markChanged} />;
       case "ec": return <ECBuilderScreen navigate={navigate} onChanged={markChanged} />;
-      case "ielts": return <PracticeStudio exam="ielts" navigate={navigate} onChanged={markChanged} coach={<IELTSWritingScreen navigate={navigate} onChanged={markChanged} coachOnly />} />;
-      case "sat": return <PracticeStudio exam="sat" navigate={navigate} onChanged={markChanged} coach={<SATStudioScreen navigate={navigate} onChanged={markChanged} />} />;
+      case "ielts": return <PracticeStudio exam="ielts" navigate={navigate} onChanged={markChanged} isPremium={subscription.is_premium} onUpgrade={() => setUpgradeFeature("unlimited IELTS practice")} coach={<IELTSWritingScreen navigate={navigate} onChanged={markChanged} coachOnly />} />;
+      case "sat": return <PracticeStudio exam="sat" navigate={navigate} onChanged={markChanged} isPremium={subscription.is_premium} onUpgrade={() => setUpgradeFeature("unlimited SAT practice")} coach={<SATStudioScreen navigate={navigate} onChanged={markChanged} />} />;
       case "feedback": return <FeedbackScreen navigate={navigate} />;
+      case "free-check": return <FreeReadinessCheck navigate={navigate} />;
       case "recommendation": return <RecommendationScreen navigate={navigate} onChanged={markChanged} />;
       case "portfolio-builder": return <PortfolioBuilderScreen navigate={navigate} onChanged={markChanged} />;
       case "boost": return <BoostToolsScreen navigate={navigate} />;
@@ -150,7 +166,8 @@ export default function App() {
           </button>
         ))}
       </nav>
-      {(["home", "roadmap", "tools", "discover", "feedback"] as ScreenId[]).includes(screen) ? <ProfileCopilot screen={screen} /> : null}
+      {subscription.is_premium && (["home", "roadmap", "tools", "discover", "feedback"] as ScreenId[]).includes(screen) ? <ProfileCopilot screen={screen} /> : null}
+      {upgradeFeature ? <UpgradeSheet feature={upgradeFeature} subscription={subscription} onClose={() => setUpgradeFeature("")} onUnlocked={setSubscription} /> : null}
     </div>
   );
 }

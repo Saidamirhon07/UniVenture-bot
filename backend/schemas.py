@@ -21,6 +21,9 @@ class AnalyticsEventRequest(BaseModel):
         "screen_view",
         "paywall_view",
         "checkout_started",
+        "upgrade_view",
+        "upgrade_clicked",
+        "free_limit_reached",
         "onboarding_completed",
     ]
     properties: dict[str, Any] = Field(default_factory=dict)

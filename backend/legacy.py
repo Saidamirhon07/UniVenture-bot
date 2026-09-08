@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import importlib
 from functools import lru_cache
 from typing import Any
@@ -46,22 +45,24 @@ def subscription_status(user_id: int) -> dict[str, Any]:
     trial_ends_at = first_seen + bot.timedelta(days=bot.FREE_TRIAL_DAYS) if first_seen and bot.FREE_TRIAL_DAYS > 0 else None
     if int(user_id) in bot.ADMIN_IDS:
         access_type = "admin"
-        has_access = True
+        is_premium = True
     elif not bot.PAYWALL_ENABLED:
         access_type = "unrestricted"
-        has_access = True
+        is_premium = True
     elif expires_at and now <= expires_at:
         access_type = "paid"
-        has_access = True
+        is_premium = True
     elif trial_ends_at and now <= trial_ends_at:
         access_type = "trial"
-        has_access = True
+        is_premium = True
     else:
-        access_type = "expired"
-        has_access = False
+        access_type = "free"
+        is_premium = False
 
     return {
-        "has_access": has_access,
+        "has_access": True,
+        "is_premium": is_premium,
+        "tier": "premium" if is_premium else "free",
         "access_type": access_type,
         "remaining_days": bot.remaining_days(user_id),
         "expires_at": expires_at.isoformat() if expires_at else None,
@@ -76,9 +77,27 @@ def subscription_status(user_id: int) -> dict[str, Any]:
         "card_number": bot.PAYMENT_CARD,
         "card_holder": bot.PAYMENT_CARD_HOLDER,
         "bank_name": bot.PAYMENT_BANK,
-        "payment_bot_url": f"https://t.me/{bot.PAYMENT_BOT_USERNAME}?start=pay" if bot.PAYMENT_BOT_USERNAME else None,
         "payment_status": bot.latest_manual_payment_status(user_id),
     }
+
+
+async def start_manual_payment(user_id: int) -> bool:
+    bot = module()
+    if not bot.PAYMENT_CARD:
+        raise RuntimeError("Payment card is not configured.")
+    if bot.manual_payment_session_active(user_id):
+        return False
+    bot.begin_manual_payment_session(user_id)
+    await bot.app.bot.send_message(
+        chat_id=user_id,
+        text=(
+            bot._payment_instructions_text(user_id)
+            + "\n\n📷 <b>Now upload your payment screenshot in this chat.</b>\n"
+            "Receipt mode stays active for 30 minutes."
+        ),
+        parse_mode="HTML",
+    )
+    return True
 
 
 async def ask_ai(

@@ -14,6 +14,7 @@ import {
   GraduationCap,
   Languages,
   Lightbulb,
+  LockKeyhole,
   PenLine,
   Route,
   Search,
@@ -90,7 +91,7 @@ function categoryPercent(data: DashboardData, keys: string[]) {
   return max ? Math.round((score / max) * 100) : 0;
 }
 
-export function ToolsHubScreen({ navigate, isAdmin = false }: { navigate: Navigate; isAdmin?: boolean }) {
+export function ToolsHubScreen({ navigate, isAdmin = false, isPremium = false }: { navigate: Navigate; isAdmin?: boolean; isPremium?: boolean }) {
   const [query, setQuery] = useState("");
   const normalizedQuery = query.trim().toLowerCase();
   const groups = useMemo(() => {
@@ -119,10 +120,10 @@ export function ToolsHubScreen({ navigate, isAdmin = false }: { navigate: Naviga
           <div className="simple-section-heading"><h2>{group.title}</h2><span>{group.description}</span></div>
           <div className="simple-tool-grid">
             {group.tools.map(({ title, description, screen, icon: Icon, accent }) => (
-              <button className={`simple-tool-card tool-${accent}`} key={`${title}-${screen}`} onClick={() => navigate(screen)}>
+              <button className={`simple-tool-card tool-${accent} ${!isPremium && !["sat", "ielts"].includes(screen) ? "tool-locked" : ""}`} key={`${title}-${screen}`} onClick={() => navigate(screen)}>
                 <span><Icon size={20} /></span>
-                <div><strong>{title}</strong><small>{description}</small></div>
-                <ChevronRight size={16} />
+                <div><strong>{title}</strong><small>{description}</small>{!isPremium ? <em>{["sat", "ielts"].includes(screen) ? "FREE SAMPLE" : "PREMIUM"}</em> : null}</div>
+                {!isPremium && !["sat", "ielts"].includes(screen) ? <LockKeyhole size={15} /> : <ChevronRight size={16} />}
               </button>
             ))}
           </div>

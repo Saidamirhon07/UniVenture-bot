@@ -18,7 +18,8 @@ export type ScreenId =
   | "recommendation"
   | "portfolio-builder"
   | "boost"
-  | "founder";
+  | "founder"
+  | "free-check";
 
 export type Navigate = (screen: ScreenId) => void;
 
@@ -35,7 +36,7 @@ export interface FounderAnalytics {
   window_days: number;
   audience: { dau: number; wau: number; mau: number; total_users: number };
   subscriptions: { active_paid: number; ever_paid: number; churned: number; churn_rate: number; cancelled_active: number };
-  funnel: { visitors: number; checkout_started: number; paid: number; visitor_to_paid: number; visitor_to_checkout: number };
+  funnel: { visitors: number; upgrade_viewed: number; checkout_started: number; paid: number; visitor_to_paid: number; visitor_to_upgrade: number; visitor_to_checkout: number };
   tools: Array<{ name: string; views: number }>;
   practice: Record<"sat" | "ielts", { sessions: number; students: number; questions: number; correct: number; accuracy: number }>;
   revenue_by_source: Array<{ source: string; currency: string; amount: number; payments: number; buyers: number }>;
@@ -45,6 +46,8 @@ export interface FounderAnalytics {
 
 export interface SubscriptionStatus {
   has_access: boolean;
+  is_premium: boolean;
+  tier: "free" | "premium";
   access_type: "paid" | "trial" | "expired" | "unrestricted" | string;
   remaining_days: number | null;
   expires_at?: string | null;
@@ -59,7 +62,6 @@ export interface SubscriptionStatus {
   card_number?: string;
   card_holder?: string;
   bank_name?: string;
-  payment_bot_url?: string | null;
   payment_status?: "pending" | "approved" | "rejected" | null;
 }
 

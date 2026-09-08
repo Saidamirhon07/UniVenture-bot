@@ -90,6 +90,7 @@ SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", "21600"))
 RUN_TELEGRAM_BOT = os.getenv("RUN_TELEGRAM_BOT", "1") == "1"
 DEV_AUTH_BYPASS = os.getenv("DEV_AUTH_BYPASS", "0") == "1"
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(5 * 1024 * 1024)))
+FREE_PRACTICE_QUESTIONS_PER_DAY = max(1, min(10, int(os.getenv("FREE_PRACTICE_QUESTIONS_PER_DAY", "3"))))
 TASHKENT = ZoneInfo("Asia/Tashkent")
 
 
@@ -113,7 +114,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="UniVentureAI Admissions Hub API",
-    version="1.0.0",
+    version="1.2.0",
     docs_url="/api/docs" if os.getenv("ENABLE_API_DOCS", "0") == "1" else None,
     redoc_url=None,
     lifespan=lifespan,
@@ -147,12 +148,30 @@ def current_identity(authorization: str | None = Header(default=None)) -> Telegr
 
 def active_identity(identity: TelegramIdentity = Depends(current_identity)) -> TelegramIdentity:
     access = legacy.subscription_status(identity.user_id)
-    if not access["has_access"]:
+    if not access["is_premium"]:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail={"message": "Your trial or subscription has ended.", "subscription": access},
+            detail={"message": "This is a Premium feature.", "code": "premium_required", "subscription": access},
         )
     return identity
+
+
+def _is_premium(user_id: int) -> bool:
+    return bool(legacy.subscription_status(user_id)["is_premium"])
+
+
+def _free_practice_used(practice: dict[str, Any]) -> int:
+    today = _local_today().isoformat()
+    usage = practice.get("free_usage") if isinstance(practice.get("free_usage"), dict) else {}
+    return max(0, int(usage.get(today, 0) or 0))
+
+
+def _free_practice_bank() -> list[dict[str, Any]]:
+    selected: list[dict[str, Any]] = []
+    for exam, sections in (("sat", ("math", "reading_writing")), ("ielts", ("reading", "listening"))):
+        for section in sections:
+            selected.extend([item for item in PRACTICE_BANK if item.get("exam") == exam and item.get("section") == section][:3])
+    return selected
 
 
 def admin_identity(identity: TelegramIdentity = Depends(current_identity)) -> TelegramIdentity:
@@ -615,7 +634,7 @@ async def admin_analytics(days: int = 30, _: TelegramIdentity = Depends(admin_id
 
 
 @app.post("/api/profile/name")
-async def profile_name(payload: NameUpdateRequest, identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
+async def profile_name(payload: NameUpdateRequest, identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
     memory = legacy.load_memory(identity.user_id)
     memory.setdefault("profile", {})["preferred_name"] = payload.name
     _save_memory(identity.user_id, memory)
@@ -673,13 +692,30 @@ async def profile_onboarding_skip(identity: TelegramIdentity = Depends(active_id
 
 
 @app.get("/api/dashboard")
-async def dashboard(identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
+async def dashboard(identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
     return _dashboard(legacy.load_memory(identity.user_id), identity)
 
 
 @app.get("/api/subscription")
 async def subscription(identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
     return legacy.subscription_status(identity.user_id)
+
+
+@app.post("/api/payment/start")
+async def payment_start(identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
+    access = legacy.subscription_status(identity.user_id)
+    if access["is_premium"]:
+        return {"started": False, "already_premium": True, "message": "Premium is already active."}
+    try:
+        started = await legacy.start_manual_payment(identity.user_id)
+    except Exception as exc:
+        logger.exception("Could not start manual payment for user %s", identity.user_id)
+        raise HTTPException(status_code=503, detail="Could not open receipt mode. Please try again or contact support.") from exc
+    if started:
+        _track_product_event(identity.user_id, "checkout_started", {
+            "plan": "pro_30_days", "price": access["price_uzs"], "currency": "UZS", "method": "manual_card",
+        })
+    return {"started": started, "already_premium": False, "message": "Receipt mode is ready in the bot."}
 
 
 @app.post("/api/profile/update")
@@ -862,29 +898,67 @@ async def application_plan_task_status(payload: PlanTaskStatusRequest, identity:
 
 
 @app.get("/api/practice/library")
-async def practice_library(identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
+async def practice_library(identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
     memory = legacy.load_memory(identity.user_id)
     _, miniapp = _ensure_memory(memory)
     practice = miniapp.get("practice", {})
-    return {"questions": PRACTICE_BANK, "records": practice.get("questions", {}),
-            "sessions": practice.get("sessions", []), "drafts": practice.get("drafts", {}),
-            "streak": _practice_snapshot(memory)}
+    premium = _is_premium(identity.user_id)
+    used = _free_practice_used(practice)
+    return {
+        "questions": PRACTICE_BANK if premium else _free_practice_bank(),
+        "records": practice.get("questions", {}) if premium else {},
+        "sessions": practice.get("sessions", []) if premium else [],
+        "drafts": practice.get("drafts", {}) if premium else {},
+        "streak": _practice_snapshot(memory),
+        "access": {
+            "is_premium": premium,
+            "daily_limit": None if premium else FREE_PRACTICE_QUESTIONS_PER_DAY,
+            "used_today": 0 if premium else used,
+            "remaining_today": None if premium else max(0, FREE_PRACTICE_QUESTIONS_PER_DAY - used),
+        },
+    }
 
 
 @app.post("/api/practice/session")
-async def practice_session(payload: PracticeSessionRequest, identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
+async def practice_session(payload: PracticeSessionRequest, identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
     memory = legacy.load_memory(identity.user_id)
     _, miniapp = _ensure_memory(memory)
     practice = miniapp.setdefault("practice", {"days": {}})
+    premium = _is_premium(identity.user_id)
+    existing = next((item for item in practice.get("sessions", []) if item.get("id") == payload.session_id), None)
+    used = _free_practice_used(practice)
+    if not premium and not existing:
+        if payload.mode != "learn":
+            raise HTTPException(status_code=402, detail={"message": "Timed sets and mistake review are Premium features.", "code": "premium_required"})
+        if len(payload.answers) > 3 or used + len(payload.answers) > FREE_PRACTICE_QUESTIONS_PER_DAY:
+            _track_product_event(identity.user_id, "free_limit_reached", {"feature": "practice", "used": used})
+            raise HTTPException(status_code=402, detail={"message": "You completed today's free practice. Premium unlocks unlimited sets and saved review.", "code": "free_limit_reached"})
     try:
         session = record_session(practice, payload.model_dump(), _local_today(), int(time.time()))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if not premium and not existing:
+        today_key = _local_today().isoformat()
+        usage = practice.setdefault("free_usage", {})
+        usage[today_key] = used + len(payload.answers)
+        cutoff = (_local_today() - timedelta(days=31)).isoformat()
+        practice["free_usage"] = {day: count for day, count in usage.items() if day >= cutoff}
     _save_memory(identity.user_id, memory)
     _track_product_event(identity.user_id, "practice_completed", {
         "exam": session["exam"], "mode": session["mode"], "correct": session["correct"], "total": session["total"], "session_id": session["id"],
     })
-    return {"session": session, "records": practice.get("questions", {}), "streak": _practice_snapshot(memory)}
+    next_used = _free_practice_used(practice)
+    return {
+        "session": session,
+        "records": practice.get("questions", {}),
+        "streak": _practice_snapshot(memory),
+        "access": {
+            "is_premium": premium,
+            "daily_limit": None if premium else FREE_PRACTICE_QUESTIONS_PER_DAY,
+            "used_today": 0 if premium else next_used,
+            "remaining_today": None if premium else max(0, FREE_PRACTICE_QUESTIONS_PER_DAY - next_used),
+        },
+    }
 
 
 @app.post("/api/practice/draft")
@@ -919,7 +993,7 @@ async def practice_complete(payload: PracticeCompletionRequest, identity: Telegr
 
 
 @app.get("/api/practice/streak")
-async def practice_streak(identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
+async def practice_streak(identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
     return _practice_snapshot(legacy.load_memory(identity.user_id))
 
 
@@ -944,7 +1018,7 @@ async def create_reminder(payload: ReminderCreateRequest, identity: TelegramIden
 
 
 @app.post("/api/notifications/read")
-async def notifications_read(payload: NotificationsReadRequest, identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
+async def notifications_read(payload: NotificationsReadRequest, identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
     memory = legacy.load_memory(identity.user_id)
     _, miniapp = _ensure_memory(memory)
     seen = [str(item) for item in miniapp.get("seen_notifications", [])]

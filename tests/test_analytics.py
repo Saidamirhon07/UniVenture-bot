@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -29,6 +30,7 @@ class ProductAnalyticsTests(unittest.TestCase):
 
     def test_subscription_churn_conversion_and_campaign_revenue(self):
         record_event(1, "app_open", now=self.now, path=self.path)
+        record_event(1, "upgrade_view", {"feature": "essay"}, now=self.now, path=self.path)
         record_event(2, "checkout_started", now=self.now, path=self.path)
         paid = {
             "1": {"expires_at": (self.now + timedelta(days=20)).isoformat(), "acquisition_source": "ig_reel01", "payments": [{"paid_at": self.now.isoformat(), "amount": 199000, "currency": "UZS", "provider": "manual_card"}]},
@@ -38,6 +40,7 @@ class ProductAnalyticsTests(unittest.TestCase):
         self.assertEqual(snapshot["subscriptions"]["active_paid"], 1)
         self.assertEqual(snapshot["subscriptions"]["churned"], 1)
         self.assertEqual(snapshot["funnel"]["paid"], 2)
+        self.assertEqual(snapshot["funnel"]["upgrade_viewed"], 1)
         self.assertEqual(snapshot["revenue_by_source"][0]["source"], "ig_reel01")
         self.assertEqual(snapshot["revenue_by_source"][0]["currency"], "UZS")
         self.assertEqual(snapshot["revenue_by_source"][0]["amount"], 199000)
@@ -45,6 +48,13 @@ class ProductAnalyticsTests(unittest.TestCase):
     def test_rejects_unapproved_event_names(self):
         with self.assertRaises(ValueError):
             record_event(1, "essay_text", {"content": "private"}, now=self.now, path=self.path)
+
+    def test_concurrent_activity_from_100_users_is_not_lost(self):
+        with ThreadPoolExecutor(max_workers=16) as pool:
+            list(pool.map(lambda user_id: record_event(user_id, "app_open", now=self.now, path=self.path), range(1, 101)))
+        snapshot = founder_snapshot({}, now=self.now, path=self.path)
+        self.assertEqual(snapshot["audience"]["dau"], 100)
+        self.assertEqual(snapshot["audience"]["total_users"], 100)
 
 
 if __name__ == "__main__":
