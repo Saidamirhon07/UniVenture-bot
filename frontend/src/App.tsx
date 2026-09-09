@@ -101,13 +101,14 @@ export default function App() {
     webApp?.setBackgroundColor("#fbf7f1");
     webApp?.enableClosingConfirmation?.();
     api.authenticate()
-      .then(({ user: authenticatedUser, subscription: access }) => {
+      .then(async ({ user: authenticatedUser, subscription: access }) => {
         setUser(authenticatedUser); setSubscription(access);
         const queryParams = new URLSearchParams(window.location.search);
         const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-        const requestedScreen = (hashParams.get("screen") || queryParams.get("screen")) as ScreenId | null;
+        const launch = await api.get<{ intent: { screen?: ScreenId; upgrade?: boolean } | null }>("/api/launch-intent").catch(() => ({ intent: null }));
+        const requestedScreen = (hashParams.get("screen") || queryParams.get("screen") || launch.intent?.screen) as ScreenId | null;
         if (requestedScreen && freeScreens.has(requestedScreen)) setScreen(requestedScreen);
-        if ((hashParams.get("upgrade") || queryParams.get("upgrade")) === "premium" && !access.is_premium) setUpgradeFeature("Premium access");
+        if (((hashParams.get("upgrade") || queryParams.get("upgrade")) === "premium" || launch.intent?.upgrade) && !access.is_premium) setUpgradeFeature("Premium access");
         const source = webApp?.initDataUnsafe?.start_param || queryParams.get("startapp") || undefined;
         void api.track("app_open", { session_id: crypto.randomUUID?.() || String(Date.now()) }, source);
       })

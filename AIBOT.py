@@ -48,6 +48,7 @@ import asyncio
 
 from backend.billing import checkout_is_valid, extended_expiry, invoice_payload, normalize_source
 from backend.launch_links import build_mini_app_url
+from backend.launch_intents import set_launch_intent
 
 try:
     from openai import RateLimitError
@@ -1244,6 +1245,22 @@ async def paid_access_gate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Ensure user has a first_seen_at record for free trial tracking.
         _ensure_user_trial_record(uid, username=username, first_name=first_name)
 
+        # Telegram does not reliably provide signed Mini App authentication for
+        # alternate WebAppInfo URLs on every mobile client. Shortcut buttons send
+        # their intent as text, then open the one exact base URL that is known to
+        # authenticate correctly.
+        shortcut = mini_app_shortcut(getattr(msg, "text", "") or "")
+        if APP_ONLY_MODE and shortcut:
+            screen, upgrade, label = shortcut
+            set_launch_intent(uid, screen=screen, upgrade=upgrade)
+            await msg.reply_text(
+                f"{label} is ready. Tap below to open it securely.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton(f"Open {label}", web_app=WebAppInfo(url=MINI_APP_URL))
+                ]]),
+            )
+            raise ApplicationHandlerStop()
+
         # Let the next photo/document reach the receipt handler after /pay.
         has_receipt = bool(getattr(msg, "photo", None)) or bool(getattr(msg, "document", None))
         if has_receipt and (context.user_data.get("awaiting_payment_proof") or manual_payment_session_active(uid)):
@@ -2345,18 +2362,27 @@ def mini_app_entry_url(*, screen: str = "", upgrade: bool = False) -> str:
     return build_mini_app_url(MINI_APP_URL, screen=screen, upgrade=upgrade)
 
 
+def mini_app_shortcut(text: str) -> tuple[str, bool, str] | None:
+    return {
+        BTN_FREE_CHECK: ("free-check", False, "Free Check"),
+        BTN_TRY_SAT: ("sat", False, "SAT Studio"),
+        BTN_TRY_IELTS: ("ielts", False, "IELTS Studio"),
+        BTN_PREMIUM: ("", True, "Premium"),
+    }.get(text)
+
+
 def main_menu_keyboard():
     if not MINI_APP_URL:
         return ReplyKeyboardRemove()
     rows = [
         [KeyboardButton(BTN_HUB, web_app=WebAppInfo(url=mini_app_entry_url()))],
         [
-            KeyboardButton(BTN_FREE_CHECK, web_app=WebAppInfo(url=mini_app_entry_url(screen="free-check"))),
-            KeyboardButton(BTN_TRY_SAT, web_app=WebAppInfo(url=mini_app_entry_url(screen="sat"))),
+            KeyboardButton(BTN_FREE_CHECK),
+            KeyboardButton(BTN_TRY_SAT),
         ],
         [
-            KeyboardButton(BTN_TRY_IELTS, web_app=WebAppInfo(url=mini_app_entry_url(screen="ielts"))),
-            KeyboardButton(BTN_PREMIUM, web_app=WebAppInfo(url=mini_app_entry_url(upgrade=True))),
+            KeyboardButton(BTN_TRY_IELTS),
+            KeyboardButton(BTN_PREMIUM),
         ],
     ]
     return ReplyKeyboardMarkup(

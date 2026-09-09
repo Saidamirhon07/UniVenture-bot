@@ -24,6 +24,7 @@ from pdfminer.high_level import extract_text as extract_pdf_text
 
 from . import legacy
 from .analytics import founder_snapshot, record_event as record_product_event
+from .launch_intents import consume_launch_intent
 from .practice import BANK as PRACTICE_BANK, record_session
 from .auth import (
     AuthError,
@@ -620,6 +621,11 @@ async def me(identity: TelegramIdentity = Depends(current_identity)) -> dict[str
         "user": _public_user(identity, memory),
         "subscription": legacy.subscription_status(identity.user_id),
     }
+
+
+@app.get("/api/launch-intent")
+async def launch_intent(identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
+    return {"intent": consume_launch_intent(identity.user_id)}
 
 
 @app.post("/api/analytics/event")
