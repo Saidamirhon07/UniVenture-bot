@@ -1,6 +1,6 @@
 import unittest
 
-from backend.prompts import EVALUATION_SPECS, compact_evaluation_messages
+from backend.prompts import EVALUATION_SPECS, compact_evaluation_messages, free_copilot_messages
 
 
 class PromptContractTests(unittest.TestCase):
@@ -14,6 +14,11 @@ class PromptContractTests(unittest.TestCase):
         self.assertIn("vulnerability", personal)
         self.assertIn("school fit", supplemental)
         self.assertNotEqual(personal, supplemental)
+
+    def test_free_copilot_explicitly_has_no_saved_profile(self):
+        messages = free_copilot_messages("How do I start?", "home", [])
+        self.assertIn("do not have access", messages[0]["content"])
+        self.assertNotIn("portfolio", messages[-1]["content"])
 
 
 if __name__ == "__main__":

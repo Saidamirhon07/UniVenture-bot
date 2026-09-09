@@ -1,13 +1,14 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ScanText, ShieldCheck } from "lucide-react";
-import { api } from "../api";
+import { ApiError, api } from "../api";
 import type { EvaluationResponse, Navigate } from "../types";
 import ResultPanel from "../components/ResultPanel";
 import { Button, Card, ErrorBanner, FileImport, Input, ScreenHeader, Segmented, Tag, Textarea } from "../components/ui";
 
 type EssayType = "personal_statement" | "supplemental";
+type EssayAccess = { is_premium: boolean; free_limit: number | null; remaining: number | null };
 
-export default function EssayLabScreen({ navigate, onChanged }: { navigate: Navigate; onChanged: () => void }) {
+export default function EssayLabScreen({ navigate, onChanged, isPremium, onUpgrade }: { navigate: Navigate; onChanged: () => void; isPremium: boolean; onUpgrade: () => void }) {
   const [essayType, setEssayType] = useState<EssayType>("personal_statement");
   const [content, setContent] = useState("");
   const [schoolName, setSchoolName] = useState("");
@@ -16,21 +17,25 @@ export default function EssayLabScreen({ navigate, onChanged }: { navigate: Navi
   const [response, setResponse] = useState<EvaluationResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [access, setAccess] = useState<EssayAccess>({ is_premium: isPremium, free_limit: isPremium ? null : 1, remaining: isPremium ? null : 1 });
+
+  useEffect(() => { void api.get<EssayAccess>("/api/evaluate/essay/access").then(setAccess).catch(() => undefined); }, []);
 
   const wordCount = useMemo(() => content.trim() ? content.trim().split(/\s+/).length : 0, [content]);
 
   async function analyze() {
     setLoading(true); setError(""); setResponse(null);
     try {
-      const data = await api.post<EvaluationResponse>("/api/evaluate/essay", {
+      const data = await api.post<EvaluationResponse & { essay_access?: EssayAccess }>("/api/evaluate/essay", {
         essay_type: essayType,
         content,
         school_name: essayType === "supplemental" ? schoolName || null : null,
         prompt: essayType === "supplemental" ? prompt || null : null,
       });
-      setResponse(data); onChanged();
+      setResponse(data); if (data.essay_access) setAccess(data.essay_access); onChanged();
       window.Telegram?.WebApp.HapticFeedback?.notificationOccurred("success");
     } catch (caught) {
+      if (caught instanceof ApiError && caught.status === 402) { onUpgrade(); return; }
       setError(caught instanceof Error ? caught.message : "Could not analyze this essay.");
       window.Telegram?.WebApp.HapticFeedback?.notificationOccurred("error");
     } finally { setLoading(false); }
@@ -39,6 +44,8 @@ export default function EssayLabScreen({ navigate, onChanged }: { navigate: Navi
   return (
     <div className="page-enter space-y-3">
       <ScreenHeader eyebrow="Writing" title="Essay Review" description="Paste a draft. Get clear feedback." onBack={() => navigate("tools")} />
+
+      {!access.is_premium ? <button className="free-practice-banner" onClick={onUpgrade}><span><strong>Free Essay Review</strong><small>{access.remaining ?? 0} of {access.free_limit ?? 1} complete review left</small></span><em>Unlock unlimited reviews</em></button> : null}
 
       <Card>
         <Segmented value={essayType} onChange={(value) => { setEssayType(value); setResponse(null); }} options={[
@@ -74,12 +81,12 @@ export default function EssayLabScreen({ navigate, onChanged }: { navigate: Navi
 
         <div className="privacy-note"><ShieldCheck size={15} /> Your draft is tied to your secure Telegram identity and existing UniVenture memory.</div>
         {error ? <ErrorBanner message={error} /> : null}
-        <Button className="w-full mt-4" loading={loading} disabled={content.trim().length < 80} onClick={() => void analyze()}>
-          <ScanText size={18} /> Analyze My Essay
+        <Button className="w-full mt-4" loading={loading} disabled={content.trim().length < 80} onClick={() => access.is_premium || (access.remaining ?? 0) > 0 ? void analyze() : onUpgrade()}>
+          <ScanText size={18} /> {access.is_premium || (access.remaining ?? 0) > 0 ? "Analyze My Essay" : "Unlock More Essay Reviews"}
         </Button>
       </Card>
 
-      {response ? <ResultPanel response={response} /> : (
+      {response ? <ResultPanel response={response} refinementActions={access.is_premium} /> : (
         <Card className="empty-insight">
           <Tag>What you’ll get</Tag>
           <h3>{essayType === "personal_statement" ? "A story-level diagnosis—not grammar confetti." : "A school-fit diagnosis—not a recycled essay rubric."}</h3>

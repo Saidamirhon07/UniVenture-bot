@@ -24,6 +24,7 @@ from pdfminer.high_level import extract_text as extract_pdf_text
 
 from . import legacy
 from .analytics import founder_snapshot, record_event as record_product_event
+from .copilot_access import access_snapshot as copilot_access_snapshot, record_message, release_message
 from .launch_intents import consume_launch_intent
 from .practice import BANK as PRACTICE_BANK, record_session
 from .auth import (
@@ -39,6 +40,7 @@ from .prompts import (
     coach_messages,
     compact_evaluation_messages,
     copilot_messages,
+    free_copilot_messages,
     full_review_messages,
     plan_messages,
     recommendation_builder_messages,
@@ -92,7 +94,11 @@ RUN_TELEGRAM_BOT = os.getenv("RUN_TELEGRAM_BOT", "1") == "1"
 DEV_AUTH_BYPASS = os.getenv("DEV_AUTH_BYPASS", "0") == "1"
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(5 * 1024 * 1024)))
 FREE_PRACTICE_QUESTIONS_PER_DAY = max(1, min(10, int(os.getenv("FREE_PRACTICE_QUESTIONS_PER_DAY", "3"))))
+FREE_COPILOT_MESSAGES_PER_DAY = max(1, min(10, int(os.getenv("FREE_COPILOT_MESSAGES_PER_DAY", "3"))))
+FREE_ESSAY_EVALUATIONS = max(0, min(2, int(os.getenv("FREE_ESSAY_EVALUATIONS", "1"))))
 TASHKENT = ZoneInfo("Asia/Tashkent")
+_copilot_locks: dict[int, asyncio.Lock] = {}
+_essay_locks: dict[int, asyncio.Lock] = {}
 
 
 @asynccontextmanager
@@ -161,17 +167,20 @@ def _is_premium(user_id: int) -> bool:
     return bool(legacy.subscription_status(user_id)["is_premium"])
 
 
-def _free_practice_used(practice: dict[str, Any]) -> int:
+def _free_practice_used(practice: dict[str, Any], exam: str) -> int:
     today = _local_today().isoformat()
     usage = practice.get("free_usage") if isinstance(practice.get("free_usage"), dict) else {}
-    return max(0, int(usage.get(today, 0) or 0))
+    today_usage = usage.get(today, {})
+    if not isinstance(today_usage, dict):
+        return 0
+    return max(0, int(today_usage.get(exam, 0) or 0))
 
 
 def _free_practice_bank() -> list[dict[str, Any]]:
     selected: list[dict[str, Any]] = []
     for exam, sections in (("sat", ("math", "reading_writing")), ("ielts", ("reading", "listening"))):
         for section in sections:
-            selected.extend([item for item in PRACTICE_BANK if item.get("exam") == exam and item.get("section") == section][:3])
+            selected.extend([item for item in PRACTICE_BANK if item.get("exam") == exam and item.get("section") == section][:5])
     return selected
 
 
@@ -258,6 +267,8 @@ def _ensure_memory(memory: dict[str, Any]) -> tuple[dict[str, Any], dict[str, An
         miniapp["reminders"] = []
     if not isinstance(miniapp.get("seen_notifications"), list):
         miniapp["seen_notifications"] = []
+    if not isinstance(miniapp.get("copilot_free_usage"), dict):
+        miniapp["copilot_free_usage"] = {}
     miniapp.setdefault("onboarding_complete", False)
     miniapp.setdefault("updated_at", None)
     return application, miniapp
@@ -767,9 +778,46 @@ async def profile_update(payload: ProfileUpdateRequest, identity: TelegramIdenti
 
 
 @app.post("/api/evaluate/essay")
-async def evaluate_essay(payload: EssayEvaluationRequest, identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
+async def evaluate_essay(payload: EssayEvaluationRequest, identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
     topic = "essays_personal" if payload.essay_type == "personal_statement" else "essays_supplemental"
-    return await _run_compact_evaluation(identity, topic, payload.content, {"school_name": payload.school_name, "prompt": payload.prompt})
+    premium = _is_premium(identity.user_id)
+    reserved = False
+    if not premium:
+        lock = _essay_locks.setdefault(identity.user_id, asyncio.Lock())
+        async with lock:
+            memory = legacy.load_memory(identity.user_id)
+            _, miniapp = _ensure_memory(memory)
+            used = max(0, int(miniapp.get("free_essay_evaluations_used", 0) or 0))
+            if used >= FREE_ESSAY_EVALUATIONS:
+                raise HTTPException(
+                    status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                    detail={"message": "Your free Essay Review has been used. Premium unlocks unlimited reviews and revisions.", "code": "free_essay_limit"},
+                )
+            miniapp["free_essay_evaluations_used"] = used + 1
+            _save_memory(identity.user_id, memory)
+            reserved = True
+    try:
+        response = await _run_compact_evaluation(identity, topic, payload.content, {"school_name": payload.school_name, "prompt": payload.prompt})
+    except Exception:
+        if reserved:
+            async with _essay_locks[identity.user_id]:
+                memory = legacy.load_memory(identity.user_id)
+                _, miniapp = _ensure_memory(memory)
+                miniapp["free_essay_evaluations_used"] = max(0, int(miniapp.get("free_essay_evaluations_used", 1) or 1) - 1)
+                _save_memory(identity.user_id, memory)
+        raise
+    response["can_full_review"] = premium
+    response["essay_access"] = {"is_premium": premium, "free_limit": None if premium else FREE_ESSAY_EVALUATIONS, "remaining": None if premium else 0}
+    return response
+
+
+@app.get("/api/evaluate/essay/access")
+async def essay_access(identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
+    premium = _is_premium(identity.user_id)
+    memory = legacy.load_memory(identity.user_id)
+    _, miniapp = _ensure_memory(memory)
+    used = max(0, int(miniapp.get("free_essay_evaluations_used", 0) or 0))
+    return {"is_premium": premium, "free_limit": None if premium else FREE_ESSAY_EVALUATIONS, "remaining": None if premium else max(0, FREE_ESSAY_EVALUATIONS - used)}
 
 
 @app.post("/api/evaluate/ec")
@@ -904,12 +952,14 @@ async def application_plan_task_status(payload: PlanTaskStatusRequest, identity:
 
 
 @app.get("/api/practice/library")
-async def practice_library(identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
+async def practice_library(exam: str = "sat", identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
+    if exam not in {"sat", "ielts"}:
+        raise HTTPException(status_code=422, detail="Practice exam must be sat or ielts.")
     memory = legacy.load_memory(identity.user_id)
     _, miniapp = _ensure_memory(memory)
     practice = miniapp.get("practice", {})
     premium = _is_premium(identity.user_id)
-    used = _free_practice_used(practice)
+    used = _free_practice_used(practice, exam)
     return {
         "questions": PRACTICE_BANK if premium else _free_practice_bank(),
         "records": practice.get("questions", {}) if premium else {},
@@ -932,7 +982,7 @@ async def practice_session(payload: PracticeSessionRequest, identity: TelegramId
     practice = miniapp.setdefault("practice", {"days": {}})
     premium = _is_premium(identity.user_id)
     existing = next((item for item in practice.get("sessions", []) if item.get("id") == payload.session_id), None)
-    used = _free_practice_used(practice)
+    used = _free_practice_used(practice, payload.exam)
     if not premium and not existing:
         if payload.mode != "learn":
             raise HTTPException(status_code=402, detail={"message": "Timed sets and mistake review are Premium features.", "code": "premium_required"})
@@ -946,14 +996,18 @@ async def practice_session(payload: PracticeSessionRequest, identity: TelegramId
     if not premium and not existing:
         today_key = _local_today().isoformat()
         usage = practice.setdefault("free_usage", {})
-        usage[today_key] = used + len(payload.answers)
+        today_usage = usage.get(today_key, {})
+        if not isinstance(today_usage, dict):
+            today_usage = {}
+        today_usage[payload.exam] = used + len(payload.answers)
+        usage[today_key] = today_usage
         cutoff = (_local_today() - timedelta(days=31)).isoformat()
         practice["free_usage"] = {day: count for day, count in usage.items() if day >= cutoff}
     _save_memory(identity.user_id, memory)
     _track_product_event(identity.user_id, "practice_completed", {
         "exam": session["exam"], "mode": session["mode"], "correct": session["correct"], "total": session["total"], "session_id": session["id"],
     })
-    next_used = _free_practice_used(practice)
+    next_used = _free_practice_used(practice, payload.exam)
     return {
         "session": session,
         "records": practice.get("questions", {}),
@@ -1068,22 +1122,66 @@ async def coach(payload: CoachRequest, identity: TelegramIdentity = Depends(acti
     return {"mode": payload.mode, "result": _parse_ai_json(raw)}
 
 
-@app.post("/api/copilot")
-async def copilot(payload: CopilotRequest, identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
-    memory = legacy.load_memory(identity.user_id)
-    raw = await legacy.ask_ai(
-        copilot_messages(
-            payload.question,
-            payload.current_screen,
-            [item.model_dump() for item in payload.history],
-            _portfolio(memory),
-            readiness_snapshot(memory),
-        ),
-        strong=False,
-        max_tokens=650,
+def _copilot_access(memory: dict[str, Any], premium: bool) -> dict[str, Any]:
+    _, miniapp = _ensure_memory(memory)
+    return copilot_access_snapshot(
+        miniapp.get("copilot_free_usage"), _local_today(), FREE_COPILOT_MESSAGES_PER_DAY, premium
     )
+
+
+@app.get("/api/copilot/access")
+async def copilot_access(identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
+    memory = legacy.load_memory(identity.user_id)
+    return _copilot_access(memory, _is_premium(identity.user_id))
+
+
+@app.post("/api/copilot")
+async def copilot(payload: CopilotRequest, identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
+    memory = legacy.load_memory(identity.user_id)
+    premium = _is_premium(identity.user_id)
+    reserved = False
+    if not premium:
+        lock = _copilot_locks.setdefault(identity.user_id, asyncio.Lock())
+        async with lock:
+            memory = legacy.load_memory(identity.user_id)
+            access = _copilot_access(memory, False)
+            if access["remaining_today"] <= 0:
+                raise HTTPException(
+                    status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                    detail={
+                        "message": "You used today's 3 free Venture questions. Unlock Premium for profile-aware guidance.",
+                        "code": "free_copilot_limit",
+                        "access": access,
+                    },
+                )
+            _, miniapp = _ensure_memory(memory)
+            miniapp["copilot_free_usage"] = record_message(miniapp.get("copilot_free_usage"), _local_today())
+            _save_memory(identity.user_id, memory)
+            reserved = True
+    history = [item.model_dump() for item in payload.history]
+    messages = (
+        copilot_messages(payload.question, payload.current_screen, history, _portfolio(memory), readiness_snapshot(memory))
+        if premium
+        else free_copilot_messages(payload.question, payload.current_screen, history)
+    )
+    try:
+        raw = await legacy.ask_ai(messages, strong=False, max_tokens=650)
+    except Exception:
+        if reserved:
+            async with _copilot_locks[identity.user_id]:
+                latest = legacy.load_memory(identity.user_id)
+                _, miniapp = _ensure_memory(latest)
+                miniapp["copilot_free_usage"] = release_message(miniapp.get("copilot_free_usage"), _local_today())
+                _save_memory(identity.user_id, latest)
+        raise
     raw_answer = str(raw or "").strip()
     if not raw_answer:
+        if reserved:
+            async with _copilot_locks[identity.user_id]:
+                latest = legacy.load_memory(identity.user_id)
+                _, miniapp = _ensure_memory(latest)
+                miniapp["copilot_free_usage"] = release_message(miniapp.get("copilot_free_usage"), _local_today())
+                _save_memory(identity.user_id, latest)
         raise HTTPException(status_code=503, detail="Your copilot is temporarily busy. Please try again.")
     answer = raw_answer
     bullets: list[str] = []
@@ -1110,7 +1208,8 @@ async def copilot(payload: CopilotRequest, identity: TelegramIdentity = Depends(
         "answer": answer[:1_200],
         "bullets": bullets,
         "next_action": next_action,
-        "profile_completeness": _profile_completeness(memory),
+        "profile_completeness": _profile_completeness(memory) if premium else None,
+        "access": _copilot_access(legacy.load_memory(identity.user_id), premium),
     }
 
 

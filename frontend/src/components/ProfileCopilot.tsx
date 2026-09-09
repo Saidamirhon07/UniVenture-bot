@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowUp, MessageCircle, Sparkles, X } from "lucide-react";
-import { api } from "../api";
+import { ApiError, api } from "../api";
 import type { ScreenId } from "../types";
 
 type ChatMessage = { role: "user" | "assistant"; content: string; bullets?: string[]; nextAction?: string };
-type CopilotResponse = { answer: string; bullets?: unknown; next_action?: unknown };
+type CopilotAccess = { is_premium: boolean; daily_limit: number | null; used_today: number; remaining_today: number | null };
+type CopilotResponse = { answer: string; bullets?: unknown; next_action?: unknown; access: CopilotAccess };
 
 function cleanResponse(payload: CopilotResponse): ChatMessage {
   let answer = String(payload.answer || "").trim();
@@ -36,17 +37,24 @@ const promptByScreen: Partial<Record<ScreenId, string[]>> = {
   portfolio: ["What makes my profile memorable?", "Which evidence is weakest?", "What should I add next?"],
 };
 
-export default function ProfileCopilot({ screen }: { screen: ScreenId }) {
+export default function ProfileCopilot({ screen, isPremium, onUpgrade }: { screen: ScreenId; isPremium: boolean; onUpgrade: () => void }) {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([
-    { role: "assistant", content: "Ask me anything about your applications. I’ll answer from your saved profile and tell you when information is missing." },
+    { role: "assistant", content: isPremium
+      ? "Ask me anything about your applications. I’ll use your saved profile and tell you when information is missing."
+      : "Ask me a general admissions question. You have 3 free Venture questions each day." },
   ]);
+  const [access, setAccess] = useState<CopilotAccess>({ is_premium: isPremium, daily_limit: isPremium ? null : 3, used_today: 0, remaining_today: isPremium ? null : 3 });
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const endRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => { if (open) endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, open, loading]);
+  useEffect(() => {
+    if (!open) return;
+    void api.get<CopilotAccess>("/api/copilot/access").then(setAccess).catch(() => undefined);
+  }, [open]);
 
   async function ask(text = question) {
     const clean = text.trim();
@@ -57,7 +65,15 @@ export default function ProfileCopilot({ screen }: { screen: ScreenId }) {
     try {
       const data = await api.post<CopilotResponse>("/api/copilot", { question: clean, current_screen: screen, history: messages.slice(-6).map(({ role, content }) => ({ role, content })) });
       setMessages((items) => [...items, cleanResponse(data)]);
+      setAccess(data.access);
     } catch (caught) {
+      if (caught instanceof ApiError && caught.status === 402 && caught.detail && typeof caught.detail === "object" && (caught.detail as { code?: string }).code === "free_copilot_limit") {
+        const serverAccess = (caught.detail as { access?: CopilotAccess }).access;
+        if (serverAccess) setAccess(serverAccess);
+        setMessages((items) => items.filter((item, index) => index !== items.length - 1 || item.role !== "user"));
+        onUpgrade();
+        return;
+      }
       setError(caught instanceof Error ? caught.message : "Your copilot could not answer just now.");
     } finally { setLoading(false); }
   }
@@ -68,16 +84,18 @@ export default function ProfileCopilot({ screen }: { screen: ScreenId }) {
       {open ? <X size={22} /> : <><MessageCircle size={23} /><i /></>}
     </button>
     {open ? <section className="copilot-panel" aria-label="Venture admissions copilot">
-      <header><span><Sparkles size={18} /></span><div><strong>Venture</strong><small>Knows your Application Twin</small></div><button aria-label="Close" onClick={() => setOpen(false)}><X size={18} /></button></header>
+      <header><span><Sparkles size={18} /></span><div><strong>Venture</strong><small>{access.is_premium ? "Profile-aware copilot" : `${access.remaining_today ?? 0} free questions left today`}</small></div><button aria-label="Close" onClick={() => setOpen(false)}><X size={18} /></button></header>
       <div className="copilot-messages">
         {messages.map((message, index) => <div className={`copilot-message ${message.role}`} key={`${message.role}-${index}`}><span><p>{message.content}</p>{message.bullets?.length ? <ul>{message.bullets.map((item) => <li key={item}>{item}</li>)}</ul> : null}{message.nextAction ? <b><Sparkles size={12} />Next: {message.nextAction}</b> : null}</span></div>)}
         {loading ? <div className="copilot-message assistant typing"><span><i /><i /><i /></span></div> : null}
         {error ? <p className="copilot-error">{error}</p> : null}
         <div ref={endRef} />
       </div>
-      {messages.length < 3 ? <div className="copilot-prompts">{prompts.map((prompt) => <button key={prompt} onClick={() => void ask(prompt)}>{prompt}</button>)}</div> : null}
-      <div className="copilot-composer"><textarea rows={1} aria-label="Ask your admissions copilot" placeholder="Ask about your plan, schools, essays…" value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void ask(); } }} /><button aria-label="Send" disabled={question.trim().length < 2 || loading} onClick={() => void ask()}><ArrowUp size={18} /></button></div>
-      <small className="copilot-note">Profile-aware guidance, not admission guarantees.</small>
+      {messages.length < 3 && (access.is_premium || (access.remaining_today ?? 0) > 0) ? <div className="copilot-prompts">{prompts.map((prompt) => <button key={prompt} onClick={() => void ask(prompt)}>{prompt}</button>)}</div> : null}
+      {!access.is_premium && access.remaining_today === 0
+        ? <div className="copilot-upgrade"><p>Daily questions used. Premium gives you profile-aware Venture guidance.</p><button onClick={onUpgrade}><Sparkles size={15} />Unlock Premium</button></div>
+        : <div className="copilot-composer"><textarea rows={1} aria-label="Ask your admissions copilot" placeholder={access.is_premium ? "Ask about your plan, schools, essays…" : "Ask a general admissions question…"} value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void ask(); } }} /><button aria-label="Send" disabled={question.trim().length < 2 || loading} onClick={() => void ask()}><ArrowUp size={18} /></button></div>}
+      <small className="copilot-note">{access.is_premium ? "Uses your saved profile. No admission guarantees." : "General guidance only. Premium adds your saved profile."}</small>
     </section> : null}
   </>;
 }

@@ -63,7 +63,7 @@ class PracticeAPITests(unittest.TestCase):
 
     def test_free_access_gets_daily_sample_but_not_premium_drafts(self):
         self.paid = False
-        library = self.client.get("/api/practice/library")
+        library = self.client.get("/api/practice/library?exam=sat")
         self.assertEqual(library.status_code,200,library.text)
         self.assertFalse(library.json()["access"]["is_premium"])
         self.assertEqual(library.json()["access"]["daily_limit"],3)
@@ -77,6 +77,15 @@ class PracticeAPITests(unittest.TestCase):
         self.assertEqual(self.client.post("/api/practice/session",json=first).status_code,200)
         second = {**self.payload, "session_id":"fixture-session-002", "answers":[{"question_id":"sm04","choice":0}]}
         self.assertEqual(self.client.post("/api/practice/session",json=second).status_code,402)
+
+    def test_free_sat_and_ielts_allowances_are_independent(self):
+        self.paid = False
+        sat = {**self.payload, "answers": [{"question_id":"sm01","choice":1},{"question_id":"sm02","choice":2},{"question_id":"sm03","choice":0}]}
+        ielts = {**self.payload, "session_id":"fixture-ielts", "exam":"ielts", "answers":[{"question_id":"ir01","choice":0}]}
+        self.assertEqual(self.client.post("/api/practice/session",json=sat).status_code,200)
+        self.assertEqual(self.client.post("/api/practice/session",json=ielts).status_code,200)
+        self.assertEqual(self.client.get("/api/practice/library?exam=sat").json()["access"]["remaining_today"],0)
+        self.assertEqual(self.client.get("/api/practice/library?exam=ielts").json()["access"]["remaining_today"],2)
 
     def test_invalid_questions_and_boolean_answers(self):
         for answers in [[{"question_id":"unknown","choice":1}],[{"question_id":"ir01","choice":1}],[{"question_id":"sm01","choice":True}],[]]:

@@ -25,7 +25,7 @@ await page.route('**/api/**',async route=>{
   if(path==='/api/auth/dev') response={token:'fixture-token',user,subscription:dashboard.subscription};
   else if(path==='/api/me') response={user,readiness,portfolio:{profile:{},application:{}}};
   else if(path==='/api/dashboard') response=dashboard;
-  else if(path==='/api/practice/library') response=library;
+  else if(path.startsWith('/api/practice/library')) response=library;
   else if(path==='/api/practice/streak'||path==='/api/practice/complete') response=streak;
   else if(path==='/api/analytics/event') response={recorded:true};
   else if(path==='/api/admin/analytics') response=founderAnalytics;

@@ -142,7 +142,7 @@ export default function App() {
       case "coach": return <AICoachScreen navigate={navigate} />;
       case "brainstorm": return <AICoachScreen navigate={navigate} initialMode="brainstorm" />;
       case "rewrite": return <AICoachScreen navigate={navigate} initialMode="rewrite" />;
-      case "essay": return <EssayLabScreen navigate={navigate} onChanged={markChanged} />;
+      case "essay": return <EssayLabScreen navigate={navigate} onChanged={markChanged} isPremium={subscription.is_premium} onUpgrade={() => setUpgradeFeature("unlimited Essay Reviews")} />;
       case "school": return <SchoolFinderScreen navigate={navigate} onChanged={markChanged} />;
       case "plan": return <ApplicationPlanScreen navigate={navigate} onChanged={markChanged} />;
       case "portfolio": return <PortfolioScreen navigate={navigate} onChanged={markChanged} />;
@@ -174,7 +174,7 @@ export default function App() {
           </button>
         ))}
       </nav>
-      {subscription.is_premium && (["home", "roadmap", "tools", "discover", "feedback"] as ScreenId[]).includes(screen) ? <ProfileCopilot screen={screen} /> : null}
+      {(["home", "roadmap", "tools", "discover", "feedback"] as ScreenId[]).includes(screen) ? <ProfileCopilot screen={screen} isPremium={subscription.is_premium} onUpgrade={() => setUpgradeFeature("profile-aware Venture AI")} /> : null}
       {upgradeFeature ? <UpgradeSheet feature={upgradeFeature} subscription={subscription} onClose={() => setUpgradeFeature("")} onUnlocked={setSubscription} /> : null}
     </div>
   );

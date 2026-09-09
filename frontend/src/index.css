@@ -618,6 +618,9 @@ select.input { appearance: auto; }
 .copilot-composer textarea { min-height: 38px; max-height: 88px; resize: none; padding: 9px 10px; color: #10294b; caret-color: #0a8a7d; border: 1px solid #ddd3c6; border-radius: 11px; outline: 0; background: #fbf7f1; font-size: .64rem; }
 .copilot-composer button { width: 38px; height: 38px; display: grid; place-items: center; color: #fff; border: 0; border-radius: 11px; background: #0b55d9; }
 .copilot-composer button:disabled { opacity: .4; }
+.copilot-upgrade { display: grid; gap: 8px; padding: 10px 12px; border-top: 1px solid #e7ddd0; background: #fffdf9; }
+.copilot-upgrade p { margin: 0; color: #5f6978; font-size: .58rem; line-height: 1.4; text-align: center; }
+.copilot-upgrade button { min-height: 40px; display: flex; align-items: center; justify-content: center; gap: 7px; color: #fff; border: 0; border-radius: 11px; background: #0b55d9; font-size: .65rem; font-weight: 760; }
 .copilot-note { padding: 0 12px 8px; color: #8a8e97; text-align: center; background: #fffdf9; font-size: .48rem; }
 
 /* Application Flight Plan */

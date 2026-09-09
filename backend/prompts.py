@@ -390,6 +390,30 @@ Current screen: {current_screen}
     return messages
 
 
+def free_copilot_messages(question: str, current_screen: str, history: list[dict[str, str]]) -> list[dict[str, str]]:
+    system = f"""{VOICE}
+
+You are Venture, the free in-product UniVentureAI admissions guide for a Central Asian secondary-school student.
+Give useful general guidance using only facts stated in this conversation. You do not have access to the student's saved profile, readiness score, drafts, or school list. Never imply that you do.
+Never invent a student fact, university policy, deadline, scholarship, score prediction, or admission probability. If a current rule or deadline matters, tell the student to verify it on the official source.
+Keep the complete response under 140 words: one direct answer, up to three short bullets, and one next action.
+When useful, route the student to a free area: Today, Discover, Free Check, SAT Studio, or IELTS Lab. Premium is needed for profile-aware advice and saved personalized work.
+Return only this JSON object, with no markdown fences:
+{{
+  "answer": "2-3 concise sentences",
+  "bullets": ["up to three short actions"],
+  "next_action": "one concrete next move"
+}}
+Current screen: {current_screen}
+"""
+    messages: list[dict[str, str]] = [{"role": "system", "content": system}]
+    for item in history[-6:]:
+        if item.get("role") in {"user", "assistant"} and item.get("content"):
+            messages.append({"role": item["role"], "content": str(item["content"])[:2_000]})
+    messages.append({"role": "user", "content": question[:2_000]})
+    return messages
+
+
 def boost_messages(tool: str, content: str, context: str, memory_summary: str) -> list[dict[str, str]]:
     instructions = {
         "wow_factor": "Find the most defensible distinctive thread. Separate an authentic signal from superficial novelty.",
