@@ -97,6 +97,7 @@ async def start_manual_payment(user_id: int) -> bool:
             "Receipt mode stays active for 30 minutes."
         ),
         parse_mode="HTML",
+        reply_markup=bot.main_menu_keyboard(),
     )
     return True
 

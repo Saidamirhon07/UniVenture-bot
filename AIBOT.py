@@ -7,9 +7,11 @@ os.environ['TZ'] = 'UTC'  # Set timezone to UTC
 from datetime import datetime, timedelta, timezone
 from telegram import (
     Update,
+    BotCommand,
     LabeledPrice,
     KeyboardButton,
     ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     WebAppInfo,
@@ -31,6 +33,7 @@ import chromadb
 from chromadb.utils import embedding_functions
 import os, io, logging, json, base64, uuid, re
 import html
+from urllib.parse import urlencode
 
 # -------- File extraction deps --------
 from pdfminer.high_level import extract_text
@@ -57,6 +60,7 @@ load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 MINI_APP_URL = os.getenv("MINI_APP_URL", "").strip().rstrip("/")
+APP_ONLY_MODE = os.getenv("APP_ONLY_MODE", "1") == "1"
 
 # -------- Model routing (speed vs depth) --------
 FAST_MODEL = os.getenv("OPENAI_FAST_MODEL", "gpt-4.1-mini")
@@ -648,7 +652,7 @@ def _payment_instructions_text(user_id: int) -> str:
     holder = html.escape(PAYMENT_CARD_HOLDER or "")
     bank = html.escape(PAYMENT_BANK or "")
     parts = [
-        "🔐 <b>Unlock UniVentureAI Pro</b>",
+        "🔐 <b>UniVentureAI Premium</b>",
         "",
         f"💳 <b>{PAYMENT_PRICE_UZS:,} UZS for 30 days</b>",
         "",
@@ -656,18 +660,12 @@ def _payment_instructions_text(user_id: int) -> str:
         f"Cardholder: <b>{holder}</b>" if holder else "",
         f"Bank: {bank}" if bank else "",
         "",
-        "Your membership includes:",
-        "• Personal admissions roadmap and reminders",
-        "• Essay, EC and recommendation feedback",
-        "• SAT and IELTS practice studios",
-        "• School fit, opportunities and AI copilot",
-        "",
-        "1. Transfer the exact amount to the card above.",
-        "2. Send the payment screenshot here as a photo or document.",
-        "3. Access unlocks after an admin verifies the receipt.",
+        "1. Transfer the exact amount.",
+        "2. Upload the receipt here.",
+        "3. Premium unlocks after verification.",
         "",
         html.escape(PAYMENT_NOTE) if PAYMENT_NOTE else "",
-        "By paying, you agree to /terms. For help, use /paysupport.",
+        "Terms: /terms · Help: /paysupport",
         "",
         f"🆔 Your user ID: <code>{user_id}</code>",
     ]
@@ -786,6 +784,7 @@ async def pay_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         _payment_instructions_text(uid),
         parse_mode="HTML",
+        reply_markup=main_menu_keyboard(),
     )
 
 
@@ -1205,7 +1204,13 @@ async def manual_payment_review_callback(update: Update, context: ContextTypes.D
     await query.answer("Saved")
     await query.edit_message_text(f"{query.message.text}\n\n{admin_text}")
     try:
-        await context.bot.send_message(chat_id=user_id, text=user_text)
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=user_text,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🚀 Open UniVentureAI", web_app=WebAppInfo(url=MINI_APP_URL))]
+            ]) if MINI_APP_URL and approved else None,
+        )
     except Exception:
         logging.exception("Could not notify user %s about manual payment review", user_id)
     
@@ -1244,20 +1249,34 @@ async def paid_access_gate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if has_receipt and (context.user_data.get("awaiting_payment_proof") or manual_payment_session_active(uid)):
             return
 
-        # Check if user has access via the unified function.
-        if is_pro_user(update):
-            return
-
-        # User does not have access. Check what they're trying to do.
+        # Keep the bot as a focused launcher and payment channel in production.
         cmd = ""
         if getattr(msg, "text", None) and msg.text.startswith("/"):
             cmd = msg.text.split()[0].lower()
 
         WHITELIST = {"/start", "/pay", "/id", "/mysub", "/terms", "/paysupport", "/cancel"}
+
+        # Paid users retain explicit commands, while normal messages return them to the app.
+        if is_pro_user(update):
+            if APP_ONLY_MODE and not cmd:
+                await msg.reply_text(
+                    "UniVentureAI now works through the Mini App, where your tools and saved progress stay together.",
+                    reply_markup=main_menu_keyboard(),
+                )
+                raise ApplicationHandlerStop()
+            return
+
         if cmd in WHITELIST:
             return
 
-        # Unpaid users can only open payment/support/status flows.
+        if APP_ONLY_MODE:
+            await msg.reply_text(
+                "Open UniVentureAI to continue. You can start free, then unlock Premium only when you need it.",
+                reply_markup=main_menu_keyboard(),
+            )
+            raise ApplicationHandlerStop()
+
+        # Compatibility mode: unpaid users can only open payment/support/status flows.
         await pay_cmd(update, context)
         raise ApplicationHandlerStop()
 
@@ -2241,7 +2260,11 @@ BTN_IELTS = "🗣️ IELTS"
 BTN_PORT = "🖼️ Portfolio"
 BTN_PLAN_MAIN = "📅 Application Plan"
 BTN_SF_MAIN = "🏫 School Finder"
-BTN_HUB = "🚀 Open Admissions Hub"
+BTN_HUB = "🚀 Open UniVentureAI"
+BTN_FREE_CHECK = "🎯 Free Check"
+BTN_TRY_SAT = "📈 Try SAT"
+BTN_TRY_IELTS = "🗣 Try IELTS"
+BTN_PREMIUM = "💎 Premium"
 
 # Application Plan (portfolio-aware) sub-buttons
 BTN_PLAN_FROM_PORT = "📌 Plan from my portfolio"
@@ -2315,19 +2338,34 @@ def is_ui_button(text: str) -> bool:
 
 
 # -------- Keyboards --------
+def mini_app_entry_url(*, screen: str = "", upgrade: bool = False) -> str:
+    if not MINI_APP_URL:
+        return ""
+    params = {}
+    if screen:
+        params["screen"] = screen
+    if upgrade:
+        params["upgrade"] = "premium"
+    if not params:
+        return MINI_APP_URL
+    separator = "&" if "?" in MINI_APP_URL else "?"
+    return f"{MINI_APP_URL}{separator}{urlencode(params)}"
+
+
 def main_menu_keyboard():
-    rows = []
-    if MINI_APP_URL:
-        rows.append(
-            [KeyboardButton(BTN_HUB, web_app=WebAppInfo(url=MINI_APP_URL))]
-        )
-    rows.extend(
+    if not MINI_APP_URL:
+        return ReplyKeyboardRemove()
+    rows = [
+        [KeyboardButton(BTN_HUB, web_app=WebAppInfo(url=mini_app_entry_url()))],
         [
-            [KeyboardButton(BTN_ESSAY), KeyboardButton(BTN_EC), KeyboardButton(BTN_REC)],
-            [KeyboardButton(BTN_SAT), KeyboardButton(BTN_IELTS), KeyboardButton(BTN_PORT)],
-            [KeyboardButton(BTN_PLAN_MAIN), KeyboardButton(BTN_SF_MAIN), KeyboardButton(BTN_TOOLS)],
-        ]
-    )
+            KeyboardButton(BTN_FREE_CHECK, web_app=WebAppInfo(url=mini_app_entry_url(screen="free-check"))),
+            KeyboardButton(BTN_TRY_SAT, web_app=WebAppInfo(url=mini_app_entry_url(screen="sat"))),
+        ],
+        [
+            KeyboardButton(BTN_TRY_IELTS, web_app=WebAppInfo(url=mini_app_entry_url(screen="ielts"))),
+            KeyboardButton(BTN_PREMIUM, web_app=WebAppInfo(url=mini_app_entry_url(upgrade=True))),
+        ],
+    ]
     return ReplyKeyboardMarkup(
         rows,
         resize_keyboard=True,
@@ -2730,6 +2768,7 @@ async def send_with_image(
     caption: str,
     reply_markup=None,
     image_key: str | None = None,
+    parse_mode: str | None = None,
 ):
     if image_key and image_key in IMAGE_FILES:
         path = IMAGE_FILES[image_key]
@@ -2740,6 +2779,7 @@ async def send_with_image(
                         photo=f,
                         caption=caption,
                         reply_markup=reply_markup,
+                        parse_mode=parse_mode,
                     )
                 return
             except Exception as e:
@@ -2747,7 +2787,7 @@ async def send_with_image(
         else:
             logging.warning(f"Image file not found: {path}")
 
-    await update.message.reply_text(caption, reply_markup=reply_markup)
+    await update.message.reply_text(caption, reply_markup=reply_markup, parse_mode=parse_mode)
 
 # -------- Vision helper --------
 async def extract_text_from_image_bytes(image_bytes: bytes) -> str:
@@ -2951,9 +2991,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await send_with_image(
         update,
-        "Hi! I'm your coached AI 🤖\nChoose a topic or ask a question.",
+        "<b>Your university application workspace is ready.</b>\n\n"
+        "Start free with a readiness check or daily SAT/IELTS practice. "
+        "Open UniVentureAI for every tool, plan, and saved result.",
         reply_markup=main_menu_keyboard(),
         image_key='welcome',
+        parse_mode="HTML",
     )
 
 
@@ -7424,13 +7467,23 @@ async def error_handler(update, context):
 
 async def telegram_post_init(application):
     """Expose the Mini App in Telegram's persistent bot menu when configured."""
+    try:
+        await application.bot.set_my_commands([
+            BotCommand("start", "Open UniVentureAI"),
+            BotCommand("pay", "Premium payment"),
+            BotCommand("mysub", "Check Premium status"),
+            BotCommand("paysupport", "Payment help"),
+            BotCommand("terms", "Payment terms"),
+        ])
+    except Exception:
+        logging.exception("Failed to configure the public bot command menu.")
     if not MINI_APP_URL:
         logging.warning("MINI_APP_URL is not set; Admissions Hub buttons are disabled.")
         return
     try:
         await application.bot.set_chat_menu_button(
             menu_button=MenuButtonWebApp(
-                text="Admissions Hub",
+                text="Open UniVentureAI",
                 web_app=WebAppInfo(url=MINI_APP_URL),
             )
         )

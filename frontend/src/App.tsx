@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Home, LayoutGrid, MapPinned, Search, Sparkles, UserRound } from "lucide-react";
+import { ArrowRight, Home, LayoutGrid, MapPinned, Search, Sparkles, UserRound } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { api } from "./api";
 import { Button, Card, ErrorBanner, Input, LoadingScreen, Tag } from "./components/ui";
@@ -59,14 +59,16 @@ function NameSetup({ onSaved }: { onSaved: (user: SessionUser) => void }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   async function saveName() {
+    const cleanName = name.trim();
+    if (loading || cleanName.length < 2) return;
     setLoading(true); setError("");
     try {
-      const data = await api.post<{ user: SessionUser }>("/api/profile/name", { name });
+      const data = await api.post<{ user: SessionUser }>("/api/profile/name", { name: cleanName });
       onSaved(data.user);
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Could not save your name."); }
     finally { setLoading(false); }
   }
-  return <main className="name-setup"><div className="name-orbit"><Sparkles size={28} /></div><Tag tone="cyan">Make it yours</Tag><h1>What should we call you?</h1><p>Enter the name you want UniVentureAI to use. We won’t copy it from Telegram.</p><Card><Input label="Your name" autoFocus autoComplete="name" placeholder="e.g. Saidamirkhon" value={name} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && name.trim().length >= 2) void saveName(); }} />{error ? <ErrorBanner message={error} /> : null}<Button className="w-full mt-4" loading={loading} disabled={name.trim().length < 2} onClick={() => void saveName()}>Continue to my hub</Button></Card><small>You can change this anytime in Academic Profile.</small></main>;
+  return <main className="name-setup"><div className="name-orbit"><Sparkles size={28} /></div><Tag tone="cyan">Make it yours</Tag><h1>What should we call you?</h1><p>Enter the name you want UniVentureAI to use. We won’t copy it from Telegram.</p><Card><form className="name-form" onSubmit={(event) => { event.preventDefault(); void saveName(); }}><Input label="Your name" autoComplete="name" enterKeyHint="go" maxLength={40} placeholder="e.g. Saidamirkhon" value={name} onChange={(event) => setName(event.target.value)} />{error ? <ErrorBanner message={error} /> : null}<Button type="submit" className="name-continue" loading={loading} disabled={name.trim().length < 2}>Continue<ArrowRight size={18} /></Button></form></Card><small>You can change this anytime in Academic Profile.</small></main>;
 }
 
 export default function App() {
@@ -101,7 +103,11 @@ export default function App() {
     api.authenticate()
       .then(({ user: authenticatedUser, subscription: access }) => {
         setUser(authenticatedUser); setSubscription(access);
-        const source = webApp?.initDataUnsafe?.start_param || new URLSearchParams(window.location.search).get("startapp") || undefined;
+        const params = new URLSearchParams(window.location.search);
+        const requestedScreen = params.get("screen") as ScreenId | null;
+        if (requestedScreen && freeScreens.has(requestedScreen)) setScreen(requestedScreen);
+        if (params.get("upgrade") === "premium" && !access.is_premium) setUpgradeFeature("Premium access");
+        const source = webApp?.initDataUnsafe?.start_param || params.get("startapp") || undefined;
         void api.track("app_open", { session_id: crypto.randomUUID?.() || String(Date.now()) }, source);
       })
       .catch((error) => setAuthError(error instanceof Error ? error.message : "Authentication failed."));

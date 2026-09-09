@@ -12,6 +12,7 @@ qa
 qa-v2
 qa-v3
 qa-v4
+qa-v*
 *.zip
 *.log
 .DS_Store

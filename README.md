@@ -1,8 +1,8 @@
 # UniVentureAI Admissions Hub
 
-A production-oriented Telegram Mini App added **beside** the existing UniVentureAI chatbot. The chatbot keeps all commands and handlers. FastAPI starts that same Telegram application, exposes secure Mini App APIs, serves the React build, and reads/writes the same paid-user file, user-memory directory, ChromaDB collections, and OpenAI models.
+A production-oriented Telegram Mini App connected to a focused Telegram launcher and payment channel. Students work inside the app; the bot opens targeted app entry points, receives payment receipts, reports subscription status, and keeps administrative commands available to configured admins. FastAPI starts that Telegram application, exposes secure Mini App APIs, serves the React build, and reads/writes the same paid-user file, user-memory directory, ChromaDB collections, and OpenAI models.
 
-Premium V12 turns the app into a freemium product and fixes the manual UZS receipt handoff. Free students can explore Home, Tools, Discover, a 60-second readiness check, and three original practice questions per day. Profile building, personalized planning, AI evaluation, saved work, advanced practice, and the remaining premium tools are protected on the server. When a student taps the payment action, the backend sends that exact Telegram account a receipt request; the student uploads proof in the bot and an admin verifies the bank transfer before access is granted. Read `V12_APPLY_STEPS.md` and `V12_RELEASE_NOTES.md` before launch.
+Premium V13 completes the app-first launch experience. The crowded legacy chatbot keyboard is replaced by one primary UniVentureAI launcher and four short app hooks. The first-name screen now has a visible, accessible Continue button and supports both the interface button and keyboard submission. V12 freemium access, direct receipt handoff, admin approval, Founder Pulse, and server-side premium boundaries remain intact. Read `V13_APPLY_STEPS.md` and `V13_RELEASE_NOTES.md` before launch.
 
 ## 1. Architecture
 
@@ -175,6 +175,7 @@ Restart the frontend dev server so Vite receives the variable. This tests the sa
    - `PAYMENT_BANK=your_real_bank`
    - `FREE_PRACTICE_QUESTIONS_PER_DAY=3`
    - `AI_MAX_CONCURRENCY=10`
+   - `APP_ONLY_MODE=1`
    - `RUN_TELEGRAM_BOT=1`
 6. If this replaces an existing Railway bot deployment, attach or migrate the **same `/data` volume contents** before switching traffic. That preserves paid users, trials, memory and Chroma sources.
 7. Deploy once and generate a Railway public HTTPS domain.
