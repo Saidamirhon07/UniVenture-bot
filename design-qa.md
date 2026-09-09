@@ -55,3 +55,12 @@ The available source at the beginning of this pass was the V6 simplified fronten
 See V8_APPLY_STEPS.md for the Mac fixture-browser runner and separate real-device acceptance checklist. Fixture screenshots are not evidence for live AI, backend persistence or payments.
 
 Release status: code-tested release candidate; browser and full-runtime acceptance pending.
+
+## V14.1 founder discoverability hotfix
+
+- Source evidence: the supplied Telegram Tools screenshot shows the search field and founder card touching, and the card only advertises growth analytics.
+- Implemented: 14px separation below search, an explicit **Analytics & Question Factory** founder entry, and **Reviewed Question Factory** as the first Founder Pulse panel.
+- Production TypeScript build: passed.
+- Live Telegram WebView capture and interaction comparison: unavailable in this session because no cloud browser is exposed.
+
+Final result: blocked pending the six-step Telegram device check in `V14_1_APPLY_STEPS.md`.

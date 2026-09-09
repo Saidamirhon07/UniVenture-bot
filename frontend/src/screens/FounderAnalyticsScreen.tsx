@@ -74,6 +74,19 @@ export default function FounderAnalyticsScreen({ navigate }: { navigate: Navigat
       </div>
 
       {error ? <ErrorBanner message={error} /> : null}
+
+      <section className="founder-panel question-factory founder-factory-featured">
+        <div className="founder-panel-title"><div><small>CONTENT ENGINE</small><h2>Reviewed Question Factory</h2></div><WandSparkles size={20} /></div>
+        <p>Create original practice in small batches. Every question is checked, deduplicated, and held here until you approve it.</p>
+        {factoryError ? <ErrorBanner message={factoryError} /> : null}
+        <div className="question-factory-list">
+          {factory ? Object.entries(factory.categories).map(([category, row]) => <div key={category}><span><strong>{category.replace(/_/g, " ")}</strong><small>{row.published} published · {row.verified} ready for review · target {row.target}</small></span><button disabled={Boolean(factoryBusy) || row.remaining === 0} onClick={() => void generate(category)}>{factoryBusy === category ? "Checking…" : row.remaining === 0 ? "Target met" : "+ 5 checked"}</button></div>) : <p>Loading content targets…</p>}
+        </div>
+        {factory?.review_queue.length ? <details className="question-review-queue"><summary>Review {factory.review_queue.length} checked questions</summary>{factory.review_queue.map((item) => <article key={item.id}><small>{item.category.replace(/_/g, " ")} · {item.level} · {Math.round(item.verification_confidence * 100)}% checker confidence</small><p>{item.prompt}</p>{item.verification_note ? <em>{item.verification_note}</em> : null}<div><button disabled={Boolean(factoryBusy)} onClick={() => void decide(item.id, "reject")}>Reject</button><button disabled={Boolean(factoryBusy)} onClick={() => void decide(item.id, "publish")}>{factoryBusy === item.id ? "Saving…" : "Publish"}</button></div></article>)}</details> : null}
+        <button className="question-publish" disabled={Boolean(factoryBusy) || !factory || !Object.values(factory.categories).some((row) => row.verified)} onClick={() => void publish()}><CheckCircle2 size={16} />{factoryBusy === "publish" ? "Publishing…" : "Publish all reviewed questions"}</button>
+        <small>AI-checked material is original practice, not official SAT or IELTS content. Review each batch before publishing.</small>
+      </section>
+
       {data ? <>
         <section className="founder-hero">
           <div><span><Activity size={16} />Live product health</span><strong>{data.audience.dau}</strong><small>active today</small></div>
@@ -117,18 +130,6 @@ export default function FounderAnalyticsScreen({ navigate }: { navigate: Navigat
 
         <section className="founder-practice-grid">
           {(["sat", "ielts"] as const).map((exam) => <article key={exam}><span>{exam.toUpperCase()}</span><strong>{data.practice[exam].sessions}</strong><small>completed sessions</small><div><b>{data.practice[exam].students}</b> students <i /> <b>{data.practice[exam].accuracy}%</b> accuracy</div></article>)}
-        </section>
-
-        <section className="founder-panel question-factory">
-          <div className="founder-panel-title"><div><small>CONTENT ENGINE</small><h2>Reviewed question factory</h2></div><WandSparkles size={20} /></div>
-          <p>Each batch is generated, independently checked, deduplicated, then held for your publication approval.</p>
-          {factoryError ? <ErrorBanner message={factoryError} /> : null}
-          <div className="question-factory-list">
-            {factory ? Object.entries(factory.categories).map(([category, row]) => <div key={category}><span><strong>{category.replace(/_/g, " ")}</strong><small>{row.published} published · {row.verified} verified · target {row.target}</small></span><button disabled={Boolean(factoryBusy) || row.remaining === 0} onClick={() => void generate(category)}>{factoryBusy === category ? "Checking…" : row.remaining === 0 ? "Target met" : "+ 5 checked"}</button></div>) : <p>Loading content targets…</p>}
-          </div>
-          {factory?.review_queue.length ? <details className="question-review-queue"><summary>Inspect {factory.review_queue.length} verified questions</summary>{factory.review_queue.map((item) => <article key={item.id}><small>{item.category.replace(/_/g, " ")} · {item.level} · {Math.round(item.verification_confidence * 100)}% checker confidence</small><p>{item.prompt}</p>{item.verification_note ? <em>{item.verification_note}</em> : null}<div><button disabled={Boolean(factoryBusy)} onClick={() => void decide(item.id, "reject")}>Reject</button><button disabled={Boolean(factoryBusy)} onClick={() => void decide(item.id, "publish")}>{factoryBusy === item.id ? "Saving…" : "Publish"}</button></div></article>)}</details> : null}
-          <button className="question-publish" disabled={Boolean(factoryBusy) || !factory || !Object.values(factory.categories).some((row) => row.verified)} onClick={() => void publish()}><CheckCircle2 size={16} />{factoryBusy === "publish" ? "Publishing…" : "Publish all verified questions"}</button>
-          <small>Generate in small batches and inspect student performance. AI-checked material is original practice, not official SAT or IELTS content.</small>
         </section>
 
         <section className="founder-panel">
