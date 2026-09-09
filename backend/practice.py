@@ -10,11 +10,12 @@ BANK = json.loads(Path(__file__).with_name("practice_bank.json").read_text())
 QUESTIONS = {question["id"]: question for question in BANK}
 
 
-def grade_session(exam, answers):
+def grade_session(exam, answers, questions=None):
+    catalog = questions or QUESTIONS
     seen = set()
     graded = []
     for answer in answers:
-        question = QUESTIONS.get(answer["question_id"])
+        question = catalog.get(answer["question_id"])
         if not question or question["exam"] != exam:
             raise ValueError("Question does not belong to this practice exam.")
         if question["id"] in seen:
@@ -31,7 +32,7 @@ def grade_session(exam, answers):
     return graded
 
 
-def record_session(practice, payload, today: date, timestamp: int):
+def record_session(practice, payload, today: date, timestamp: int, questions=None):
     sessions = practice.setdefault("sessions", [])
     existing = next((s for s in sessions if s["id"] == payload["session_id"]), None)
     if existing:
@@ -40,7 +41,7 @@ def record_session(practice, payload, today: date, timestamp: int):
         ] != payload["answers"]:
             raise ValueError("This session ID was already used for different answers.")
         return existing
-    answers = grade_session(payload["exam"], payload["answers"])
+    answers = grade_session(payload["exam"], payload["answers"], questions)
     session = {"id": payload["session_id"], "exam": payload["exam"], "mode": payload["mode"],
                "seconds": payload["seconds"], "created_at": timestamp, "answers": answers,
                "correct": sum(a["correct"] for a in answers), "total": len(answers)}

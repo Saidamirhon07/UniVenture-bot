@@ -27,6 +27,16 @@ from .analytics import founder_snapshot, record_event as record_product_event
 from .copilot_access import access_snapshot as copilot_access_snapshot, record_message, release_message
 from .launch_intents import consume_launch_intent
 from .practice import BANK as PRACTICE_BANK, record_session
+from .question_factory import (
+    add_reviewed_batch,
+    generation_messages,
+    publish_verified,
+    decide as decide_question,
+    published_objective,
+    published_prompts,
+    review_messages,
+    snapshot as question_factory_snapshot,
+)
 from .auth import (
     AuthError,
     TelegramIdentity,
@@ -70,6 +80,8 @@ from .schemas import (
     PracticeCompletionRequest,
     PracticeSessionRequest,
     PracticeDraftRequest,
+    QuestionFactoryGenerateRequest,
+    QuestionFactoryDecisionRequest,
     ProfileUpdateRequest,
     RecommendationRequest,
     ReminderCreateRequest,
@@ -178,10 +190,17 @@ def _free_practice_used(practice: dict[str, Any], exam: str) -> int:
 
 def _free_practice_bank() -> list[dict[str, Any]]:
     selected: list[dict[str, Any]] = []
+    bank = _practice_bank()
     for exam, sections in (("sat", ("math", "reading_writing")), ("ielts", ("reading", "listening"))):
         for section in sections:
-            selected.extend([item for item in PRACTICE_BANK if item.get("exam") == exam and item.get("section") == section][:5])
+            selected.extend([item for item in bank if item.get("exam") == exam and item.get("section") == section])
     return selected
+
+
+def _practice_bank() -> list[dict[str, Any]]:
+    generated = published_objective()
+    known = {item["id"] for item in generated}
+    return generated + [item for item in PRACTICE_BANK if item["id"] not in known]
 
 
 def admin_identity(identity: TelegramIdentity = Depends(current_identity)) -> TelegramIdentity:
@@ -634,6 +653,12 @@ async def me(identity: TelegramIdentity = Depends(current_identity)) -> dict[str
     }
 
 
+@app.get("/api/portfolio")
+async def portfolio(identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
+    memory = legacy.load_memory(identity.user_id)
+    return {"portfolio": _portfolio(memory), "readiness": readiness_snapshot(memory)}
+
+
 @app.get("/api/launch-intent")
 async def launch_intent(identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
     return {"intent": consume_launch_intent(identity.user_id)}
@@ -648,6 +673,44 @@ async def analytics_event(payload: AnalyticsEventRequest, identity: TelegramIden
 @app.get("/api/admin/analytics")
 async def admin_analytics(days: int = 30, _: TelegramIdentity = Depends(admin_identity)) -> dict[str, Any]:
     return founder_snapshot(legacy.paid_records(), days=days)
+
+
+@app.get("/api/admin/question-factory")
+async def admin_question_factory(_: TelegramIdentity = Depends(admin_identity)) -> dict[str, Any]:
+    return question_factory_snapshot()
+
+
+@app.post("/api/admin/question-factory/generate")
+async def admin_generate_questions(payload: QuestionFactoryGenerateRequest, _: TelegramIdentity = Depends(admin_identity)) -> dict[str, Any]:
+    remaining = question_factory_snapshot()["categories"][payload.category]["remaining"]
+    count = min(payload.count, remaining)
+    if count <= 0:
+        return {"batch": {"added": 0, "rejected": 0, "duplicates": 0}, "factory": question_factory_snapshot()}
+    raw_candidates = await legacy.ask_ai(generation_messages(payload.category, count), strong=True, max_tokens=7_000)
+    candidate_payload = _parse_ai_json(raw_candidates)
+    candidates = candidate_payload.get("questions") or []
+    if not isinstance(candidates, list) or not candidates:
+        raise HTTPException(status_code=503, detail="The generator returned no usable questions. Try this batch again.")
+    raw_reviews = await legacy.ask_ai(review_messages(payload.category, candidates), strong=True, max_tokens=3_500)
+    review_payload = _parse_ai_json(raw_reviews)
+    reviews = review_payload.get("reviews") or []
+    if not isinstance(reviews, list):
+        reviews = []
+    result = add_reviewed_batch(payload.category, candidates[:count], reviews)
+    return {"batch": result, "factory": question_factory_snapshot()}
+
+
+@app.post("/api/admin/question-factory/publish")
+async def admin_publish_questions(_: TelegramIdentity = Depends(admin_identity)) -> dict[str, Any]:
+    published = publish_verified()
+    return {"published": published, "factory": question_factory_snapshot()}
+
+
+@app.post("/api/admin/question-factory/decision")
+async def admin_question_decision(payload: QuestionFactoryDecisionRequest, _: TelegramIdentity = Depends(admin_identity)) -> dict[str, Any]:
+    if not decide_question(payload.item_id, payload.action):
+        raise HTTPException(status_code=404, detail="Verified question was not found.")
+    return {"saved": True, "factory": question_factory_snapshot()}
 
 
 @app.post("/api/profile/name")
@@ -961,8 +1024,10 @@ async def practice_library(exam: str = "sat", identity: TelegramIdentity = Depen
     premium = _is_premium(identity.user_id)
     used = _free_practice_used(practice, exam)
     return {
-        "questions": PRACTICE_BANK if premium else _free_practice_bank(),
+        "questions": _practice_bank() if premium else _free_practice_bank(),
+        "prompts": published_prompts() if premium else {"writing_task_1": [], "writing_task_2": [], "speaking": []},
         "records": practice.get("questions", {}) if premium else {},
+        "selection_records": practice.get("questions", {}),
         "sessions": practice.get("sessions", []) if premium else [],
         "drafts": practice.get("drafts", {}) if premium else {},
         "streak": _practice_snapshot(memory),
@@ -990,7 +1055,8 @@ async def practice_session(payload: PracticeSessionRequest, identity: TelegramId
             _track_product_event(identity.user_id, "free_limit_reached", {"feature": "practice", "used": used})
             raise HTTPException(status_code=402, detail={"message": "You completed today's free practice. Premium unlocks unlimited sets and saved review.", "code": "free_limit_reached"})
     try:
-        session = record_session(practice, payload.model_dump(), _local_today(), int(time.time()))
+        bank = _practice_bank()
+        session = record_session(practice, payload.model_dump(), _local_today(), int(time.time()), {item["id"]: item for item in bank})
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     if not premium and not existing:

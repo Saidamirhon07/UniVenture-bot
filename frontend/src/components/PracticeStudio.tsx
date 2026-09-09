@@ -10,7 +10,7 @@ export type PracticeQuestion = { id: string; exam: "sat" | "ielts"; section: str
 type QuestionRecord = { attempts: number; correct: number; last_correct: boolean; last_choice: number | null; last_seen: string; review_due: string };
 type Session = { id: string; exam: string; mode: string; correct: number; total: number; seconds: number; created_at: number; answers: { question_id: string; choice: number | null; correct: boolean }[] };
 type PracticeAccess = { is_premium: boolean; daily_limit: number | null; used_today: number; remaining_today: number | null };
-export type PracticeLibrary = { questions: PracticeQuestion[]; records: Record<string, QuestionRecord>; sessions: Session[]; drafts: Record<string, { prompt: string; content: string }>; streak: PracticeStreak; access: PracticeAccess };
+export type PracticeLibrary = { questions: PracticeQuestion[]; prompts?: Record<"writing_task_1" | "writing_task_2" | "speaking", string[]>; records: Record<string, QuestionRecord>; selection_records?: Record<string, QuestionRecord>; sessions: Session[]; drafts: Record<string, { prompt: string; content: string }>; streak: PracticeStreak; access: PracticeAccess };
 type Mode = "learn" | "timed" | "review";
 type Run = { id: string; questions: PracticeQuestion[]; mode: Mode; started: number; deadline: number | null; choices: Record<string, number>; index: number; flagged: string[] };
 const handledLeaveEvents = new WeakSet<Event>();
@@ -77,7 +77,7 @@ export default function PracticeStudio({ exam, navigate, onChanged, coach, isPre
   const start = () => {
     const remaining = data.access.remaining_today;
     if (!isPremium && (!remaining || remaining <= 0)) { void api.track("free_limit_reached", { feature: `${exam}_practice` }); onUpgrade(); return; }
-    const chosen = choosePractice(pool, data.records, isPremium ? mode : "learn", today, recent.length * 5).slice(0, isPremium ? 5 : Math.min(3, remaining || 0));
+    const chosen = choosePractice(pool, data.selection_records || data.records, isPremium ? mode : "learn", today, recent.length * 5).slice(0, isPremium ? 5 : Math.min(3, remaining || 0));
     if (!chosen.length) { setError("Nothing is due in this skill yet. Choose Learn or another skill."); return; }
     const now = Date.now();
     setRun({ id: crypto.randomUUID(), questions: chosen, mode, started: now, deadline: mode === "timed" ? now + chosen.length * 90000 : null, choices: {}, index: 0, flagged: [] });

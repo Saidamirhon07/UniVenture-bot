@@ -60,8 +60,9 @@ function VoiceRecorder() {
 export default function IELTSWorkbench({ skill, library, onChanged, onCompleted }: { skill: "writing" | "speaking"; library: PracticeLibrary; onChanged: () => void; onCompleted: (streak: PracticeStreak) => void }) {
   const [task, setTask] = useState<"task_1" | "task_2">("task_2");
   const key = skill === "speaking" ? "speaking" : `writing_${task}` as const;
+  const availablePrompts = [...new Set([...prompts[key], ...(library.prompts?.[key] || [])])];
   const savedDraft = library.drafts[key];
-  const [prompt, setPrompt] = useState(savedDraft?.prompt || prompts[key][0]);
+  const [prompt, setPrompt] = useState(savedDraft?.prompt || availablePrompts[0]);
   const [content, setContent] = useState(savedDraft?.content || "");
   const [baseline, setBaseline] = useState({prompt:savedDraft?.prompt || prompts[key][0],content:savedDraft?.content || ""});
   const [seconds, setSeconds] = useState(skill === "speaking" ? 60 : 2400);
@@ -83,7 +84,8 @@ export default function IELTSWorkbench({ skill, library, onChanged, onCompleted 
     if (dirty && !confirm("Switch tasks? Save your draft first to keep it.")) return;
     const nextKey = `writing_${value}` as const;
     const draft = library.drafts[nextKey];
-    const next = {prompt:draft?.prompt || prompts[nextKey][0],content:draft?.content || ""};
+    const nextPrompts = [...new Set([...prompts[nextKey], ...(library.prompts?.[nextKey] || [])])];
+    const next = {prompt:draft?.prompt || nextPrompts[0],content:draft?.content || ""};
     setTask(value); setPrompt(next.prompt); setContent(next.content); setBaseline(next); setSeconds(value === "task_1" ? 1200 : 2400); setDeadline(null); setResult(null); setError(""); setStatus(draft ? "Saved draft restored" : "");
   }
   async function saveDraft(complete = false) {
@@ -106,7 +108,7 @@ export default function IELTSWorkbench({ skill, library, onChanged, onCompleted 
   const words = content.trim() ? content.trim().split(/\s+/).length : 0;
   return <><Card className="ielts-workbench">{skill === "writing" && <Segmented value={task} onChange={changeTask} options={[{value:"task_1",label:"Academic Task 1"},{value:"task_2",label:"Task 2"}]}/>}
     <div className="practice-kicker"><strong>{skill === "writing" ? "Writing room" : "Speaking room · Part 2"}</strong><small>Original prompts</small></div>
-    <Select label="Choose a prompt" value={prompts[key].includes(prompt) ? prompt : "custom"} onChange={e=>{if (e.target.value !== "custom") {setPrompt(e.target.value);setResult(null);}}}>{!prompts[key].includes(prompt) && <option value="custom">Saved / custom prompt</option>}{prompts[key].map((p,index)=><option key={p} value={p}>Prompt {index+1}: {p.slice(0,62)}…</option>)}</Select>
+    <Select label="Choose a prompt" value={availablePrompts.includes(prompt) ? prompt : "custom"} onChange={e=>{if (e.target.value !== "custom") {setPrompt(e.target.value);setResult(null);}}}>{!availablePrompts.includes(prompt) && <option value="custom">Saved / custom prompt</option>}{availablePrompts.map((p,index)=><option key={p} value={p}>Prompt {index+1}: {p.slice(0,62)}…</option>)}</Select>
     <p className="practice-passage">{prompt}</p><details><summary>Use my own prompt</summary><Textarea label="Task or cue card" value={prompt} maxLength={3000} onChange={e=>{setPrompt(e.target.value);setResult(null);}} /></details>
     <div className="workbench-timer"><Clock3 size={22}/><strong>{Math.floor(seconds/60)}:{String(seconds%60).padStart(2,"0")}</strong><Button variant="ghost" onClick={()=>setDeadline(deadline ? null : Date.now()+seconds*1000)} disabled={!seconds}>{deadline ? <Pause size={16}/> : <Play size={16}/ >}{deadline ? "Pause" : "Start"}</Button><Button variant="ghost" aria-label="Reset timer" onClick={()=>{setDeadline(null);setSeconds(skill === "speaking" ? 60 : task === "task_1" ? 1200 : 2400);}}><RotateCcw size={16}/></Button></div>
     {seconds === 0 && <p role="status">Time is up. You can keep editing in practice mode.</p>}

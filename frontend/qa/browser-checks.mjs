@@ -13,6 +13,7 @@ const readiness = {score:48,categories:[{key:'testing',label:'Testing',score:8,m
 const dashboard = {name:'Alex',location:'Tashkent',intended_major:'Computer Science',readiness,profile_completeness:{percent:60,filled:6,total:10,missing:[]},today_priority:{title:'Build your SAT algebra foundations',why:'A focused set will make your next practice more useful.',effort:'10 min'},today_action:{mode:'navigate',label:'Open SAT Studio',screen:'sat'},weekly_path:[],trajectory:{now:'Practice algebra',next:'Review essay outline',deadline:'Set an application date'},status_cards:[],practice_streak:streak,notifications:[],unread_notifications:0,subscription:{has_access:true,is_premium:true,tier:'premium',access_type:'paid',remaining_days:10,price:'199,000 UZS',price_uzs:199000}};
 const library = {questions,records:{},sessions:[],drafts:{},streak,access:{is_premium:true,daily_limit:null,used_today:0,remaining_today:null}};
 const founderAnalytics = {generated_at:'2026-09-08T09:00:00Z',window_days:30,audience:{dau:12,wau:48,mau:120,total_users:150},subscriptions:{active_paid:31,ever_paid:40,churned:9,churn_rate:22.5,cancelled_active:2},funnel:{visitors:120,upgrade_viewed:70,checkout_started:52,paid:31,visitor_to_paid:25.8,visitor_to_upgrade:58.3,visitor_to_checkout:43.3},tools:[{name:'Essay Review',views:96},{name:'SAT Practice',views:72},{name:'School Finder',views:48}],practice:{sat:{sessions:41,students:22,questions:410,correct:315,accuracy:77},ielts:{sessions:28,students:17,questions:140,correct:98,accuracy:70}},revenue_by_source:[{source:'ig_reel01',currency:'UZS',amount:3184000,payments:16,buyers:16},{source:'tg_channel01',currency:'UZS',amount:1990000,payments:10,buyers:10}],timeline:Array.from({length:30},(_,index)=>({date:`2026-09-${String(index+1).padStart(2,'0')}`,active_users:3+(index%10),opens:4+(index%9),tool_views:7+(index%13)})),privacy:'Counts product events only. Essay text, answers, profile content and chats are not stored in analytics.'};
+const questionFactory = {categories:{sat_math:{target:150,verified:0,published:12,remaining:138},sat_reading_writing:{target:150,verified:0,published:12,remaining:138},ielts_reading:{target:100,verified:0,published:6,remaining:94},ielts_listening:{target:100,verified:0,published:6,remaining:94},ielts_writing:{target:50,verified:0,published:5,remaining:45},ielts_speaking:{target:50,verified:0,published:3,remaining:47}},review_queue:[],total_items:0,storage_path:'/data/generated_question_bank.json'};
 const browser = await chromium.launch({headless:true});
 const page = await browser.newPage({viewport:{width:390,height:844}});
 const errors=[];
@@ -24,11 +25,13 @@ await page.route('**/api/**',async route=>{
   let response={};
   if(path==='/api/auth/dev') response={token:'fixture-token',user,subscription:dashboard.subscription};
   else if(path==='/api/me') response={user,readiness,portfolio:{profile:{},application:{}}};
+  else if(path==='/api/portfolio') response={readiness,portfolio:{profile:{},application:{}}};
   else if(path==='/api/dashboard') response=dashboard;
   else if(path.startsWith('/api/practice/library')) response=library;
   else if(path==='/api/practice/streak'||path==='/api/practice/complete') response=streak;
   else if(path==='/api/analytics/event') response={recorded:true};
   else if(path==='/api/admin/analytics') response=founderAnalytics;
+  else if(path==='/api/admin/question-factory') response=questionFactory;
   else if(path==='/api/practice/draft') {library.drafts[body.key]={prompt:body.prompt,content:body.content};response={saved:true};}
   else if(path==='/api/practice/session') {
     const answers=body.answers.map(a=>({...a,correct:questions.find(q=>q.id===a.question_id).answer===a.choice}));

@@ -256,6 +256,23 @@ class BoostRequest(BaseModel):
     context: str | None = Field(default=None, max_length=2_000)
 
 
+class QuestionFactoryGenerateRequest(BaseModel):
+    category: Literal[
+        "sat_math",
+        "sat_reading_writing",
+        "ielts_reading",
+        "ielts_listening",
+        "ielts_writing",
+        "ielts_speaking",
+    ]
+    count: int = Field(default=5, ge=1, le=10, strict=True)
+
+
+class QuestionFactoryDecisionRequest(BaseModel):
+    item_id: str = Field(min_length=6, max_length=80, pattern=r"^[a-zA-Z0-9_-]+$")
+    action: Literal["publish", "reject"]
+
+
 class ExtractedFileResponse(BaseModel):
     filename: str
     text: str

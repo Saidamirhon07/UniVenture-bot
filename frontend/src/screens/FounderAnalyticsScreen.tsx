@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { Activity, ArrowLeft, BarChart3, CreditCard, Eye, Flame, RefreshCw, ShieldCheck, Sparkles, TrendingDown, TrendingUp, Users } from "lucide-react";
+import { Activity, ArrowLeft, BarChart3, CheckCircle2, CreditCard, Eye, Flame, RefreshCw, ShieldCheck, Sparkles, TrendingDown, TrendingUp, Users, WandSparkles } from "lucide-react";
 import { api } from "../api";
 import { ErrorBanner, LoadingScreen } from "../components/ui";
-import type { FounderAnalytics, Navigate } from "../types";
+import type { FounderAnalytics, Navigate, QuestionFactorySnapshot } from "../types";
 
 function money(amount: number, currency: string) {
   if (currency === "XTR") return `${amount.toLocaleString()} ⭐`;
@@ -19,6 +19,9 @@ export default function FounderAnalyticsScreen({ navigate }: { navigate: Navigat
   const [data, setData] = useState<FounderAnalytics | null>(null);
   const [error, setError] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
+  const [factory, setFactory] = useState<QuestionFactorySnapshot | null>(null);
+  const [factoryBusy, setFactoryBusy] = useState("");
+  const [factoryError, setFactoryError] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -28,6 +31,32 @@ export default function FounderAnalyticsScreen({ navigate }: { navigate: Navigat
       .catch((caught) => active && setError(caught instanceof Error ? caught.message : "Could not load founder analytics."));
     return () => { active = false; };
   }, [days, refreshKey]);
+  useEffect(() => { void api.get<QuestionFactorySnapshot>("/api/admin/question-factory").then(setFactory).catch((caught) => setFactoryError(caught instanceof Error ? caught.message : "Could not load question factory.")); }, [refreshKey]);
+
+  async function generate(category: string) {
+    setFactoryBusy(category); setFactoryError("");
+    try {
+      const response = await api.post<{ factory: QuestionFactorySnapshot }>("/api/admin/question-factory/generate", { category, count: 5 });
+      setFactory(response.factory);
+    } catch (caught) { setFactoryError(caught instanceof Error ? caught.message : "Question generation failed."); }
+    finally { setFactoryBusy(""); }
+  }
+  async function publish() {
+    setFactoryBusy("publish"); setFactoryError("");
+    try {
+      const response = await api.post<{ factory: QuestionFactorySnapshot }>("/api/admin/question-factory/publish", {});
+      setFactory(response.factory);
+    } catch (caught) { setFactoryError(caught instanceof Error ? caught.message : "Publishing failed."); }
+    finally { setFactoryBusy(""); }
+  }
+  async function decide(itemId: string, action: "publish" | "reject") {
+    setFactoryBusy(itemId); setFactoryError("");
+    try {
+      const response = await api.post<{ factory: QuestionFactorySnapshot }>("/api/admin/question-factory/decision", { item_id: itemId, action });
+      setFactory(response.factory);
+    } catch (caught) { setFactoryError(caught instanceof Error ? caught.message : "Could not save the review decision."); }
+    finally { setFactoryBusy(""); }
+  }
 
   const maxActivity = useMemo(() => Math.max(1, ...(data?.timeline.map((item) => item.active_users) || [1])), [data]);
   if (!data && !error) return <LoadingScreen label="Calculating growth…" />;
@@ -88,6 +117,18 @@ export default function FounderAnalyticsScreen({ navigate }: { navigate: Navigat
 
         <section className="founder-practice-grid">
           {(["sat", "ielts"] as const).map((exam) => <article key={exam}><span>{exam.toUpperCase()}</span><strong>{data.practice[exam].sessions}</strong><small>completed sessions</small><div><b>{data.practice[exam].students}</b> students <i /> <b>{data.practice[exam].accuracy}%</b> accuracy</div></article>)}
+        </section>
+
+        <section className="founder-panel question-factory">
+          <div className="founder-panel-title"><div><small>CONTENT ENGINE</small><h2>Reviewed question factory</h2></div><WandSparkles size={20} /></div>
+          <p>Each batch is generated, independently checked, deduplicated, then held for your publication approval.</p>
+          {factoryError ? <ErrorBanner message={factoryError} /> : null}
+          <div className="question-factory-list">
+            {factory ? Object.entries(factory.categories).map(([category, row]) => <div key={category}><span><strong>{category.replace(/_/g, " ")}</strong><small>{row.published} published · {row.verified} verified · target {row.target}</small></span><button disabled={Boolean(factoryBusy) || row.remaining === 0} onClick={() => void generate(category)}>{factoryBusy === category ? "Checking…" : row.remaining === 0 ? "Target met" : "+ 5 checked"}</button></div>) : <p>Loading content targets…</p>}
+          </div>
+          {factory?.review_queue.length ? <details className="question-review-queue"><summary>Inspect {factory.review_queue.length} verified questions</summary>{factory.review_queue.map((item) => <article key={item.id}><small>{item.category.replace(/_/g, " ")} · {item.level} · {Math.round(item.verification_confidence * 100)}% checker confidence</small><p>{item.prompt}</p>{item.verification_note ? <em>{item.verification_note}</em> : null}<div><button disabled={Boolean(factoryBusy)} onClick={() => void decide(item.id, "reject")}>Reject</button><button disabled={Boolean(factoryBusy)} onClick={() => void decide(item.id, "publish")}>{factoryBusy === item.id ? "Saving…" : "Publish"}</button></div></article>)}</details> : null}
+          <button className="question-publish" disabled={Boolean(factoryBusy) || !factory || !Object.values(factory.categories).some((row) => row.verified)} onClick={() => void publish()}><CheckCircle2 size={16} />{factoryBusy === "publish" ? "Publishing…" : "Publish all verified questions"}</button>
+          <small>Generate in small batches and inspect student performance. AI-checked material is original practice, not official SAT or IELTS content.</small>
         </section>
 
         <section className="founder-panel">

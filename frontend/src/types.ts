@@ -44,6 +44,13 @@ export interface FounderAnalytics {
   privacy: string;
 }
 
+export interface QuestionFactorySnapshot {
+  categories: Record<string, { target: number; verified: number; published: number; remaining: number }>;
+  review_queue: Array<{ id: string; category: string; prompt: string; level: string; verification_confidence: number; verification_note?: string }>;
+  total_items: number;
+  storage_path: string;
+}
+
 export interface SubscriptionStatus {
   has_access: boolean;
   is_premium: boolean;

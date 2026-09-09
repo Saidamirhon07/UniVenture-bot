@@ -65,8 +65,10 @@ export default function PortfolioScreen({ navigate, onChanged }: { navigate: Nav
   const [error, setError] = useState("");
 
   async function load() {
+    setError("");
     try {
-      const data = await api.get<{ portfolio: typeof portfolio; readiness: Readiness }>("/api/me");
+      const data = await api.get<{ portfolio: typeof portfolio; readiness: Readiness }>("/api/portfolio");
+      if (!data.portfolio || !data.readiness) throw new Error("Portfolio data was incomplete. Please retry.");
       setPortfolio(data.portfolio); setReadiness(data.readiness);
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Could not load your portfolio."); }
   }
@@ -119,6 +121,7 @@ export default function PortfolioScreen({ navigate, onChanged }: { navigate: Nav
 
   const completed = useMemo(() => portfolio ? sections.filter((section) => summaryFor(section, sectionData(section)) !== "Add details").length : 0, [portfolio]);
   if (!portfolio && !error) return <LoadingScreen label="Opening your application portfolio…" />;
+  if (!portfolio) return <div className="page-enter space-y-3"><ScreenHeader eyebrow="Your saved details" title="Profile" description="Update once. Every tool uses it." onBack={() => navigate("home")} /><Card><ErrorBanner message={error} /><Button className="w-full mt-3" onClick={() => void load()}>Retry loading profile</Button></Card></div>;
 
   return <div className="page-enter space-y-3">
     <ScreenHeader eyebrow="Your saved details" title="Profile" description="Update once. Every tool uses it." onBack={() => navigate("home")} />
