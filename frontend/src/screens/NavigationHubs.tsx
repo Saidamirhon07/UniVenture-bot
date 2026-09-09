@@ -83,6 +83,7 @@ const toolGroups: ToolGroup[] = [
 ];
 
 const allTools = toolGroups.flatMap((group) => group.tools);
+const freeSampleTools = new Set<ScreenId>(["essay", "sat", "ielts"]);
 
 function categoryPercent(data: DashboardData, keys: string[]) {
   const categories = data.readiness.categories.filter((item) => keys.includes(item.key));
@@ -120,10 +121,10 @@ export function ToolsHubScreen({ navigate, isAdmin = false, isPremium = false }:
           <div className="simple-section-heading"><h2>{group.title}</h2><span>{group.description}</span></div>
           <div className="simple-tool-grid">
             {group.tools.map(({ title, description, screen, icon: Icon, accent }) => (
-              <button className={`simple-tool-card tool-${accent} ${!isPremium && !["sat", "ielts"].includes(screen) ? "tool-locked" : ""}`} key={`${title}-${screen}`} onClick={() => navigate(screen)}>
+              <button className={`simple-tool-card tool-${accent} ${!isPremium && !freeSampleTools.has(screen) ? "tool-locked" : ""}`} key={`${title}-${screen}`} onClick={() => navigate(screen)}>
                 <span><Icon size={20} /></span>
-                <div><strong>{title}</strong><small>{description}</small>{!isPremium ? <em>{["sat", "ielts"].includes(screen) ? "FREE SAMPLE" : "PREMIUM"}</em> : null}</div>
-                {!isPremium && !["sat", "ielts"].includes(screen) ? <LockKeyhole size={15} /> : <ChevronRight size={16} />}
+                <div><strong>{title}</strong><small>{description}</small>{!isPremium ? <em>{freeSampleTools.has(screen) ? "FREE SAMPLE" : "PREMIUM"}</em> : null}</div>
+                {!isPremium && !freeSampleTools.has(screen) ? <LockKeyhole size={15} /> : <ChevronRight size={16} />}
               </button>
             ))}
           </div>

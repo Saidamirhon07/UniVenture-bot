@@ -27,7 +27,7 @@ const primaryNav: Array<{ screen: ScreenId; label: string; icon: typeof Home; fe
   { screen: "portfolio", label: "Profile", icon: UserRound },
 ];
 
-const freeScreens = new Set<ScreenId>(["home", "tools", "discover", "sat", "ielts", "feedback", "free-check"]);
+const freeScreens = new Set<ScreenId>(["home", "tools", "discover", "essay", "sat", "ielts", "feedback", "free-check"]);
 const featureNames: Partial<Record<ScreenId, string>> = {
   roadmap: "your personal roadmap", portfolio: "your saved profile", essay: "Essay Review", ec: "EC Evaluation",
   recommendation: "Recommendation Letters", "portfolio-builder": "Portfolio Review", school: "School Finder",
