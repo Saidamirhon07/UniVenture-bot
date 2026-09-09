@@ -1233,10 +1233,6 @@ async def paid_access_gate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if update is None or update.effective_user is None or update.effective_message is None:
             return
 
-        # Admins always pass.
-        if require_admin(update):
-            return
-
         uid = update.effective_user.id
         msg = update.effective_message
         username = update.effective_user.username or ""
@@ -1260,6 +1256,10 @@ async def paid_access_gate(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ]]),
             )
             raise ApplicationHandlerStop()
+
+        # Admins bypass subscription checks, but use the same secure launcher.
+        if require_admin(update):
+            return
 
         # Let the next photo/document reach the receipt handler after /pay.
         has_receipt = bool(getattr(msg, "photo", None)) or bool(getattr(msg, "document", None))
@@ -2364,6 +2364,7 @@ def mini_app_entry_url(*, screen: str = "", upgrade: bool = False) -> str:
 
 def mini_app_shortcut(text: str) -> tuple[str, bool, str] | None:
     return {
+        BTN_HUB: ("", False, "UniVentureAI"),
         BTN_FREE_CHECK: ("free-check", False, "Free Check"),
         BTN_TRY_SAT: ("sat", False, "SAT Studio"),
         BTN_TRY_IELTS: ("ielts", False, "IELTS Studio"),
@@ -2375,7 +2376,7 @@ def main_menu_keyboard():
     if not MINI_APP_URL:
         return ReplyKeyboardRemove()
     rows = [
-        [KeyboardButton(BTN_HUB, web_app=WebAppInfo(url=mini_app_entry_url()))],
+        [KeyboardButton(BTN_HUB)],
         [
             KeyboardButton(BTN_FREE_CHECK),
             KeyboardButton(BTN_TRY_SAT),

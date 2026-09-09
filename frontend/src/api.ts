@@ -20,6 +20,17 @@ function detailMessage(detail: unknown): string {
   return "Something went wrong. Please try again.";
 }
 
+function telegramLaunchData(): string {
+  const sdkData = window.Telegram?.WebApp.initData || "";
+  if (sdkData) return sdkData;
+  // Telegram places launch parameters in the URL fragment. Reading the raw
+  // signed value is a safe fallback because the backend still validates its
+  // HMAC, age and user before issuing a session.
+  const fragment = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  const query = new URLSearchParams(window.location.search);
+  return fragment.get("tgWebAppData") || query.get("tgWebAppData") || "";
+}
+
 class ApiClient {
   private token = sessionStorage.getItem(TOKEN_KEY) || "";
 
@@ -46,13 +57,13 @@ class ApiClient {
       }
     }
 
-    let telegramInitData = window.Telegram?.WebApp.initData || import.meta.env.VITE_TELEGRAM_INIT_DATA || "";
+    let telegramInitData = telegramLaunchData() || import.meta.env.VITE_TELEGRAM_INIT_DATA || "";
     // A few Telegram mobile clients expose WebApp.initData shortly after the
     // page script starts. Give that bridge a brief chance before falling back.
     if (!telegramInitData && import.meta.env.PROD) {
       for (let attempt = 0; attempt < 6 && !telegramInitData; attempt += 1) {
         await new Promise((resolve) => window.setTimeout(resolve, 150));
-        telegramInitData = window.Telegram?.WebApp.initData || "";
+        telegramInitData = telegramLaunchData();
       }
     }
     if (!telegramInitData && import.meta.env.PROD) {
