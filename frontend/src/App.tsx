@@ -48,7 +48,7 @@ function AuthFailure({ message }: { message: string }) {
     <main className="auth-failure">
       <div className="brand-mark"><LayoutGrid size={22} /></div>
       <h1>Open inside Telegram</h1>
-      <p>The Admissions Hub securely identifies you through the UniVentureAI bot. Reopen it using “🚀 Open Admissions Hub”.</p>
+      <p>UniVentureAI securely identifies you through Telegram. Close this screen and reopen it using “🚀 Open UniVentureAI”.</p>
       <ErrorBanner message={message} />
     </main>
   );
@@ -103,11 +103,12 @@ export default function App() {
     api.authenticate()
       .then(({ user: authenticatedUser, subscription: access }) => {
         setUser(authenticatedUser); setSubscription(access);
-        const params = new URLSearchParams(window.location.search);
-        const requestedScreen = params.get("screen") as ScreenId | null;
+        const queryParams = new URLSearchParams(window.location.search);
+        const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+        const requestedScreen = (hashParams.get("screen") || queryParams.get("screen")) as ScreenId | null;
         if (requestedScreen && freeScreens.has(requestedScreen)) setScreen(requestedScreen);
-        if (params.get("upgrade") === "premium" && !access.is_premium) setUpgradeFeature("Premium access");
-        const source = webApp?.initDataUnsafe?.start_param || params.get("startapp") || undefined;
+        if ((hashParams.get("upgrade") || queryParams.get("upgrade")) === "premium" && !access.is_premium) setUpgradeFeature("Premium access");
+        const source = webApp?.initDataUnsafe?.start_param || queryParams.get("startapp") || undefined;
         void api.track("app_open", { session_id: crypto.randomUUID?.() || String(Date.now()) }, source);
       })
       .catch((error) => setAuthError(error instanceof Error ? error.message : "Authentication failed."));

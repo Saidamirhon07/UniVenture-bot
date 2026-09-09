@@ -33,7 +33,6 @@ import chromadb
 from chromadb.utils import embedding_functions
 import os, io, logging, json, base64, uuid, re
 import html
-from urllib.parse import urlencode
 
 # -------- File extraction deps --------
 from pdfminer.high_level import extract_text
@@ -48,6 +47,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 import asyncio
 
 from backend.billing import checkout_is_valid, extended_expiry, invoice_payload, normalize_source
+from backend.launch_links import build_mini_app_url
 
 try:
     from openai import RateLimitError
@@ -2339,17 +2339,10 @@ def is_ui_button(text: str) -> bool:
 
 # -------- Keyboards --------
 def mini_app_entry_url(*, screen: str = "", upgrade: bool = False) -> str:
-    if not MINI_APP_URL:
-        return ""
-    params = {}
-    if screen:
-        params["screen"] = screen
-    if upgrade:
-        params["upgrade"] = "premium"
-    if not params:
-        return MINI_APP_URL
-    separator = "&" if "?" in MINI_APP_URL else "?"
-    return f"{MINI_APP_URL}{separator}{urlencode(params)}"
+    # Keep shortcut routing client-side. Telegram signs and injects Mini App
+    # authentication separately; sending our destination as a query string made
+    # some mobile clients open the page without usable initData.
+    return build_mini_app_url(MINI_APP_URL, screen=screen, upgrade=upgrade)
 
 
 def main_menu_keyboard():

@@ -46,7 +46,18 @@ class ApiClient {
       }
     }
 
-    const telegramInitData = window.Telegram?.WebApp.initData || import.meta.env.VITE_TELEGRAM_INIT_DATA || "";
+    let telegramInitData = window.Telegram?.WebApp.initData || import.meta.env.VITE_TELEGRAM_INIT_DATA || "";
+    // A few Telegram mobile clients expose WebApp.initData shortly after the
+    // page script starts. Give that bridge a brief chance before falling back.
+    if (!telegramInitData && import.meta.env.PROD) {
+      for (let attempt = 0; attempt < 6 && !telegramInitData; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 150));
+        telegramInitData = window.Telegram?.WebApp.initData || "";
+      }
+    }
+    if (!telegramInitData && import.meta.env.PROD) {
+      throw new Error("Telegram could not verify this session. Close this screen and reopen UniVentureAI from the bot.");
+    }
     const payload = telegramInitData
       ? await this.post<{ token: string; user: SessionUser; subscription: SubscriptionStatus }>("/api/auth/telegram", { init_data: telegramInitData })
       : await this.post<{ token: string; user: SessionUser; subscription: SubscriptionStatus }>("/api/auth/dev", {

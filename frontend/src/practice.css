@@ -85,6 +85,7 @@
 .studio-modes button.active { color: #53347a; border-color: #7445a5; background: #f0e8f8; box-shadow: inset 0 0 0 1px #7445a5; }
 .studio-modes strong { font-size: 13px; }
 .studio-modes small { font-size: 11px; line-height: 1.4; }
+.studio-launch .studio-free-start { margin-top: 14px; }
 .practice-studio .practice-disclaimer, .practice-disclaimer { display: block; color: #647184; font-size: 11px; line-height: 1.6; margin: 10px 0 0; }
 .practice-disclaimer a { color: #0b55b9; text-decoration: underline; }
 .practice-session-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
