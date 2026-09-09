@@ -59,6 +59,7 @@ def subscription_status(user_id: int) -> dict[str, Any]:
         access_type = "free"
         is_premium = False
 
+    payment_ready = bot.payment_details_configured()
     return {
         "has_access": True,
         "is_premium": is_premium,
@@ -74,16 +75,16 @@ def subscription_status(user_id: int) -> dict[str, Any]:
         "support_handle": bot.SUPPORT_HANDLE,
         "auto_renews": False,
         "payment_method": "manual_card",
-        "card_number": bot.PAYMENT_CARD,
-        "card_holder": bot.PAYMENT_CARD_HOLDER,
-        "bank_name": bot.PAYMENT_BANK,
+        "card_number": bot.PAYMENT_CARD if payment_ready else "",
+        "card_holder": bot.PAYMENT_CARD_HOLDER if payment_ready else "",
+        "bank_name": bot.PAYMENT_BANK if payment_ready else "",
         "payment_status": bot.latest_manual_payment_status(user_id),
     }
 
 
 async def start_manual_payment(user_id: int) -> bool:
     bot = module()
-    if not bot.PAYMENT_CARD:
+    if not bot.payment_details_configured():
         raise RuntimeError("Payment card is not configured.")
     if bot.manual_payment_session_active(user_id):
         return False

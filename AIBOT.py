@@ -202,6 +202,12 @@ PAYMENT_BANK = os.getenv("PAYMENT_BANK", "")
 PAYMENT_NOTE = os.getenv("PAYMENT_NOTE", "")        # optional extra line
 SUPPORT_HANDLE = os.getenv("SUPPORT_HANDLE", "@UniVentureSupport_bot")
 
+def payment_details_configured() -> bool:
+    """Reject empty or accidentally deployed example payment values."""
+    required = (PAYMENT_CARD.strip(), PAYMENT_CARD_HOLDER.strip())
+    placeholders = ("YOUR_", "REPLACE", "0000 0000 0000 0000")
+    return all(required) and not any(marker in value.upper() for value in required for marker in placeholders)
+
 _paid_lock = threading.RLock()
 
 def _paid_load() -> dict:
@@ -770,7 +776,7 @@ async def feedback_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def pay_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_typing(update, context)
     uid = update.effective_user.id
-    if not PAYMENT_CARD:
+    if not payment_details_configured():
         await update.message.reply_text(
             f"Card payment is temporarily unavailable. Please contact {SUPPORT_HANDLE}."
         )
