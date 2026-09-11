@@ -64,3 +64,17 @@ Release status: code-tested release candidate; browser and full-runtime acceptan
 - Live Telegram WebView capture and interaction comparison: unavailable in this session because no cloud browser is exposed.
 
 Final result: blocked pending the six-step Telegram device check in `V14_1_APPLY_STEPS.md`.
+
+## V15 visual tools and swipe showcase
+
+- Source evidence: the supplied mobile reference uses a horizontally swipeable promotional panel, partial next-card visibility, pagination dots, and compact two-column illustrated tool tiles.
+- Implemented: a four-card Home carousel with scroll snapping, active pagination, reduced-motion support, and existing-route navigation.
+- Implemented: 12 original, optimized WebP tool illustrations used consistently on Home and Tools.
+- Preserved: existing information architecture, labels, free/Premium rules, founder entry, payment flow, analytics, and saved data.
+- Production TypeScript compilation and Vite build: passed.
+- JavaScript practice-selection checks: 8 passed.
+- Python compilation: passed.
+- Python unit tests: unavailable because this workspace does not include `pytest`.
+- Live Telegram WebView capture and responsive comparison: unavailable because no compatible browser is exposed in this session.
+
+Final result: code-tested release candidate; visual acceptance remains blocked pending the seven-step Telegram device check in `V15_APPLY_STEPS.md`.

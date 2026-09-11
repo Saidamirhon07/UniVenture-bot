@@ -9,30 +9,23 @@ import {
   CalendarDays,
   CheckCircle2,
   ChevronRight,
-  FileSearch,
   Flame,
-  GraduationCap,
-  Languages,
-  Lightbulb,
   LockKeyhole,
-  PenLine,
   Route,
   Search,
   Sparkles,
   Target,
   Trophy,
-  UsersRound,
-  WandSparkles,
 } from "lucide-react";
 import { api } from "../api";
 import type { DashboardData, Navigate, ScreenId } from "../types";
 import { ErrorBanner, LoadingScreen } from "../components/ui";
+import ToolArtwork from "../components/ToolArtwork";
 
 type ToolDefinition = {
   title: string;
   description: string;
   screen: ScreenId;
-  icon: typeof Sparkles;
   accent: "blue" | "violet" | "teal" | "amber" | "coral";
   keywords: string;
 };
@@ -48,36 +41,36 @@ const toolGroups: ToolGroup[] = [
     title: "Writing",
     description: "Essays and ideas",
     tools: [
-      { title: "Essay Review", description: "Score your draft", screen: "essay", icon: FileSearch, accent: "blue", keywords: "essay evaluation review score feedback personal statement supplemental" },
-      { title: "Brainstorm", description: "Find strong ideas", screen: "brainstorm", icon: Lightbulb, accent: "amber", keywords: "brainstorm ideas topics stories common app" },
-      { title: "Rewrite", description: "Improve your text", screen: "rewrite", icon: PenLine, accent: "violet", keywords: "rewrite edit improve paragraph wording" },
+      { title: "Essay Review", description: "Score your draft", screen: "essay", accent: "blue", keywords: "essay evaluation review score feedback personal statement supplemental" },
+      { title: "Brainstorm", description: "Find strong ideas", screen: "brainstorm", accent: "amber", keywords: "brainstorm ideas topics stories common app" },
+      { title: "Rewrite", description: "Improve your text", screen: "rewrite", accent: "violet", keywords: "rewrite edit improve paragraph wording" },
     ],
   },
   {
     title: "Profile",
     description: "Activities, letters and proof",
     tools: [
-      { title: "EC Evaluation", description: "Improve activities", screen: "ec", icon: Trophy, accent: "coral", keywords: "ec extracurricular evaluation activities leadership impact" },
-      { title: "Recommendation Letters", description: "Plan stronger letters", screen: "recommendation", icon: UsersRound, accent: "teal", keywords: "recommendation letters teacher brag sheet" },
-      { title: "Portfolio Review", description: "Find missing proof", screen: "portfolio-builder", icon: BriefcaseBusiness, accent: "blue", keywords: "portfolio projects evidence proof review" },
-      { title: "Profile & Awards", description: "Edit saved details", screen: "portfolio", icon: Award, accent: "amber", keywords: "profile awards honors scores memory activities" },
+      { title: "EC Evaluation", description: "Improve activities", screen: "ec", accent: "coral", keywords: "ec extracurricular evaluation activities leadership impact" },
+      { title: "Recommendation Letters", description: "Plan stronger letters", screen: "recommendation", accent: "teal", keywords: "recommendation letters teacher brag sheet" },
+      { title: "Portfolio Review", description: "Find missing proof", screen: "portfolio-builder", accent: "blue", keywords: "portfolio projects evidence proof review" },
+      { title: "Profile & Awards", description: "Edit saved details", screen: "portfolio", accent: "amber", keywords: "profile awards honors scores memory activities" },
     ],
   },
   {
     title: "Test Prep",
     description: "Short daily practice",
     tools: [
-      { title: "SAT Practice", description: "Questions and coaching", screen: "sat", icon: Calculator, accent: "violet", keywords: "sat practice math reading writing score" },
-      { title: "IELTS Practice", description: "All four skills", screen: "ielts", icon: Languages, accent: "teal", keywords: "ielts writing speaking reading listening band" },
+      { title: "SAT Practice", description: "Questions and coaching", screen: "sat", accent: "violet", keywords: "sat practice math reading writing score" },
+      { title: "IELTS Practice", description: "All four skills", screen: "ielts", accent: "teal", keywords: "ielts writing speaking reading listening band" },
     ],
   },
   {
     title: "Planning",
     description: "Universities and next steps",
     tools: [
-      { title: "School Finder", description: "Build your school list", screen: "school", icon: GraduationCap, accent: "blue", keywords: "school university college finder reach match safety fit" },
-      { title: "Application Plan", description: "Create your schedule", screen: "plan", icon: CalendarDays, accent: "teal", keywords: "application plan roadmap timeline deadline schedule" },
-      { title: "Quick Checks", description: "Readiness and wording", screen: "boost", icon: WandSparkles, accent: "violet", keywords: "readiness wow factor power words quick checks tips" },
+      { title: "School Finder", description: "Build your school list", screen: "school", accent: "blue", keywords: "school university college finder reach match safety fit" },
+      { title: "Application Plan", description: "Create your schedule", screen: "plan", accent: "teal", keywords: "application plan roadmap timeline deadline schedule" },
+      { title: "Quick Checks", description: "Readiness and wording", screen: "boost", accent: "violet", keywords: "readiness wow factor power words quick checks tips" },
     ],
   },
 ];
@@ -120,9 +113,9 @@ export function ToolsHubScreen({ navigate, isAdmin = false, isPremium = false }:
         <section className="simple-tool-group" key={group.title}>
           <div className="simple-section-heading"><h2>{group.title}</h2><span>{group.description}</span></div>
           <div className="simple-tool-grid">
-            {group.tools.map(({ title, description, screen, icon: Icon, accent }) => (
+            {group.tools.map(({ title, description, screen, accent }) => (
               <button className={`simple-tool-card tool-${accent} ${!isPremium && !freeSampleTools.has(screen) ? "tool-locked" : ""}`} key={`${title}-${screen}`} onClick={() => navigate(screen)}>
-                <span><Icon size={20} /></span>
+                <ToolArtwork screen={screen} />
                 <div><strong>{title}</strong><small>{description}</small>{!isPremium ? <em>{freeSampleTools.has(screen) ? "FREE SAMPLE" : "PREMIUM"}</em> : null}</div>
                 {!isPremium && !freeSampleTools.has(screen) ? <LockKeyhole size={15} /> : <ChevronRight size={16} />}
               </button>

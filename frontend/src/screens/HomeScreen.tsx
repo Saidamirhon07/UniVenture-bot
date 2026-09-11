@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlarmClock,
   ArrowRight,
@@ -8,24 +8,20 @@ import {
   CalendarCheck2,
   ChevronRight,
   FileCheck2,
-  FileSearch,
   Flame,
-  GraduationCap,
   LayoutGrid,
   MapPin,
   MessageCircleMore,
   Languages,
-  Lightbulb,
-  PenLine,
   Sparkles,
-  UsersRound,
   Target,
   Trophy,
   X,
 } from "lucide-react";
 import { api } from "../api";
-import type { DashboardData, Navigate } from "../types";
+import type { DashboardData, Navigate, ScreenId } from "../types";
 import { Button, ErrorBanner, LoadingScreen } from "../components/ui";
+import ToolArtwork from "../components/ToolArtwork";
 
 function concise(text: string, max = 105) {
   const clean = String(text || "").replace(/\s+/g, " ").trim();
@@ -40,6 +36,8 @@ export default function HomeScreen({ navigate, reloadKey }: { navigate: Navigate
   const [reminderOpen, setReminderOpen] = useState(false);
   const [reminderSaving, setReminderSaving] = useState(false);
   const [reminderStatus, setReminderStatus] = useState("");
+  const [spotlightIndex, setSpotlightIndex] = useState(0);
+  const spotlightRef = useRef<HTMLDivElement | null>(null);
 
   const loadDashboard = useCallback(async () => {
     try {
@@ -119,13 +117,33 @@ export default function HomeScreen({ navigate, reloadKey }: { navigate: Navigate
   }
 
   const quickTools = [
-    { title: "Essay Review", icon: FileSearch, screen: "essay" as const, accent: "blue" },
-    { title: "EC Evaluation", icon: Trophy, screen: "ec" as const, accent: "coral" },
-    { title: "School Finder", icon: GraduationCap, screen: "school" as const, accent: "teal" },
-    { title: "Recommendation Letters", icon: UsersRound, screen: "recommendation" as const, accent: "teal" },
-    { title: "Brainstorm", icon: Lightbulb, screen: "brainstorm" as const, accent: "violet" },
-    { title: "Rewrite", icon: PenLine, screen: "rewrite" as const, accent: "blue" },
+    { title: "Essay Review", screen: "essay" as const, accent: "blue" },
+    { title: "EC Evaluation", screen: "ec" as const, accent: "coral" },
+    { title: "School Finder", screen: "school" as const, accent: "teal" },
+    { title: "Recommendation Letters", screen: "recommendation" as const, accent: "teal" },
+    { title: "Brainstorm", screen: "brainstorm" as const, accent: "violet" },
+    { title: "Rewrite", screen: "rewrite" as const, accent: "blue" },
   ];
+  const spotlights: Array<{ eyebrow: string; title: string; note: string; cta: string; screen: ScreenId }> = [
+    { eyebrow: "APPLICATION COMMAND CENTER", title: "Know your next move.", note: "A personal plan shaped around your profile and deadlines.", cta: "View roadmap", screen: "roadmap" },
+    { eyebrow: "STORY THAT STANDS OUT", title: "Turn experience into impact.", note: "Review essays, activities and recommendation strategy.", cta: "Review an essay", screen: "essay" },
+    { eyebrow: "DAILY SCORE-BUILDING", title: "Practise. Review. Improve.", note: "Short SAT and IELTS sessions with clear explanations.", cta: "Start practice", screen: "sat" },
+    { eyebrow: "BETTER-FIT UNIVERSITIES", title: "Build a smarter school list.", note: "Balance ambition, fit, aid and application strategy.", cta: "Find schools", screen: "school" },
+  ];
+
+  function syncSpotlight() {
+    const track = spotlightRef.current;
+    if (!track) return;
+    const cards = Array.from(track.children) as HTMLElement[];
+    const closest = cards.reduce((best, card, index) => Math.abs(card.offsetLeft - track.scrollLeft) < Math.abs(cards[best].offsetLeft - track.scrollLeft) ? index : best, 0);
+    setSpotlightIndex(closest);
+  }
+
+  function showSpotlight(index: number) {
+    const card = spotlightRef.current?.children[index] as HTMLElement | undefined;
+    card?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+    setSpotlightIndex(index);
+  }
 
   return (
     <div className="home-screen simple-home home-v8 page-enter">
@@ -142,6 +160,16 @@ export default function HomeScreen({ navigate, reloadKey }: { navigate: Navigate
         <h1>{greeting}, {firstName}</h1>
         <div><span><CalendarCheck2 size={13} />{currentDate}</span><span><MapPin size={13} />{data.location || "Central Asia"}</span></div>
       </header>
+
+      <section className="home-spotlight" aria-label="Featured UniVentureAI tools">
+        <div className="home-spotlight-track" ref={spotlightRef} onScroll={syncSpotlight}>
+          {spotlights.map((item, index) => <button className={`home-spotlight-card spotlight-${index + 1}`} key={item.title} onClick={() => navigate(item.screen)}>
+            <span className="home-spotlight-copy"><small>{item.eyebrow}</small><strong>{item.title}</strong><p>{item.note}</p><em>{item.cta}<ArrowRight size={14} /></em></span>
+            <ToolArtwork screen={item.screen} className="home-spotlight-art" />
+          </button>)}
+        </div>
+        <div className="home-spotlight-dots" aria-label="Choose featured tool">{spotlights.map((item, index) => <button type="button" className={spotlightIndex === index ? "active" : ""} key={item.title} aria-label={`Show ${item.title}`} onClick={() => showSpotlight(index)} />)}</div>
+      </section>
 
       {!data.subscription.is_premium ? <button className="free-tier-card" onClick={() => navigate("portfolio")}><span><Sparkles size={18} /></span><div><small>FREE EXPLORER</small><strong>Try daily practice. Unlock your full application workspace when ready.</strong></div><em>See Premium<ChevronRight size={15} /></em></button> : null}
       {!data.subscription.is_premium ? <button className="free-check-entry" onClick={() => navigate("free-check")}><Target size={20} /><span><small>FREE · 60 SECONDS</small><strong>Check your application readiness</strong><em>No profile required or saved</em></span><ArrowRight size={17} /></button> : null}
@@ -169,7 +197,7 @@ export default function HomeScreen({ navigate, reloadKey }: { navigate: Navigate
 
       <section className="simple-home-tools">
         <div className="simple-section-heading"><h2>Quick tools</h2><button onClick={() => navigate("tools")}>See all <ChevronRight size={15} /></button></div>
-        <div>{quickTools.map(({ title, icon: Icon, screen, accent }) => <button className={`home-tool home-tool-${accent}`} key={screen} onClick={() => navigate(screen)}><span><Icon size={20} /></span><strong>{title}</strong></button>)}</div>
+        <div>{quickTools.map(({ title, screen, accent }) => <button className={`home-tool home-tool-${accent}`} key={screen} onClick={() => navigate(screen)}><ToolArtwork screen={screen} /><strong>{title}</strong></button>)}</div>
       </section>
 
       <section className="simple-home-progress home-path-v8">
