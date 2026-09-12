@@ -1,3 +1,4 @@
+import { SubmissionInput, useSubmission } from "./SubmissionInput";
 import { useEffect, useRef, useState } from "react";
 import { Clock3, Mic, Pause, Play, RotateCcw, Save, Sparkles } from "lucide-react";
 import { api } from "../api";
@@ -63,6 +64,7 @@ export default function IELTSWorkbench({ skill, library, onChanged, onCompleted 
   const availablePrompts = [...new Set([...prompts[key], ...(library.prompts?.[key] || [])])];
   const savedDraft = library.drafts[key];
   const [prompt, setPrompt] = useState(savedDraft?.prompt || availablePrompts[0]);
+  const submission = useSubmission();
   const [content, setContent] = useState(savedDraft?.content || "");
   const [baseline, setBaseline] = useState({prompt:savedDraft?.prompt || prompts[key][0],content:savedDraft?.content || ""});
   const [seconds, setSeconds] = useState(skill === "speaking" ? 60 : 2400);
@@ -86,7 +88,7 @@ export default function IELTSWorkbench({ skill, library, onChanged, onCompleted 
     const draft = library.drafts[nextKey];
     const nextPrompts = [...new Set([...prompts[nextKey], ...(library.prompts?.[nextKey] || [])])];
     const next = {prompt:draft?.prompt || nextPrompts[0],content:draft?.content || ""};
-    setTask(value); setPrompt(next.prompt); setContent(next.content); setBaseline(next); setSeconds(value === "task_1" ? 1200 : 2400); setDeadline(null); setResult(null); setError(""); setStatus(draft ? "Saved draft restored" : "");
+    submission.setFile(null); submission.setMode("text"); setTask(value); setPrompt(next.prompt); setContent(next.content); setBaseline(next); setSeconds(value === "task_1" ? 1200 : 2400); setDeadline(null); setResult(null); setError(""); setStatus(draft ? "Saved draft restored" : "");
   }
   async function saveDraft(complete = false) {
     setSaving(true); setError("");
@@ -101,7 +103,7 @@ export default function IELTSWorkbench({ skill, library, onChanged, onCompleted 
   }
   async function coach() {
     setLoading(true); setError(""); setResult(null);
-    try { setResult(await api.post<EvaluationResponse>("/api/evaluate/ielts",{skill,task_type:skill === "writing" ? task : null,question:prompt,content,target_band:band})); onChanged(); }
+    try { setResult(await api.analyze<EvaluationResponse>("/api/evaluate/ielts",{skill,task_type:skill === "writing" ? task : null,question:prompt,content,target_band:band}, submission.attachment)); onChanged(); }
     catch(e) { setError(e instanceof Error ? e.message : "Could not load feedback."); }
     finally { setLoading(false); }
   }
@@ -113,12 +115,12 @@ export default function IELTSWorkbench({ skill, library, onChanged, onCompleted 
     <div className="workbench-timer"><Clock3 size={22}/><strong>{Math.floor(seconds/60)}:{String(seconds%60).padStart(2,"0")}</strong><Button variant="ghost" onClick={()=>setDeadline(deadline ? null : Date.now()+seconds*1000)} disabled={!seconds}>{deadline ? <Pause size={16}/> : <Play size={16}/ >}{deadline ? "Pause" : "Start"}</Button><Button variant="ghost" aria-label="Reset timer" onClick={()=>{setDeadline(null);setSeconds(skill === "speaking" ? 60 : task === "task_1" ? 1200 : 2400);}}><RotateCcw size={16}/></Button></div>
     {seconds === 0 && <p role="status">Time is up. You can keep editing in practice mode.</p>}
     {skill === "speaking" ? <><p className="practice-disclaimer">Prepare for 1 minute, then speak for up to 2 minutes.</p><Button variant="secondary" onClick={()=>{setSeconds(120);setDeadline(Date.now()+120000);}}>Start 2-minute response</Button><VoiceRecorder/></> : <p className="practice-disclaimer">{task === "task_1" ? "Aim for 150+ words in about 20 minutes." : "Aim for 250+ words in about 40 minutes."} Timer is a practice aid, not an exam lock.</p>}
-    <Textarea label={skill === "writing" ? "Your response" : "Your transcript"} value={content} maxLength={20000} rows={10} placeholder={skill === "writing" ? "Build your response here…" : "After listening back, type what you actually said. Audio is not transcribed or uploaded."} onChange={e=>{setContent(e.target.value);setResult(null);}} hint={`${words} words · ${dirty ? "Unsaved changes" : "No unsaved changes"}`}/>
-    <Button variant="secondary" loading={saving} onClick={()=>void saveDraft()}><Save size={16}/>Save draft</Button>
-    <Button variant="ghost" loading={saving} disabled={words < (skill === "speaking" ? 40 : task === "task_1" ? 150 : 250)} onClick={()=>void saveDraft(true)}>Save & complete practice</Button><p className="practice-disclaimer">Completion unlocks at {skill === "speaking" ? 40 : task === "task_1" ? 150 : 250} words. This records practice, not proficiency.</p><p role="status" className="practice-disclaimer">{status}</p>
+    <SubmissionInput submission={submission} disabled={loading || saving} label={skill === "writing" ? "Your response" : "Your transcript"} value={content} maxLength={20000} rows={10} placeholder={skill === "writing" ? "Build your response here…" : "After listening back, type what you actually said. Audio is not transcribed or uploaded."} onChange={e=>{setContent(e.target.value);setResult(null);}} hint={`${words} words · ${dirty ? "Unsaved changes" : "No unsaved changes"}`}/>
+    <Button variant="secondary" disabled={submission.mode === "file" || loading} loading={saving} onClick={()=>void saveDraft()}><Save size={16}/>Save draft</Button>
+    <Button variant="ghost" loading={saving} disabled={submission.mode === "file" || loading || words < (skill === "speaking" ? 40 : task === "task_1" ? 150 : 250)} onClick={()=>void saveDraft(true)}>Save & complete practice</Button><p className="practice-disclaimer">Completion unlocks at {skill === "speaking" ? 40 : task === "task_1" ? 150 : 250} words. This records practice, not proficiency.</p><p role="status" className="practice-disclaimer">{status}</p>
     <Select label="Target band" value={band} onChange={e=>setBand(e.target.value)}>{["5.5","6.0","6.5","7.0","7.5","8.0","8.5","9.0"].map(b=><option key={b}>{b}</option>)}</Select>
     <details className="workbench-checklist"><summary>Before requesting feedback</summary>{(skill === "writing" ? ["I answered every part of the task.","Each paragraph has a clear purpose.","I checked grammar and repeated words."] : ["I used a real example.","I explained why the experience mattered.","I listened for repetition and long pauses."]).map(t=><label key={t}><input type="checkbox"/>{t}</label>)}</details>
-    {error && <ErrorBanner message={error}/>}<Button className="w-full" loading={loading} disabled={content.trim().length<30 || !prompt.trim()} onClick={()=>void coach()}><Sparkles size={17}/>Get {skill === "writing" ? "writing" : "transcript"} feedback</Button>
+    {error && <ErrorBanner message={error}/>}<Button className="w-full" loading={loading} disabled={!submission.ready(content, 30) || !prompt.trim()} onClick={()=>void coach()}><Sparkles size={17}/>Get {skill === "writing" ? "writing" : "transcript"} feedback</Button>
     <p className="practice-disclaimer">AI feedback is an estimate, not an official band score.{skill === "speaking" ? " Text cannot assess pronunciation or real-time fluency. Recordings stay on this device and are lost when you leave unless downloaded." : " Practice word targets are guidance; short drafts can still receive feedback."}</p>
   </Card>{result && <ResultPanel response={result} refinementActions={false}/>}</>;
 }

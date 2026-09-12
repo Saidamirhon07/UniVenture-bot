@@ -130,6 +130,7 @@ export interface DashboardData {
 }
 
 export interface EvaluationResponse {
+  source?: { filename: string; kind: string; pages?: number | null; requires_reupload: boolean } | null;
   evaluation_id?: string;
   topic?: string;
   mode?: string;

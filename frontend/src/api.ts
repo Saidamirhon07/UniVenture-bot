@@ -111,6 +111,17 @@ class ApiClient {
     return this.request<T>(path, { method: "POST", body: JSON.stringify(body) });
   }
 
+  analyze<T>(path: string, body: unknown, file?: File | null): Promise<T> {
+    if (!file) return this.post<T>(path, body);
+    const form = new FormData();
+    form.append("file", file);
+    form.append("target", path);
+    const details = { ...(body as Record<string, unknown>) };
+    for (const key of ["content", "activity", "projects"]) delete details[key];
+    form.append("payload", JSON.stringify(details));
+    return this.request<T>("/api/files/analyze", { method: "POST", body: form });
+  }
+
   upload<T>(path: string, file: File): Promise<T> {
     const form = new FormData();
     form.append("file", file);

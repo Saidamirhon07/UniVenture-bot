@@ -1,3 +1,7 @@
+# Current update: V16 Document Reviews & Visual Feedback
+
+Start with [V16_APPLY_STEPS.md](V16_APPLY_STEPS.md). Changes and exact verification limits: [V16_RELEASE_NOTES.md](V16_RELEASE_NOTES.md).
+
 # UniVentureAI Admissions Hub
 
 A production-oriented Telegram Mini App connected to a focused Telegram launcher and payment channel. Students work inside the app; the bot opens targeted app entry points, receives payment receipts, reports subscription status, and keeps administrative commands available to configured admins. FastAPI starts that Telegram application, exposes secure Mini App APIs, serves the React build, and reads/writes the same paid-user file, user-memory directory, ChromaDB collections, and OpenAI models.

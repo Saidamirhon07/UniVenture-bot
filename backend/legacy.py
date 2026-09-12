@@ -6,6 +6,7 @@ import json
 import re
 from functools import lru_cache
 from typing import Any
+from .documents import attach_document
 
 
 class AIRequestError(RuntimeError):
@@ -129,6 +130,7 @@ async def ask_ai(
     max_tokens: int = 1_200,
     json_mode: bool = True,
 ) -> str:
+    messages = attach_document(messages)
     bot = module()
     primary_model = bot.STRONG_MODEL if strong else bot.FAST_MODEL
 

@@ -16,12 +16,14 @@ from zoneinfo import ZoneInfo
 
 from docx import Document as DocxDocument
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile, status
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pdfminer.high_level import extract_text as extract_pdf_text
 
+from pydantic import ValidationError
+from .documents import current_document, prepare_document, DocumentError
 from . import legacy
 from .analytics import founder_snapshot, record_event as record_product_event
 from .copilot_access import access_snapshot as copilot_access_snapshot, record_message, release_message
@@ -628,17 +630,20 @@ def _record_evaluation(user_id: int, memory: dict[str, Any], topic: str, content
 
 
 async def _run_compact_evaluation(identity: TelegramIdentity, topic: str, content: str, extra: dict[str, Any]) -> dict[str, Any]:
+    document = current_document.get()
+    if document:
+        extra = {**extra, "source": document.source}
     memory = legacy.load_memory(identity.user_id)
     memory_summary = legacy.module().memory_summary_for_prompt(memory)
     rag = await legacy.load_rag(topic, content[:4_000])
     raw = await legacy.ask_ai(
         compact_evaluation_messages(topic, content, memory_summary, rag, extra),
         strong=True,
-        max_tokens=1_100,
+        max_tokens=2_400,
     )
     result = _parse_ai_json(raw)
     evaluation_id = _record_evaluation(identity.user_id, memory, topic, content, result, extra)
-    return {"evaluation_id": evaluation_id, "topic": topic, "result": result, "can_full_review": True}
+    return {"evaluation_id": evaluation_id, "topic": topic, "result": result, "can_full_review": not bool(document and document.pdf_data), "source": document.source if document else None}
 
 
 @app.get("/api/health")
@@ -895,7 +900,7 @@ async def evaluate_essay(payload: EssayEvaluationRequest, identity: TelegramIden
                 miniapp["free_essay_evaluations_used"] = max(0, int(miniapp.get("free_essay_evaluations_used", 1) or 1) - 1)
                 _save_memory(identity.user_id, memory)
         raise
-    response["can_full_review"] = premium
+    response["can_full_review"] = premium and response.get("can_full_review", True)
     response["essay_access"] = {"is_premium": premium, "free_limit": None if premium else FREE_ESSAY_EVALUATIONS, "remaining": None if premium else 0}
     return response
 
@@ -945,6 +950,8 @@ async def full_review(payload: FullReviewRequest, identity: TelegramIdentity = D
     record = miniapp["evaluations"].get(payload.evaluation_id)
     if not record:
         raise HTTPException(status_code=404, detail="This evaluation is no longer available.")
+    if record.get("extra", {}).get("source", {}).get("requires_reupload"):
+        raise HTTPException(status_code=422, detail="Re-upload the original PDF for another review. Original files are not retained.")
     if record.get("full_review"):
         return {"evaluation_id": payload.evaluation_id, "result": record["full_review"], "cached": True}
     rag = await legacy.load_rag(record["topic"], record["content"][:4_000])
@@ -966,6 +973,8 @@ async def refine(payload: RefineRequest, identity: TelegramIdentity = Depends(ac
     record = miniapp["evaluations"].get(payload.evaluation_id)
     if not record:
         raise HTTPException(status_code=404, detail="This evaluation is no longer available.")
+    if record.get("extra", {}).get("source", {}).get("requires_reupload"):
+        raise HTTPException(status_code=422, detail="Re-upload the original PDF for another review. Original files are not retained.")
     raw = await legacy.ask_ai(refinement_messages(record, payload.action, payload.selected_text), strong=True, max_tokens=1_300)
     return {"evaluation_id": payload.evaluation_id, "action": payload.action, "result": _parse_ai_json(raw)}
 
@@ -1358,6 +1367,63 @@ async def extract_file(file: UploadFile = File(...), identity: TelegramIdentity 
     if not text:
         raise HTTPException(status_code=422, detail="No readable text was found in this file.")
     return {"filename": file.filename or "upload", "text": text[:30_000]}
+
+
+
+_document_slots = asyncio.Semaphore(2)
+
+@app.post("/api/files/analyze")
+async def analyze_file(target: str = Form(...), payload: str = Form(...), file: UploadFile = File(...), identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
+    routes = {
+        "/api/evaluate/essay": (EssayEvaluationRequest, evaluate_essay, "content"),
+        "/api/evaluate/ec": (ECEvaluationRequest, evaluate_ec, "activity"),
+        "/api/evaluate/ielts": (IELTSEvaluationRequest, evaluate_ielts, "content"),
+        "/api/evaluate/recommendation": (RecommendationRequest, evaluate_recommendation, "content"),
+        "/api/evaluate/portfolio": (PortfolioEvaluationRequest, evaluate_portfolio, "projects"),
+        "/api/coach": (CoachRequest, coach, "content"),
+        "/api/sat/coach": (SATCoachRequest, sat_coach, "content"),
+        "/api/boost": (BoostRequest, boost, "content"),
+    }
+    try:
+        if target not in routes:
+            raise HTTPException(status_code=422, detail="This tool does not support file analysis.")
+        # Calling handlers directly does not execute their FastAPI dependencies.
+        if target != "/api/evaluate/essay":
+            active_identity(identity)
+        if len(payload) > 40000:
+            raise HTTPException(status_code=413, detail="Submission details are too long.")
+        try:
+            values = json.loads(payload)
+            if not isinstance(values, dict):
+                raise ValueError()
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=422, detail="Invalid submission details.")
+        async with _document_slots:
+            data = await file.read(MAX_UPLOAD_BYTES + 1)
+            if len(data) > MAX_UPLOAD_BYTES:
+                raise HTTPException(status_code=413, detail="Choose a file up to 5 MB.")
+            try:
+                document = await asyncio.to_thread(prepare_document, file.filename or "document", data)
+            except DocumentError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+        schema, handler, field = routes[target]
+        # Ignore any hidden draft posted alongside the attachment.
+        values[field] = document.text
+        if document.pdf_data and len(document.text) < 80:
+            values[field] = "The student submitted an original PDF attachment. Read its pages directly for the complete submission; readable text extraction is unavailable or incomplete."
+        try:
+            validated = schema.model_validate(values)
+        except ValidationError as exc:
+            raise HTTPException(status_code=422, detail="The document text or tool details do not meet this tool's limits. " + exc.errors()[0]["msg"]) from exc
+        token = current_document.set(document)
+        try:
+            result = await handler(validated, identity)
+            result["source"] = document.source
+            return result
+        finally:
+            current_document.reset(token)
+    finally:
+        await file.close()
 
 
 if STATIC_DIR.exists():

@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { useState } from "react";
+import { useId, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { ArrowLeft, CheckCircle2, Flame, LoaderCircle, Sparkles, Upload } from "lucide-react";
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
@@ -42,15 +42,28 @@ export function Input({ label, hint, ...props }: InputHTMLAttributes<HTMLInputEl
 }
 
 export function Textarea({ label, hint, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement> & { label: string; hint?: string }) {
+  const generatedId = useId();
+  const ref = useRef<HTMLTextAreaElement>(null);
+  const [undo, setUndo] = useState<string | null>(null);
+  function replace(value: string) {
+    const element = ref.current;
+    if (!element) return;
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+    setter?.call(element, value);
+    element.dispatchEvent(new Event("input", { bubbles: true }));
+    element.focus();
+  }
   return (
-    <label className="field">
-      <span className="field-label">{label}</span>
-      <textarea className="textarea" {...props} />
-      <span className="field-meta">
-        {hint ? <span>{hint}</span> : <span />}
-        {typeof props.value === "string" ? <span>{props.value.length.toLocaleString()} characters</span> : null}
-      </span>
-    </label>
+    <div className="field writing-field">
+      <div className="writing-label"><label className="field-label" htmlFor={props.id || generatedId}>{label}</label>
+        {!props.readOnly && props.onChange ? <button className="clear-text" type="button" disabled={props.disabled || (!props.value && undo === null)} onClick={() => {
+          if (props.value) { const previous = String(props.value); replace(""); setUndo(previous); }
+          else if (undo !== null) { replace(undo); setUndo(null); }
+        }}>{!props.value && undo !== null ? "Undo clear" : "Clear"}</button> : null}
+      </div>
+      <textarea {...props} ref={ref} id={props.id || generatedId} className="textarea" onChange={(event) => { setUndo(null); props.onChange?.(event); }} />
+      <span className="field-meta"><span>{hint}</span>{typeof props.value === "string" ? <span>{props.value.length.toLocaleString()} characters</span> : null}</span>
+    </div>
   );
 }
 

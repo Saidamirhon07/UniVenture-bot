@@ -1,4 +1,5 @@
-import { useState } from "react";
+import EvaluationChart from "./EvaluationChart";
+import { useEffect, useState } from "react";
 import { ChevronRight, FileSearch, PenLine, Sparkles } from "lucide-react";
 import { api } from "../api";
 import type { EvaluationResponse } from "../types";
@@ -39,13 +40,14 @@ function renderValue(value: unknown): React.ReactNode {
 }
 
 export function StructuredResult({ result }: { result: Record<string, unknown> }) {
-  const ignored = new Set(["headline", "quality_score", "sections", "next_step"]);
+  const ignored = new Set(["headline", "quality_score", "sections", "next_step", "criteria"]);
   const sections = result.sections && typeof result.sections === "object" ? result.sections : Object.fromEntries(Object.entries(result).filter(([key]) => !ignored.has(key)));
   return (
     <div className="result-stack">
-      {Object.entries(sections as Record<string, unknown>).map(([key, value]) => (
+      <EvaluationChart value={result.criteria} />
+      {Object.entries(sections as Record<string, unknown>).map(([key, value], index) => (
         <div className="result-section" key={key}>
-          <div className="result-label">{humanize(key)}</div>
+          <div className="result-label"><span className="result-number">{String(index + 1).padStart(2, "0")}</span>{Array.isArray(sections) && value && typeof value === "object" && "title" in value ? String(value.title) : humanize(key)}</div>
           {renderValue(value)}
         </div>
       ))}
@@ -62,6 +64,7 @@ export default function ResultPanel({ response, refinementActions = true }: { re
   const [loading, setLoading] = useState("");
   const [error, setError] = useState("");
   const result = response.result;
+  useEffect(() => { setFullReview(null); setRefinement(null); setError(""); setLoading(""); }, [response]);
 
   async function getFullReview() {
     if (!response.evaluation_id) return;
@@ -94,25 +97,26 @@ export default function ResultPanel({ response, refinementActions = true }: { re
             <Tag tone="cyan">AI diagnosis</Tag>
             <h2>{String(result.headline || "Your focused review")}</h2>
           </div>
-          {typeof result.quality_score === "number" ? <div className="quality-score"><strong>{result.quality_score}</strong><span>/100</span></div> : null}
+          {typeof result.quality_score === "number" && Number.isFinite(result.quality_score) && result.quality_score >= 0 && result.quality_score <= 100 ? <div className="quality-score"><strong>{result.quality_score}</strong><span>/100</span></div> : null}
         </div>
+        {response.source ? <p className="source-note">Reviewed: {response.source.filename}{response.source.requires_reupload ? " · Re-upload the PDF for another review; originals are not retained." : ""}</p> : null}
         <StructuredResult result={result} />
       </Card>
 
       {error ? <ErrorBanner message={error} /> : null}
 
       {response.can_full_review && response.evaluation_id ? (
-        <Button className="w-full" variant="secondary" loading={loading === "full"} onClick={() => void getFullReview()}>
+        <Button className="w-full" variant="secondary" disabled={Boolean(loading)} loading={loading === "full"} onClick={() => void getFullReview()}>
           <FileSearch size={18} /> Get Full Detailed Review <ChevronRight size={17} />
         </Button>
       ) : null}
 
-      {refinementActions && response.evaluation_id ? (
+      {refinementActions && !response.source?.requires_reupload && response.evaluation_id ? (
         <div className="action-scroll">
-          <button onClick={() => void refine("rewrite_section")}><PenLine size={16} /> Rewrite section</button>
-          <button onClick={() => void refine("improve_hook")}><Sparkles size={16} /> Improve hook</button>
-          <button onClick={() => void refine("improve_ending")}>Improve ending</button>
-          <button onClick={() => void refine("deepen_reflection")}>Deeper reflection</button>
+          <button disabled={Boolean(loading)} onClick={() => void refine("rewrite_section")}><PenLine size={16} /> Rewrite section</button>
+          <button disabled={Boolean(loading)} onClick={() => void refine("improve_hook")}><Sparkles size={16} /> Improve hook</button>
+          <button disabled={Boolean(loading)} onClick={() => void refine("improve_ending")}>Improve ending</button>
+          <button disabled={Boolean(loading)} onClick={() => void refine("deepen_reflection")}>Deeper reflection</button>
         </div>
       ) : null}
 

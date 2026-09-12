@@ -1,19 +1,20 @@
+import { SubmissionInput, useSubmission } from "../components/SubmissionInput";
 import { useEffect, useMemo, useState } from "react";
 import { ScanText, ShieldCheck } from "lucide-react";
 import { ApiError, api } from "../api";
 import type { EvaluationResponse, Navigate } from "../types";
 import ResultPanel from "../components/ResultPanel";
-import { Button, Card, ErrorBanner, FileImport, Input, ScreenHeader, Segmented, Tag, Textarea } from "../components/ui";
+import { Button, Card, ErrorBanner, Input, ScreenHeader, Segmented, Tag, Textarea } from "../components/ui";
 
 type EssayType = "personal_statement" | "supplemental";
 type EssayAccess = { is_premium: boolean; free_limit: number | null; remaining: number | null };
 
 export default function EssayLabScreen({ navigate, onChanged, isPremium, onUpgrade }: { navigate: Navigate; onChanged: () => void; isPremium: boolean; onUpgrade: () => void }) {
   const [essayType, setEssayType] = useState<EssayType>("personal_statement");
-  const [content, setContent] = useState("");
+  const [content, setContent] = useState(""); const submission = useSubmission();
   const [schoolName, setSchoolName] = useState("");
   const [prompt, setPrompt] = useState("");
-  const [filename, setFilename] = useState("");
+
   const [response, setResponse] = useState<EvaluationResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -26,12 +27,12 @@ export default function EssayLabScreen({ navigate, onChanged, isPremium, onUpgra
   async function analyze() {
     setLoading(true); setError(""); setResponse(null);
     try {
-      const data = await api.post<EvaluationResponse & { essay_access?: EssayAccess }>("/api/evaluate/essay", {
+      const data = await api.analyze<EvaluationResponse & { essay_access?: EssayAccess }>("/api/evaluate/essay", {
         essay_type: essayType,
         content,
         school_name: essayType === "supplemental" ? schoolName || null : null,
         prompt: essayType === "supplemental" ? prompt || null : null,
-      });
+      }, submission.attachment);
       setResponse(data); if (data.essay_access) setAccess(data.essay_access); onChanged();
       window.Telegram?.WebApp.HapticFeedback?.notificationOccurred("success");
     } catch (caught) {
@@ -43,7 +44,7 @@ export default function EssayLabScreen({ navigate, onChanged, isPremium, onUpgra
 
   return (
     <div className="page-enter space-y-3">
-      <ScreenHeader eyebrow="Writing" title="Essay Review" description="Paste a draft. Get clear feedback." onBack={() => navigate("tools")} />
+      <ScreenHeader eyebrow="Writing" title="Essay Review" description="Write, paste or upload. Get clear feedback." onBack={() => navigate("tools")} />
 
       {!access.is_premium ? <button className="free-practice-banner" onClick={onUpgrade}><span><strong>Free Essay Review</strong><small>{access.remaining ?? 0} of {access.free_limit ?? 1} complete review left</small></span><em>Unlock unlimited reviews</em></button> : null}
 
@@ -68,20 +69,19 @@ export default function EssayLabScreen({ navigate, onChanged, isPremium, onUpgra
         ) : null}
 
         <div className="mt-4">
-          <Textarea
+          <SubmissionInput disabled={loading} submission={submission}
             label={essayType === "personal_statement" ? "Your draft" : "Your response"}
             rows={12}
             placeholder={essayType === "personal_statement" ? "Paste the full draft. The coach will look for what this reveals about you—not just what happened." : "Paste your draft and include the university above for a truly school-specific check."}
             value={content}
             onChange={(event) => setContent(event.target.value)}
-            hint={`${wordCount} words${filename ? ` • ${filename}` : ""}`}
+            hint={`${wordCount} words`}
           />
-          <FileImport disabled={loading} onText={(text, name) => { setContent(text); setFilename(name); }} />
         </div>
 
         <div className="privacy-note"><ShieldCheck size={15} /> Your draft is tied to your secure Telegram identity and existing UniVenture memory.</div>
         {error ? <ErrorBanner message={error} /> : null}
-        <Button className="w-full mt-4" loading={loading} disabled={content.trim().length < 80} onClick={() => access.is_premium || (access.remaining ?? 0) > 0 ? void analyze() : onUpgrade()}>
+        <Button className="w-full mt-4" loading={loading} disabled={!submission.ready(content, 80)} onClick={() => access.is_premium || (access.remaining ?? 0) > 0 ? void analyze() : onUpgrade()}>
           <ScanText size={18} /> {access.is_premium || (access.remaining ?? 0) > 0 ? "Analyze My Essay" : "Unlock More Essay Reviews"}
         </Button>
       </Card>
