@@ -1,6 +1,6 @@
-# Current update: V16.2 Copyable AI Results
+# Current update: V17 Mission-Control Plan
 
-Start with [V16_2_APPLY_STEPS.md](V16_2_APPLY_STEPS.md). Changes and verification limits: [V16_2_RELEASE_NOTES.md](V16_2_RELEASE_NOTES.md).
+Start with [V17_APPLY_STEPS.md](V17_APPLY_STEPS.md). Changes and verification limits: [V17_RELEASE_NOTES.md](V17_RELEASE_NOTES.md).
 
 Start with [V16_1_APPLY_STEPS.md](V16_1_APPLY_STEPS.md). Changes and verification limits: [V16_1_RELEASE_NOTES.md](V16_1_RELEASE_NOTES.md).
 

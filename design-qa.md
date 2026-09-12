@@ -78,3 +78,14 @@ Final result: blocked pending the six-step Telegram device check in `V14_1_APPLY
 - Live Telegram WebView capture and responsive comparison: unavailable because no compatible browser is exposed in this session.
 
 Final result: code-tested release candidate; visual acceptance remains blocked pending the seven-step Telegram device check in `V15_APPLY_STEPS.md`.
+
+## V17 mission-control Plan
+
+- Current-state evidence: the user-supplied Telegram screenshot dated 2026-09-12 showed a metric strip, a Today card and five visually identical stage rows. Percentages were visible, but the screen did not explain the current stage, stage outcomes or how the weekly work connected to the journey.
+- Implemented: a current-chapter hero, one explained next move, an explicit five-stage route with status labels and descriptions, up to three weekly moves, and a distinct detailed-schedule action.
+- Accessibility in code: semantic buttons, descriptive accessible stage labels, visible focus styles inherited from the app system, text status in addition to color, and narrow-screen rules.
+- Production TypeScript/Vite build: passed.
+- Journey-state tests: passed.
+- Current prototype capture and same-viewport comparison: blocked because this workspace has no compatible browser executable and Chromium installation is unavailable.
+
+Final result: blocked pending the eight-step Telegram device check in `V17_APPLY_STEPS.md`.

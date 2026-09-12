@@ -3,12 +3,15 @@ import {
   ArrowRight,
   Award,
   BarChart3,
+  BookOpenCheck,
   BrainCircuit,
   BriefcaseBusiness,
   Calculator,
   CalendarDays,
   CheckCircle2,
   ChevronRight,
+  CircleDot,
+  Compass,
   Flame,
   LockKeyhole,
   Route,
@@ -21,6 +24,7 @@ import { api } from "../api";
 import type { DashboardData, Navigate, ScreenId } from "../types";
 import { ErrorBanner, LoadingScreen } from "../components/ui";
 import ToolArtwork from "../components/ToolArtwork";
+import { getCurrentStageIndex, getJourneyStatus, getLevelProgress } from "../lib/planJourney";
 
 type ToolDefinition = {
   title: string;
@@ -148,12 +152,16 @@ export function RoadmapScreen({ navigate, reloadKey }: { navigate: Navigate; rel
   const xp = Math.min(2499, data.readiness.score * 8 + data.profile_completeness.percent * 2 + data.practice_streak.total_sessions * 20);
   const level = Math.min(10, Math.floor(xp / 250) + 1);
   const steps = [
-    { title: "Foundation", score: data.profile_completeness.percent, screen: "portfolio" as ScreenId, icon: Target, accent: "blue" },
-    { title: "Test scores", score: academic, screen: "sat" as ScreenId, icon: Calculator, accent: "violet" },
-    { title: "Story & impact", score: story, screen: story < 50 ? "essay" as ScreenId : "ec" as ScreenId, icon: BrainCircuit, accent: "coral" },
-    { title: "School strategy", score: strategy, screen: strategy < 50 ? "school" as ScreenId : "plan" as ScreenId, icon: Route, accent: "teal" },
-    { title: "Submit ready", score: data.readiness.score, screen: "plan" as ScreenId, icon: Trophy, accent: "amber" },
+    { title: "Build your foundation", shortTitle: "Foundation", description: "Complete the profile details that make every recommendation personal.", action: "Complete profile", score: data.profile_completeness.percent, screen: "portfolio" as ScreenId, icon: Target, accent: "blue" },
+    { title: "Strengthen test scores", shortTitle: "Test scores", description: "Practice the SAT or IELTS skills that need the most attention.", action: "Open practice", score: academic, screen: "sat" as ScreenId, icon: Calculator, accent: "violet" },
+    { title: "Shape your story & impact", shortTitle: "Story & impact", description: "Turn essays and activities into clear evidence of character and growth.", action: story < 50 ? "Work on my essay" : "Review activities", score: story, screen: story < 50 ? "essay" as ScreenId : "ec" as ScreenId, icon: BrainCircuit, accent: "coral" },
+    { title: "Build a smart school strategy", shortTitle: "School strategy", description: "Balance fit, ambition, affordability and deadlines across your list.", action: strategy < 50 ? "Find universities" : "Open schedule", score: strategy, screen: strategy < 50 ? "school" as ScreenId : "plan" as ScreenId, icon: Route, accent: "teal" },
+    { title: "Become submission ready", shortTitle: "Submit ready", description: "Close remaining gaps and turn every requirement into a finished deliverable.", action: "Build full schedule", score: data.readiness.score, screen: "plan" as ScreenId, icon: Trophy, accent: "amber" },
   ];
+  const currentStageIndex = getCurrentStageIndex(steps.map((step) => step.score));
+  const currentStage = steps[currentStageIndex];
+  const levelProgress = getLevelProgress(xp);
+  const blocker = data.readiness.blocker;
 
   return (
     <div className="page-enter simple-roadmap">
@@ -162,41 +170,58 @@ export function RoadmapScreen({ navigate, reloadKey }: { navigate: Navigate; rel
         <strong><Trophy size={15} />{level}</strong>
       </header>
 
-      <section className="simple-score-strip">
-        <div><strong>{data.readiness.score}%</strong><small>Ready</small></div>
-        <div><strong>{xp}</strong><small>XP</small></div>
-        <div><strong><Flame size={15} />{data.practice_streak.current_streak}</strong><small>Day streak</small></div>
-      </section>
-
-      <section className="simple-mission">
-        <div><span><Target size={18} /></span><small>Today</small><em>{data.today_priority.effort || "20 min"}</em></div>
-        <h2>{data.today_priority.title}</h2>
-        <button onClick={() => navigate(data.today_action.screen)}>{data.today_action.mode === "reminder" ? data.today_action.secondary_label || "Open" : data.today_action.label}<ArrowRight size={17} /></button>
-      </section>
-
-      <section className="simple-steps">
-        <div className="simple-section-heading"><h2>Your 5 steps</h2><span>Tap any step</span></div>
-        <div>
-          {steps.map(({ title, score, screen, icon: Icon, accent }, index) => (
-            <button className={`simple-step step-${accent}`} key={title} onClick={() => navigate(screen)}>
-              <span className="step-number">{score >= 70 ? <CheckCircle2 size={17} /> : index + 1}</span>
-              <span className="step-icon"><Icon size={19} /></span>
-              <strong>{title}</strong>
-              <span className="step-progress"><i style={{ width: `${Math.min(100, score)}%` }} /></span>
-              <em>{score}%</em>
-              <ChevronRight size={16} />
-            </button>
-          ))}
+      <section className="mission-plan-hero">
+        <div className="mission-plan-hero-top">
+          <span><Compass size={16} />Current chapter</span>
+          <em>Stage {currentStageIndex + 1} of 5</em>
+        </div>
+        <div className="mission-plan-hero-copy">
+          <div>
+            <small>{currentStage.shortTitle}</small>
+            <h2>{currentStage.title}</h2>
+            <p>{currentStage.description}</p>
+          </div>
+          <strong>{currentStage.score}<small>%</small></strong>
+        </div>
+        <div className="mission-plan-progress" aria-label={`${currentStage.title}: ${currentStage.score}% complete`}><i style={{ width: `${Math.min(100, currentStage.score)}%` }} /></div>
+        <div className="mission-plan-signals">
+          <span><strong>{data.readiness.score}%</strong><small>Overall readiness</small></span>
+          <span><strong>{xp} XP</strong><small>{levelProgress.remaining} to next level</small></span>
+          <span><strong><Flame size={14} />{data.practice_streak.current_streak} days</strong><small>{data.practice_streak.completed_today ? "Active today" : "Keep momentum"}</small></span>
         </div>
       </section>
 
-      <section className="simple-week">
-        <div className="simple-section-heading"><h2>This week</h2><span>{data.weekly_path.length} tasks</span></div>
-        <div>{data.weekly_path.slice(0, 2).map((task, index) => <button key={task.key || task.title} onClick={() => navigate(index === 0 ? data.today_action.screen : "plan")}><span>{index + 1}</span><strong>{task.title}</strong><em>{task.effort || "20 min"}</em><ChevronRight size={16} /></button>)}</div>
+      <section className="mission-plan-next">
+        <div><span><CircleDot size={18} /></span><small>Your next best move</small><em>{data.today_priority.effort || "20 min"}</em></div>
+        <h2>{data.today_priority.title}</h2>
+        <p>{data.today_priority.why || `This strengthens ${blocker.label.toLowerCase()}, your biggest current gap.`}</p>
+        <button onClick={() => navigate(data.today_action.screen)}>{data.today_action.mode === "reminder" ? data.today_action.secondary_label || "Open" : data.today_action.label}<ArrowRight size={17} /></button>
       </section>
 
-      <button className="simple-plan-cta" onClick={() => navigate("plan")}><CalendarDays size={19} /><span><small>Need the full schedule?</small><strong>Open Application Plan</strong></span><ArrowRight size={17} /></button>
-      <p className="simple-xp-note">XP tracks completed preparation—not admission odds.</p>
+      <section className="mission-journey">
+        <div className="simple-section-heading"><div><small>Your route</small><h2>Five chapters to submit-ready</h2></div><span>Tap to work</span></div>
+        <div className="mission-journey-track">
+          {steps.map(({ title, shortTitle, description, action, score, screen, icon: Icon, accent }, index) => {
+            const status = getJourneyStatus(score, index, currentStageIndex);
+            const statusLabel = status === "complete" ? "Complete" : status === "current" ? "Focus now" : status === "building" ? "In progress" : "Up next";
+            return (
+            <button className={`mission-journey-card step-${accent} status-${status}`} key={title} onClick={() => navigate(screen)} aria-label={`${title}, ${statusLabel}, ${score}%`}>
+              <span className="mission-journey-rail">{status === "complete" ? <CheckCircle2 size={18} /> : index + 1}</span>
+              <span className="step-icon"><Icon size={20} /></span>
+              <span className="mission-journey-copy"><small>{statusLabel} · {score}%</small><strong>{shortTitle}</strong><p>{description}</p><i><b style={{ width: `${Math.min(100, score)}%` }} /></i>{status === "current" ? <em>{action}<ArrowRight size={14} /></em> : null}</span>
+              <ChevronRight size={17} />
+            </button>
+          )})}
+        </div>
+      </section>
+
+      <section className="mission-week">
+        <div className="simple-section-heading"><div><small>Short and realistic</small><h2>This week’s moves</h2></div><span>{data.weekly_path.length} tasks</span></div>
+        <div>{data.weekly_path.slice(0, 3).map((task, index) => <button key={task.key || task.title} onClick={() => navigate(index === 0 ? data.today_action.screen : "plan")}><span>{index + 1}</span><span><small>{task.category || (index === 0 ? "Start here" : "Then")}</small><strong>{task.title}</strong></span><em>{task.effort || "20 min"}</em><ChevronRight size={16} /></button>)}</div>
+      </section>
+
+      <button className="mission-schedule-cta" onClick={() => navigate("plan")}><span><CalendarDays size={20} /></span><span><small>Turn the route into dates</small><strong>Build my detailed weekly schedule</strong></span><ArrowRight size={18} /></button>
+      <p className="simple-xp-note"><BookOpenCheck size={13} /> Readiness and XP track preparation—not admission odds.</p>
     </div>
   );
 }

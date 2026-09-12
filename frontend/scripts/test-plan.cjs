@@ -1,0 +1,20 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const ts = require('typescript');
+const source = fs.readFileSync(path.join(__dirname, '../src/lib/planJourney.ts'), 'utf8');
+const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText;
+const mod = { exports: {} };
+new Function('exports', 'module', compiled)(mod.exports, mod);
+const { getCurrentStageIndex, getJourneyStatus, getLevelProgress } = mod.exports;
+
+assert.equal(getCurrentStageIndex([100, 100, 5, 40, 46]), 2);
+assert.equal(getCurrentStageIndex([100, 80, 75]), 2);
+assert.equal(getCurrentStageIndex([0, 0, 0]), 0);
+assert.equal(getJourneyStatus(90, 0, 2), 'complete');
+assert.equal(getJourneyStatus(5, 2, 2), 'current');
+assert.equal(getJourneyStatus(40, 3, 2), 'building');
+assert.equal(getJourneyStatus(0, 4, 2), 'upcoming');
+assert.deepEqual(getLevelProgress(568), { earned: 68, remaining: 182, percent: 27 });
+assert.deepEqual(getLevelProgress(0), { earned: 0, remaining: 250, percent: 0 });
+console.log('9 plan-journey checks passed');
