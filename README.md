@@ -1,6 +1,6 @@
-# Current update: V17 Mission-Control Plan
+# Current update: V17.1 Reliable Payment Handoff
 
-Start with [V17_APPLY_STEPS.md](V17_APPLY_STEPS.md). Changes and verification limits: [V17_RELEASE_NOTES.md](V17_RELEASE_NOTES.md).
+Start with [V17_1_APPLY_STEPS.md](V17_1_APPLY_STEPS.md). Changes and verification limits: [V17_1_RELEASE_NOTES.md](V17_1_RELEASE_NOTES.md).
 
 Start with [V16_1_APPLY_STEPS.md](V16_1_APPLY_STEPS.md). Changes and verification limits: [V16_1_RELEASE_NOTES.md](V16_1_RELEASE_NOTES.md).
 

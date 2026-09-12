@@ -106,8 +106,10 @@ async def start_manual_payment(user_id: int) -> bool:
     bot = module()
     if not bot.payment_details_configured():
         raise RuntimeError("Payment card is not configured.")
-    if bot.manual_payment_session_active(user_id):
-        return False
+    # Always deliver the instructions. Previously an already-active 30-minute
+    # receipt session returned early, while the Mini App still closed. That
+    # left the student in the bot chat without the card details or upload cue.
+    already_active = bot.manual_payment_session_active(user_id)
     bot.begin_manual_payment_session(user_id)
     await bot.app.bot.send_message(
         chat_id=user_id,
@@ -119,7 +121,7 @@ async def start_manual_payment(user_id: int) -> bool:
         parse_mode="HTML",
         reply_markup=bot.main_menu_keyboard(),
     )
-    return True
+    return not already_active
 
 
 async def ask_ai(
