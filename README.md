@@ -1,4 +1,8 @@
-# Current update: V16 Document Reviews & Visual Feedback
+# Current update: V16.2 Copyable AI Results
+
+Start with [V16_2_APPLY_STEPS.md](V16_2_APPLY_STEPS.md). Changes and verification limits: [V16_2_RELEASE_NOTES.md](V16_2_RELEASE_NOTES.md).
+
+Start with [V16_1_APPLY_STEPS.md](V16_1_APPLY_STEPS.md). Changes and verification limits: [V16_1_RELEASE_NOTES.md](V16_1_RELEASE_NOTES.md).
 
 Start with [V16_APPLY_STEPS.md](V16_APPLY_STEPS.md). Changes and exact verification limits: [V16_RELEASE_NOTES.md](V16_RELEASE_NOTES.md).
 

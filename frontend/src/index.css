@@ -1600,3 +1600,27 @@ button:focus-visible, summary:focus-visible { outline:3px solid #2165c7; outline
 .source-note { font-size:12px; color:#536879; line-height:1.7; overflow-wrap:anywhere; padding:12px; margin-bottom:18px; background:#f0f4f7; border-radius:12px; }
 @media(min-width:620px) { .criteria-overview { grid-template-columns:minmax(0,1fr) minmax(0,1fr); } }
 @media(max-width:380px) { .evaluation-visual { padding:14px; }.result-card .result-heading { flex-wrap:wrap; }.criterion-scores button > span { font-size:12px; } }
+
+/* V16.1 complete extracurricular portfolio review */
+.activity-list-intro { display:grid; gap:14px; margin:18px 0 4px; padding:16px; border:1px solid #d7e5df; border-radius:18px; background:#eff8f4; }
+.activity-list-intro > div { display:grid; gap:5px; }.activity-list-intro strong { color:#173d47; }.activity-list-intro span { color:#546a70; font-size:13px; line-height:1.55; }
+.activity-list-intro .button { margin:0; }
+.activity-portfolio-report { display:grid; gap:18px; }.portfolio-report-title h3 { margin:6px 0 0; }
+.activity-review-grid { display:grid; gap:14px; }.activity-review-card { min-width:0; padding:18px; border:1px solid #e0d8cd; border-radius:18px; background:#fffdf9; }
+.activity-review-card header { display:flex; gap:12px; align-items:center; }.activity-review-card header > span { flex:none; display:grid; place-items:center; width:38px; height:38px; border-radius:12px; color:#fff; background:#7143a1; font-size:12px; font-weight:800; }
+.activity-review-card header div { min-width:0; }.activity-review-card h4 { margin:0; color:#173147; overflow-wrap:anywhere; }.activity-review-card header small { display:block; margin-top:4px; color:#697887; }
+.activity-review-card meter { width:100%; height:10px; margin:14px 0; }.activity-review-card meter::-webkit-meter-bar { border:0; height:10px; border-radius:99px; background:#dce7e5; }.activity-review-card meter::-webkit-meter-optimum-value { border-radius:99px; background:#198e92; }.activity-review-card meter::-moz-meter-bar { background:#198e92; }
+.activity-review-card dl { display:grid; gap:12px; margin:10px 0 0; }.activity-review-card dl div { padding-top:11px; border-top:1px solid #eee7dc; }.activity-review-card dt { color:#64418b; font-size:11px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }.activity-review-card dd { margin:5px 0 0; color:#485e6e; font-size:14px; line-height:1.65; }
+.activity-rewrite { margin-top:14px; padding:14px; border-radius:14px; background:#eef7f4; }.activity-rewrite strong { color:#176c69; font-size:12px; text-transform:uppercase; letter-spacing:.07em; }.activity-rewrite p { margin:7px 0 0; line-height:1.7; }
+.recommended-order { padding:18px; border-radius:18px; color:#26384f; background:#f2ebf8; }.recommended-order ol { display:grid; gap:10px; margin:14px 0 0; padding-left:24px; }.recommended-order li { padding-left:5px; line-height:1.6; }
+@media(min-width:620px) { .activity-list-intro { grid-template-columns:minmax(0,1fr) auto; align-items:center; }.activity-review-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+
+/* V16.2 copy controls for generated work */
+.result-copy-row { display:flex; justify-content:flex-end; margin:-2px 0 2px; }
+.copy-result { flex:none; display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:40px; padding:8px 11px; border:1px solid #d8cce4; border-radius:12px; color:#654094; background:#f6f0fa; font-size:12px; font-weight:750; text-transform:none; letter-spacing:0; }
+.copy-result:active { transform:scale(.98); }.copy-result.copied { color:#126a55; border-color:#b8dfd3; background:#e7f6f0; }.copy-result.failed { color:#8a2d3d; border-color:#efc9cf; background:#fcecef; }
+.result-label { justify-content:space-between; gap:12px; }.result-label > span:first-child { display:flex; align-items:center; min-width:0; }
+.result-label .copy-result { min-height:38px; padding:7px 10px; }
+.activity-rewrite > div { display:flex; align-items:center; justify-content:space-between; gap:10px; }.activity-rewrite .copy-result { min-height:38px; }
+.next-step { align-items:flex-start; }.next-step > div { flex:1; min-width:0; }.next-step .copy-result { margin-left:auto; }
+@media(max-width:370px) { .copy-result span { display:none; }.copy-result { min-width:40px; padding:8px; }.result-copy-row .copy-result span { display:inline; }.result-copy-row .copy-result { padding:8px 11px; } }

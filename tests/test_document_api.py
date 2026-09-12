@@ -31,6 +31,13 @@ class DocumentAPITests(unittest.TestCase):
         self.assertIn('Evidence of',handler.call_args.args[0].activity)
         self.assertNotIn('hidden draft',handler.call_args.args[0].activity)
         self.assertIsNone(main.current_document.get())
+
+    def test_full_activity_list_scope_survives_multipart_validation(self):
+        payload = '{"analysis_scope":"portfolio","activity":"hidden"}'
+        with patch.object(main, 'evaluate_ec', new_callable=AsyncMock, return_value={'result': {}}) as handler:
+            response = self.send(content=(b'Activity one with evidence.\n\nActivity two with results. ' * 3), payload=payload)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(handler.call_args.args[0].analysis_scope, "portfolio")
     def test_pdf_is_attached_during_handler_and_reset_after_failure(self):
         async def fail(payload, identity):
             self.assertIsNotNone(main.current_document.get().pdf_data)

@@ -14,29 +14,54 @@ function useToolState<T>() {
 }
 
 export function ECBuilderScreen({ navigate, onChanged }: { navigate: Navigate; onChanged: () => void }) {
-  const [activity, setActivity] = useState(""); const submission = useSubmission();
+  const [scope, setScope] = useState<"single" | "portfolio">("single");
+  const [singleActivity, setSingleActivity] = useState("");
+  const [activities, setActivities] = useState("");
+  const activity = scope === "single" ? singleActivity : activities;
+  const setActivity = scope === "single" ? setSingleActivity : setActivities;
+  const submission = useSubmission();
   const [role, setRole] = useState("");
   const [hours, setHours] = useState("");
   const [weeks, setWeeks] = useState("");
+  const [loadingSaved, setLoadingSaved] = useState(false);
   const state = useToolState<EvaluationResponse>();
   async function analyze() {
     state.setLoading(true); state.setError(""); state.setResult(null);
     try {
-      const result = await api.analyze<EvaluationResponse>("/api/evaluate/ec", { activity, role: role || null, hours_per_week: hours ? Number(hours) : null, weeks_per_year: weeks ? Number(weeks) : null }, submission.attachment);
+      const result = await api.analyze<EvaluationResponse>("/api/evaluate/ec", { analysis_scope: scope, activity, role: scope === "single" ? role || null : null, hours_per_week: scope === "single" && hours ? Number(hours) : null, weeks_per_year: scope === "single" && weeks ? Number(weeks) : null }, submission.attachment);
       state.setResult(result); onChanged();
-    } catch (caught) { state.setError(caught instanceof Error ? caught.message : "Could not evaluate this activity."); }
+    } catch (caught) { state.setError(caught instanceof Error ? caught.message : `Could not evaluate ${scope === "single" ? "this activity" : "these activities"}.`); }
     finally { state.setLoading(false); }
+  }
+  async function loadSavedActivities() {
+    setLoadingSaved(true); state.setError("");
+    try {
+      const data = await api.get<{ portfolio: { application: { ecs?: { activities?: Array<Record<string, unknown>> } } } }>("/api/portfolio");
+      const saved = data.portfolio.application.ecs?.activities || [];
+      if (!saved.length) { state.setError("No activities are saved yet. Add them in Profile, paste them here, or upload a file."); return; }
+      setActivities(saved.slice(0, 10).map((item, index) => [
+        `Activity ${index + 1}: ${String(item.name || "Untitled")}`,
+        item.role ? `Role: ${String(item.role)}` : "",
+        item.organization ? `Organization: ${String(item.organization)}` : "",
+        item.time ? `Time: ${String(item.time)}` : "",
+        item.description ? `Description: ${String(item.description)}` : "",
+      ].filter(Boolean).join("\n")).join("\n\n"));
+      submission.setMode("text"); submission.setFile(null); state.setResult(null);
+    } catch (caught) { state.setError(caught instanceof Error ? caught.message : "Could not load saved activities."); }
+    finally { setLoadingSaved(false); }
   }
   return (
     <div className="page-enter space-y-3">
       <ScreenHeader eyebrow="Activities" title="EC Evaluation" description="Show your impact clearly." onBack={() => navigate("tools")} />
       <Card>
         <div className="metric-ribbon"><span><Activity size={17} />Leadership</span><span><BarChart3 size={17} />Impact</span><span><Sparkles size={17} />Uniqueness</span></div>
-        <Input label="Your role" placeholder="Founder, team lead, volunteer…" value={role} onChange={(e) => setRole(e.target.value)} />
-        <div className="form-grid two"><Input label="Hours / week" type="number" min={0} max={168} value={hours} onChange={(e) => setHours(e.target.value)} /><Input label="Weeks / year" type="number" min={0} max={52} value={weeks} onChange={(e) => setWeeks(e.target.value)} /></div>
-        <SubmissionInput disabled={state.loading} submission={submission} label="Describe the activity" rows={9} placeholder="What did you initiate? Who changed because of it? Include real numbers, constraints and outcomes if you have them." value={activity} onChange={(e) => setActivity(e.target.value)} />
+        <Segmented value={scope} onChange={(value) => { setScope(value); submission.setFile(null); state.setResult(null); state.setError(""); }} options={[{ value: "single", label: "One activity" }, { value: "portfolio", label: "Full activities list" }]} />
+        {scope === "portfolio" ? <div className="activity-list-intro"><div><strong>Review your complete EC portfolio</strong><span>Get an individual review for each activity plus balance, repetition, gaps and ordering advice.</span></div><Button variant="secondary" loading={loadingSaved} disabled={state.loading} onClick={() => void loadSavedActivities()}>Load saved activities</Button></div> : null}
+        {scope === "single" ? <><Input label="Your role" placeholder="Founder, team lead, volunteer…" value={role} onChange={(e) => setRole(e.target.value)} />
+        <div className="form-grid two"><Input label="Hours / week" type="number" min={0} max={168} value={hours} onChange={(e) => setHours(e.target.value)} /><Input label="Weeks / year" type="number" min={0} max={52} value={weeks} onChange={(e) => setWeeks(e.target.value)} /></div></> : null}
+        <SubmissionInput disabled={state.loading} submission={submission} label={scope === "single" ? "Describe the activity" : "All your activities"} rows={scope === "single" ? 9 : 15} placeholder={scope === "single" ? "What did you initiate? Who changed because of it? Include real numbers, constraints and outcomes if you have them." : "List up to 10 activities. For each one include its name, role, organization, grades or dates, hours/week, weeks/year, what you did, and measurable results. Separate activities with a blank line."} value={activity} onChange={(e) => setActivity(e.target.value)} hint={scope === "portfolio" ? "Separate each activity with a blank line · Up to 10 activities" : undefined} />
         {state.error ? <ErrorBanner message={state.error} /> : null}
-        <Button className="w-full" loading={state.loading} disabled={!submission.ready(activity, 30)} onClick={() => void analyze()}><Rocket size={18} /> Analyze Activity Strength</Button>
+        <Button className="w-full" loading={state.loading} disabled={!submission.ready(activity, scope === "single" ? 30 : 80)} onClick={() => void analyze()}><Rocket size={18} /> {scope === "single" ? "Analyze Activity Strength" : "Analyze My Full Activities List"}</Button>
       </Card>
       {state.result ? <ResultPanel response={state.result} refinementActions={false} /> : null}
     </div>

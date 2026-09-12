@@ -636,12 +636,30 @@ async def _run_compact_evaluation(identity: TelegramIdentity, topic: str, conten
     memory = legacy.load_memory(identity.user_id)
     memory_summary = legacy.module().memory_summary_for_prompt(memory)
     rag = await legacy.load_rag(topic, content[:4_000])
+    messages = compact_evaluation_messages(topic, content, memory_summary, rag, extra)
+    is_activity_portfolio = topic == "extracurriculars" and extra.get("analysis_scope") == "portfolio"
     raw = await legacy.ask_ai(
-        compact_evaluation_messages(topic, content, memory_summary, rag, extra),
+        messages,
         strong=True,
-        max_tokens=2_400,
+        max_tokens=4_200 if is_activity_portfolio else 2_400,
     )
     result = _parse_ai_json(raw)
+    if is_activity_portfolio and not result.get("activity_reviews"):
+        raw = await legacy.ask_ai(
+            messages + [{
+                "role": "system",
+                "content": "Your response omitted activity_reviews. Return the complete requested JSON and include a separate activity_reviews item for every clearly distinct submitted activity, plus recommended_order.",
+            }],
+            strong=True,
+            max_tokens=4_200,
+        )
+        result = _parse_ai_json(raw)
+        if not result.get("activity_reviews"):
+            raise legacy.AIRequestError("invalid_response")
+    if topic == "extracurriculars" and isinstance(result.get("criteria"), list):
+        for criterion in result["criteria"]:
+            if isinstance(criterion, dict) and str(criterion.get("label", "")).strip().lower() == "ownership":
+                criterion["label"] = "Leadership & Initiative"
     evaluation_id = _record_evaluation(identity.user_id, memory, topic, content, result, extra)
     return {"evaluation_id": evaluation_id, "topic": topic, "result": result, "can_full_review": not bool(document and document.pdf_data), "source": document.source if document else None}
 

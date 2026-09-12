@@ -20,6 +20,20 @@ class PromptContractTests(unittest.TestCase):
         self.assertIn("do not have access", messages[0]["content"])
         self.assertNotIn("portfolio", messages[-1]["content"])
 
+    def test_extracurricular_single_and_full_list_contracts_are_distinct(self):
+        single = compact_evaluation_messages(
+            "extracurriculars", "One activity with evidence", "", "", {"analysis_scope": "single"}
+        )[0]["content"]
+        portfolio = compact_evaluation_messages(
+            "extracurriculars", "Several activities with evidence", "", "", {"analysis_scope": "portfolio"}
+        )[0]["content"]
+        self.assertIn("Leadership & Initiative", single)
+        self.assertNotIn("\"activity_reviews\"", single)
+        self.assertIn("\"activity_reviews\"", portfolio)
+        self.assertIn("\"recommended_order\"", portfolio)
+        self.assertIn("every clearly distinct activity", portfolio)
+        self.assertIn("Portfolio Balance", portfolio)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -47,6 +47,7 @@ try{
   }
   for(const tool of ['ec','recommendation','portfolio']){
     await page.getByRole('button',{name:tool,exact:true}).click();
+    if(tool==='ec') await page.getByRole('button',{name:'Full activities list',exact:true}).click();
     await page.getByRole('button',{name:'Upload file',exact:true}).click();
     await upload.setInputFiles({name:'work.txt',mimeType:'text/plain',buffer:Buffer.from('A real example with supporting evidence. '.repeat(4))});
     await page.locator('.card > .button').first().click();await page.locator('.evaluation-radar').waitFor();

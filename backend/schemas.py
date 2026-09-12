@@ -95,6 +95,7 @@ class EssayEvaluationRequest(BaseModel):
 
 
 class ECEvaluationRequest(BaseModel):
+    analysis_scope: Literal["single", "portfolio"] = "single"
     activity: str = Field(min_length=30, max_length=12_000)
     role: str | None = Field(default=None, max_length=300)
     hours_per_week: float | None = Field(default=None, ge=0, le=168)
