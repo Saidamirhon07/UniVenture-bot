@@ -138,6 +138,8 @@ async def _openai_chat_request(
 
     max_retries = 3
     attempt = 0
+    token_budget = max_tokens
+    retried_truncation = False
 
     while attempt < max_retries:
         try:
@@ -146,7 +148,7 @@ async def _openai_chat_request(
                     "model": model,
                     "messages": messages,
                     "temperature": temperature,
-                    "max_tokens": max_tokens,
+                    "max_tokens": token_budget,
                 }
                 if response_format:
                     request_kwargs["response_format"] = response_format
@@ -154,19 +156,37 @@ async def _openai_chat_request(
                     _client.chat.completions.create(**request_kwargs),
                     timeout=60
                 )
-                return (resp.choices[0].message.content or "").strip()
+                choice = resp.choices[0]
+                content = (choice.message.content or "").strip()
+                finish_reason = getattr(choice, "finish_reason", None)
             else:
                 import openai as _openai
                 request_kwargs = dict(
                     model=model,
                     messages=messages,
                     temperature=temperature,
-                    max_tokens=max_tokens,
+                    max_tokens=token_budget,
                 )
                 if response_format:
                     request_kwargs["response_format"] = response_format
                 resp = await _openai.ChatCompletion.acreate(**request_kwargs)
-                return (resp["choices"][0]["message"]["content"] or "").strip()
+                choice = resp["choices"][0]
+                content = (choice["message"]["content"] or "").strip()
+                finish_reason = choice.get("finish_reason")
+
+            if response_format and finish_reason == "length":
+                if not retried_truncation and token_budget:
+                    token_budget = min(max(token_budget * 2, 2_000), 8_000)
+                    retried_truncation = True
+                    logging.warning("Retrying truncated JSON response model=%s max_tokens=%s", model, token_budget)
+                    continue
+                if raise_errors:
+                    raise AIServiceError("response_truncated")
+                return "⚠️ The AI response was incomplete. Please try again."
+            return content
+
+        except AIServiceError:
+            raise
 
         except (RateLimitError, asyncio.TimeoutError) as exc:
             attempt += 1
@@ -4808,17 +4828,24 @@ async def health(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     checks = []
 
-    try:
-        answer = await openai_chat(
-            model=FAST_MODEL,
-            messages=[{"role": "user", "content": "ping"}],
-            temperature=0.0,
-            max_tokens=5,
-            raise_errors=True,
-        )
-        checks.append("✅ OpenAI: OK" if answer else "❌ OpenAI: empty response")
-    except Exception as e:
-        checks.append(f"❌ OpenAI: {getattr(e, 'code', 'unavailable')}")
+    diagnostic_messages = [
+        {"role": "system", "content": "Return valid JSON only."},
+        {"role": "user", "content": 'Return exactly {"status":"ok"} as JSON.'},
+    ]
+    for label, model in (("fast JSON", FAST_MODEL), ("strong JSON", STRONG_MODEL)):
+        try:
+            answer = await openai_chat(
+                model=model,
+                messages=diagnostic_messages,
+                temperature=0.0,
+                max_tokens=40,
+                response_format={"type": "json_object"},
+                raise_errors=True,
+            )
+            parsed = json.loads(answer)
+            checks.append(f"✅ OpenAI {label}: OK" if parsed.get("status") == "ok" else f"❌ OpenAI {label}: invalid response")
+        except Exception as e:
+            checks.append(f"❌ OpenAI {label}: {getattr(e, 'code', 'invalid_response')}")
 
     try:
         test_col = chroma.get_or_create_collection("health_check", embedding_function=emb_fn)

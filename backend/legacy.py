@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib
+import json
+import re
 from functools import lru_cache
 from typing import Any
 
@@ -9,6 +11,16 @@ class AIRequestError(RuntimeError):
     def __init__(self, code: str):
         super().__init__(code)
         self.code = code
+
+
+def _valid_json_object(raw: str) -> bool:
+    text = str(raw or "").strip()
+    text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.I)
+    text = re.sub(r"\s*```$", "", text)
+    try:
+        return isinstance(json.loads(text), dict)
+    except (TypeError, json.JSONDecodeError):
+        return False
 
 
 @lru_cache(maxsize=1)
@@ -118,29 +130,46 @@ async def ask_ai(
 ) -> str:
     bot = module()
     primary_model = bot.STRONG_MODEL if strong else bot.FAST_MODEL
-    try:
-        return await bot.openai_chat(
-            primary_model,
+
+    async def call_model(model: str) -> str:
+        raw = await bot.openai_chat(
+            model,
             messages,
             temperature,
             max_tokens=max_tokens,
             response_format={"type": "json_object"} if json_mode else None,
             raise_errors=True,
         )
+        if not json_mode or _valid_json_object(raw):
+            return raw
+        repair_messages = list(messages) + [
+            {
+                "role": "system",
+                "content": "Your previous response was not valid JSON. Return one complete valid JSON object only, with no markdown fences or commentary.",
+            }
+        ]
+        bot.logging.warning("Retrying malformed Mini App JSON response model=%s", model)
+        repaired = await bot.openai_chat(
+            model,
+            repair_messages,
+            temperature,
+            max_tokens=min(max(max_tokens * 2, 2_000), 8_000),
+            response_format={"type": "json_object"},
+            raise_errors=True,
+        )
+        if not _valid_json_object(repaired):
+            raise AIRequestError("invalid_response")
+        return repaired
+
+    try:
+        return await call_model(primary_model)
     except Exception as exc:
         code = str(getattr(exc, "code", "unknown"))
         fallback_model = str(getattr(bot, "FALLBACK_MODEL", "gpt-4o-mini"))
         if code == "model_unavailable" and fallback_model and fallback_model != primary_model:
             bot.logging.warning("Retrying Mini App AI request with fallback model=%s", fallback_model)
             try:
-                return await bot.openai_chat(
-                    fallback_model,
-                    messages,
-                    temperature,
-                    max_tokens=max_tokens,
-                    response_format={"type": "json_object"} if json_mode else None,
-                    raise_errors=True,
-                )
+                return await call_model(fallback_model)
             except Exception as fallback_exc:
                 raise AIRequestError(str(getattr(fallback_exc, "code", "unknown"))) from fallback_exc
         raise AIRequestError(code) from exc

@@ -147,6 +147,8 @@ AI_ERROR_MESSAGES = {
     "request_rejected": "The AI could not process this request. Please shorten the text and try again.",
     "timeout": "The AI request timed out. Please try again.",
     "connection": "UniVentureAI could not reach the AI service. Please try again shortly.",
+    "response_truncated": "The AI response was incomplete. UniVentureAI retried it, but it still needs another attempt.",
+    "invalid_response": "The AI returned an incomplete result. Please try the request again.",
     "unknown": "The AI service is temporarily unavailable. Please try again shortly.",
 }
 
