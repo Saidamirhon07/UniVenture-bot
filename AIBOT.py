@@ -66,6 +66,7 @@ APP_ONLY_MODE = os.getenv("APP_ONLY_MODE", "1") == "1"
 # -------- Model routing (speed vs depth) --------
 FAST_MODEL = os.getenv("OPENAI_FAST_MODEL", "gpt-4.1-mini")
 STRONG_MODEL = os.getenv("OPENAI_STRONG_MODEL", "gpt-4.1")
+FALLBACK_MODEL = os.getenv("OPENAI_FALLBACK_MODEL", "gpt-4o-mini")
 
 # Evaluation speed UX: send a short "quick feedback" first, then full feedback.
 ENABLE_EVAL_QUICK_PREVIEW = os.getenv("ENABLE_EVAL_QUICK_PREVIEW", "0") == "1"
@@ -99,12 +100,39 @@ AI_MAX_CONCURRENCY = max(1, min(32, int(os.getenv("AI_MAX_CONCURRENCY", "10"))))
 _openai_semaphore = asyncio.Semaphore(AI_MAX_CONCURRENCY)
 
 
+class AIServiceError(RuntimeError):
+    """Safe, classified AI failure for API callers and admin diagnostics."""
+
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
+def _ai_error_code(exc: Exception) -> str:
+    name = type(exc).__name__.lower()
+    status_code = getattr(exc, "status_code", None)
+    if status_code in (401, 403) or "authentication" in name or "permission" in name:
+        return "configuration"
+    if status_code == 429 or "ratelimit" in name or "quota" in str(exc).lower():
+        return "capacity"
+    if status_code == 404 or "notfound" in name:
+        return "model_unavailable"
+    if status_code == 400 or "badrequest" in name:
+        return "request_rejected"
+    if isinstance(exc, asyncio.TimeoutError) or "timeout" in name:
+        return "timeout"
+    if "connection" in name:
+        return "connection"
+    return "unknown"
+
+
 async def _openai_chat_request(
     model: str,
     messages: list,
     temperature: float = 0.4,
     max_tokens: int | None = None,
     response_format: dict | None = None,
+    raise_errors: bool = False,
 ) -> str:
     """Async OpenAI chat completion with retry + graceful wait message."""
 
@@ -140,18 +168,28 @@ async def _openai_chat_request(
                 resp = await _openai.ChatCompletion.acreate(**request_kwargs)
                 return (resp["choices"][0]["message"]["content"] or "").strip()
 
-        except (RateLimitError, asyncio.TimeoutError):
+        except (RateLimitError, asyncio.TimeoutError) as exc:
             attempt += 1
-            logging.warning(f"OpenAI retry (attempt {attempt}/{max_retries})")
+            logging.warning(
+                "OpenAI retry model=%s code=%s attempt=%s/%s",
+                model,
+                _ai_error_code(exc),
+                attempt,
+                max_retries,
+            )
 
             if attempt < max_retries:
                 await asyncio.sleep(10)
                 continue
-            else:
-                return "⚠️ I'm a bit busy right now! Please try again in 60 seconds."
+            if raise_errors:
+                raise AIServiceError(_ai_error_code(exc)) from exc
+            return "⚠️ I'm a bit busy right now! Please try again in 60 seconds."
 
-        except Exception:
-            logging.exception("OpenAI unexpected error")
+        except Exception as exc:
+            code = _ai_error_code(exc)
+            logging.exception("OpenAI request failed model=%s code=%s", model, code)
+            if raise_errors:
+                raise AIServiceError(code) from exc
             return "⚠️ I'm a bit busy right now! Please try again in 60 seconds."
 
 
@@ -161,10 +199,11 @@ async def openai_chat(
     temperature: float = 0.4,
     max_tokens: int | None = None,
     response_format: dict | None = None,
+    raise_errors: bool = False,
 ) -> str:
     """Bound AI concurrency so traffic spikes do not exhaust the service."""
     async with _openai_semaphore:
-        return await _openai_chat_request(model, messages, temperature, max_tokens, response_format)
+        return await _openai_chat_request(model, messages, temperature, max_tokens, response_format, raise_errors)
 
 # -------- Admin config --------
 ADMIN_IDS = {886181760}
@@ -4764,18 +4803,22 @@ async def restore_from_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 # ---------- HEALTH CHECK ----------
 async def health(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not require_admin(update):
+        await update.message.reply_text("⛔ Admin only.")
+        return
     checks = []
 
     try:
-        _ = await openai_chat(
+        answer = await openai_chat(
             model=FAST_MODEL,
             messages=[{"role": "user", "content": "ping"}],
             temperature=0.0,
             max_tokens=5,
+            raise_errors=True,
         )
-        checks.append("✅ OpenAI: OK")
+        checks.append("✅ OpenAI: OK" if answer else "❌ OpenAI: empty response")
     except Exception as e:
-        checks.append(f"❌ OpenAI: {str(e)[:100]}")
+        checks.append(f"❌ OpenAI: {getattr(e, 'code', 'unavailable')}")
 
     try:
         test_col = chroma.get_or_create_collection("health_check", embedding_function=emb_fn)

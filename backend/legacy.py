@@ -5,6 +5,12 @@ from functools import lru_cache
 from typing import Any
 
 
+class AIRequestError(RuntimeError):
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
 @lru_cache(maxsize=1)
 def module():
     """Import the existing bot exactly once and expose its production services."""
@@ -111,13 +117,33 @@ async def ask_ai(
     json_mode: bool = True,
 ) -> str:
     bot = module()
-    return await bot.openai_chat(
-        bot.STRONG_MODEL if strong else bot.FAST_MODEL,
-        messages,
-        temperature,
-        max_tokens=max_tokens,
-        response_format={"type": "json_object"} if json_mode else None,
-    )
+    primary_model = bot.STRONG_MODEL if strong else bot.FAST_MODEL
+    try:
+        return await bot.openai_chat(
+            primary_model,
+            messages,
+            temperature,
+            max_tokens=max_tokens,
+            response_format={"type": "json_object"} if json_mode else None,
+            raise_errors=True,
+        )
+    except Exception as exc:
+        code = str(getattr(exc, "code", "unknown"))
+        fallback_model = str(getattr(bot, "FALLBACK_MODEL", "gpt-4o-mini"))
+        if code == "model_unavailable" and fallback_model and fallback_model != primary_model:
+            bot.logging.warning("Retrying Mini App AI request with fallback model=%s", fallback_model)
+            try:
+                return await bot.openai_chat(
+                    fallback_model,
+                    messages,
+                    temperature,
+                    max_tokens=max_tokens,
+                    response_format={"type": "json_object"} if json_mode else None,
+                    raise_errors=True,
+                )
+            except Exception as fallback_exc:
+                raise AIRequestError(str(getattr(fallback_exc, "code", "unknown"))) from fallback_exc
+        raise AIRequestError(code) from exc
 
 
 def rag_context(topic: str, query: str, limit: int = 6) -> str:

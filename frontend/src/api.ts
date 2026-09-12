@@ -15,8 +15,19 @@ export class ApiError extends Error {
 
 function detailMessage(detail: unknown): string {
   if (typeof detail === "string") return detail;
-  if (detail && typeof detail === "object" && "message" in detail) return String((detail as { message: unknown }).message);
+  if (detail && typeof detail === "object" && "message" in detail) {
+    const value = detail as { message: unknown; request_id?: unknown };
+    const reference = value.request_id ? ` Reference: ${String(value.request_id)}` : "";
+    return `${String(value.message)}${reference}`;
+  }
   if (Array.isArray(detail) && detail[0] && typeof detail[0] === "object" && "msg" in detail[0]) return String(detail[0].msg);
+  return "Something went wrong. Please try again.";
+}
+
+function statusMessage(status: number): string {
+  if (status === 429) return "Too many requests reached the service at once. Please wait a moment and try again.";
+  if (status === 502 || status === 503 || status === 504) return "The AI service is temporarily unavailable. Please try again shortly.";
+  if (status >= 500) return "UniVentureAI hit a server error. Please try again; contact support if it continues.";
   return "Something went wrong. Please try again.";
 }
 
@@ -38,11 +49,17 @@ class ApiClient {
     const headers = new Headers(options.headers);
     if (!(options.body instanceof FormData)) headers.set("Content-Type", "application/json");
     if (this.token) headers.set("Authorization", `Bearer ${this.token}`);
-    const response = await fetch(path, { ...options, headers });
+    let response: Response;
+    try {
+      response = await fetch(path, { ...options, headers });
+    } catch {
+      throw new ApiError(0, "Could not connect to UniVentureAI. Check your internet and try again.");
+    }
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
       const detail = data.detail ?? data;
-      throw new ApiError(response.status, detailMessage(detail), detail);
+      const message = detailMessage(detail);
+      throw new ApiError(response.status, message === "Something went wrong. Please try again." ? statusMessage(response.status) : message, detail);
     }
     return data as T;
   }

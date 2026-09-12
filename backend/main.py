@@ -16,9 +16,9 @@ from zoneinfo import ZoneInfo
 
 from docx import Document as DocxDocument
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile, status
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pdfminer.high_level import extract_text as extract_pdf_text
 
@@ -138,6 +138,29 @@ app = FastAPI(
     redoc_url=None,
     lifespan=lifespan,
 )
+
+
+AI_ERROR_MESSAGES = {
+    "configuration": "The AI service needs an account update. Please contact UniVentureAI support.",
+    "capacity": "The AI service is temporarily at capacity. Please try again shortly.",
+    "model_unavailable": "The selected AI model is temporarily unavailable. The team has been notified.",
+    "request_rejected": "The AI could not process this request. Please shorten the text and try again.",
+    "timeout": "The AI request timed out. Please try again.",
+    "connection": "UniVentureAI could not reach the AI service. Please try again shortly.",
+    "unknown": "The AI service is temporarily unavailable. Please try again shortly.",
+}
+
+
+@app.exception_handler(legacy.AIRequestError)
+async def ai_request_error_handler(request: Request, exc: legacy.AIRequestError) -> JSONResponse:
+    request_id = uuid.uuid4().hex[:10]
+    code = exc.code if exc.code in AI_ERROR_MESSAGES else "unknown"
+    logger.error("AI request failed path=%s code=%s request_id=%s", request.url.path, code, request_id)
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={"detail": {"message": AI_ERROR_MESSAGES[code], "code": f"ai_{code}", "request_id": request_id}},
+        headers={"Retry-After": "30", "X-Request-ID": request_id},
+    )
 
 cors_origins = [origin.strip() for origin in os.getenv("CORS_ORIGINS", "").split(",") if origin.strip()]
 if cors_origins:
