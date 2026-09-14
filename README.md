@@ -1,6 +1,6 @@
-# Current update: V17.1 Reliable Payment Handoff
+# Current update: V17.2 One-Tap App Launcher
 
-Start with [V17_1_APPLY_STEPS.md](V17_1_APPLY_STEPS.md). Changes and verification limits: [V17_1_RELEASE_NOTES.md](V17_1_RELEASE_NOTES.md).
+Start with [V17_2_APPLY_STEPS.md](V17_2_APPLY_STEPS.md). Changes and verification limits: [V17_2_RELEASE_NOTES.md](V17_2_RELEASE_NOTES.md).
 
 Start with [V16_1_APPLY_STEPS.md](V16_1_APPLY_STEPS.md). Changes and verification limits: [V16_1_RELEASE_NOTES.md](V16_1_RELEASE_NOTES.md).
 

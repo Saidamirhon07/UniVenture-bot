@@ -2435,17 +2435,9 @@ def mini_app_shortcut(text: str) -> tuple[str, bool, str] | None:
 def main_menu_keyboard():
     if not MINI_APP_URL:
         return ReplyKeyboardRemove()
-    rows = [
-        [KeyboardButton(BTN_HUB)],
-        [
-            KeyboardButton(BTN_FREE_CHECK),
-            KeyboardButton(BTN_TRY_SAT),
-        ],
-        [
-            KeyboardButton(BTN_TRY_IELTS),
-            KeyboardButton(BTN_PREMIUM),
-        ],
-    ]
+    # Keep the bot focused: one full-width launcher opens the authenticated
+    # Mini App directly. Free samples and Premium entry live inside the app.
+    rows = [[KeyboardButton(BTN_HUB, web_app=WebAppInfo(url=MINI_APP_URL))]]
     return ReplyKeyboardMarkup(
         rows,
         resize_keyboard=True,
