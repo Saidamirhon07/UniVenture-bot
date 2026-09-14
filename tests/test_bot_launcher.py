@@ -14,13 +14,21 @@ class BotLauncherTests(unittest.TestCase):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         }
 
-    def test_start_keyboard_has_one_direct_web_app_button(self):
-        launcher = self.functions["main_menu_keyboard"]
-        self.assertIn("rows = [[KeyboardButton(BTN_HUB, web_app=WebAppInfo(url=MINI_APP_URL))]]", launcher)
-        self.assertNotIn("BTN_FREE_CHECK", launcher)
-        self.assertNotIn("BTN_TRY_SAT", launcher)
-        self.assertNotIn("BTN_TRY_IELTS", launcher)
-        self.assertNotIn("BTN_PREMIUM", launcher)
+    def test_start_message_has_one_direct_web_app_button(self):
+        launcher = self.functions["start_app_button"]
+        self.assertIn("InlineKeyboardMarkup", launcher)
+        self.assertIn("InlineKeyboardButton(BTN_HUB, web_app=WebAppInfo(url=MINI_APP_URL))", launcher)
+
+    def test_previous_menu_shortcuts_are_preserved(self):
+        menu = self.functions["main_menu_keyboard"]
+        self.assertIn("BTN_FREE_CHECK", menu)
+        self.assertIn("BTN_TRY_SAT", menu)
+        self.assertIn("BTN_TRY_IELTS", menu)
+        self.assertIn("BTN_PREMIUM", menu)
+
+    def test_start_handler_attaches_in_chat_button(self):
+        start = self.functions["start"]
+        self.assertIn("reply_markup=start_app_button()", start)
 
     def test_old_text_launcher_remains_compatible(self):
         shortcut = self.functions["mini_app_shortcut"]

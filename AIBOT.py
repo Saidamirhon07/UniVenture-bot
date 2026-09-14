@@ -2435,14 +2435,31 @@ def mini_app_shortcut(text: str) -> tuple[str, bool, str] | None:
 def main_menu_keyboard():
     if not MINI_APP_URL:
         return ReplyKeyboardRemove()
-    # Keep the bot focused: one full-width launcher opens the authenticated
-    # Mini App directly. Free samples and Premium entry live inside the app.
-    rows = [[KeyboardButton(BTN_HUB, web_app=WebAppInfo(url=MINI_APP_URL))]]
+    rows = [
+        [KeyboardButton(BTN_HUB)],
+        [
+            KeyboardButton(BTN_FREE_CHECK),
+            KeyboardButton(BTN_TRY_SAT),
+        ],
+        [
+            KeyboardButton(BTN_TRY_IELTS),
+            KeyboardButton(BTN_PREMIUM),
+        ],
+    ]
     return ReplyKeyboardMarkup(
         rows,
         resize_keyboard=True,
         one_time_keyboard=False,
     )
+
+
+def start_app_button():
+    """One large in-chat launcher shown directly below the /start welcome."""
+    if not MINI_APP_URL:
+        return None
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton(BTN_HUB, web_app=WebAppInfo(url=MINI_APP_URL))
+    ]])
 
 def tools_menu_keyboard():
     return ReplyKeyboardMarkup(
@@ -3066,7 +3083,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "<b>Your university application workspace is ready.</b>\n\n"
         "Start free with a readiness check or daily SAT/IELTS practice. "
         "Open UniVentureAI for every tool, plan, and saved result.",
-        reply_markup=main_menu_keyboard(),
+        reply_markup=start_app_button(),
         image_key='welcome',
         parse_mode="HTML",
     )
