@@ -950,13 +950,16 @@ async def evaluate_essay(payload: EssayEvaluationRequest, identity: TelegramIden
         try:
             memory = legacy.load_memory(identity.user_id)
             _, miniapp = _ensure_memory(memory)
-            used = max(0, int(miniapp.get("free_essay_evaluations_used", 0) or 0))
+            raw_usage = miniapp.get("free_feature_uses")
+            usage = raw_usage if isinstance(raw_usage, dict) else {}
+            used = max(0, int(usage.get("essay_review", 0) or 0))
             if used >= FREE_ESSAY_EVALUATIONS:
                 raise HTTPException(
                     status_code=status.HTTP_402_PAYMENT_REQUIRED,
                     detail={"message": "Your free Essay Review has been used. Premium unlocks unlimited reviews and revisions.", "code": "free_essay_limit"},
                 )
-            miniapp["free_essay_evaluations_used"] = used + 1
+            usage["essay_review"] = used + 1
+            miniapp["free_feature_uses"] = usage
             _save_memory(identity.user_id, memory)
             reserved = True
             return await operation()
@@ -964,7 +967,10 @@ async def evaluate_essay(payload: EssayEvaluationRequest, identity: TelegramIden
             if reserved:
                 memory = legacy.load_memory(identity.user_id)
                 _, miniapp = _ensure_memory(memory)
-                miniapp["free_essay_evaluations_used"] = max(0, int(miniapp.get("free_essay_evaluations_used", 1) or 1) - 1)
+                raw_usage = miniapp.get("free_feature_uses")
+                usage = raw_usage if isinstance(raw_usage, dict) else {}
+                usage["essay_review"] = max(0, int(usage.get("essay_review", 1) or 1) - 1)
+                miniapp["free_feature_uses"] = usage
                 _save_memory(identity.user_id, memory)
             raise
 
@@ -974,7 +980,9 @@ async def essay_access(identity: TelegramIdentity = Depends(current_identity)) -
     premium = _is_premium(identity.user_id)
     memory = legacy.load_memory(identity.user_id)
     _, miniapp = _ensure_memory(memory)
-    used = max(0, int(miniapp.get("free_essay_evaluations_used", 0) or 0))
+    raw_usage = miniapp.get("free_feature_uses")
+    usage = raw_usage if isinstance(raw_usage, dict) else {}
+    used = max(0, int(usage.get("essay_review", 0) or 0))
     return {"is_premium": premium, "free_limit": None if premium else FREE_ESSAY_EVALUATIONS, "remaining": None if premium else max(0, FREE_ESSAY_EVALUATIONS - used)}
 
 

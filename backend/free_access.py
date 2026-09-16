@@ -31,7 +31,10 @@ def access_snapshot(miniapp: dict[str, Any], premium: bool, essay_limit: int) ->
             "used": used,
             "remaining": None if premium else max(0, 1 - used),
         }
-    essay_used = max(0, int(miniapp.get("free_essay_evaluations_used", 0) or 0))
+    # Essay used an older standalone counter before the all-tools freemium
+    # launch. Keep that historical value intact, but give this launch its own
+    # independent credit alongside every other feature.
+    essay_used = max(0, int(usage.get("essay_review", 0) or 0))
     result["essay_review"] = {
         "label": "Essay Review",
         "limit": None if premium else essay_limit,

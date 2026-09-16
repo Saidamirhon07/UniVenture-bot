@@ -21,13 +21,17 @@ class FreeAccessTests(unittest.TestCase):
         self.assertFalse(reserve(miniapp, "rewrite"))
 
     def test_premium_snapshot_has_no_limits_and_legacy_values_are_sanitized(self):
-        miniapp = {"free_feature_uses": {"school_finder": "9"}, "free_essay_evaluations_used": "2"}
+        miniapp = {"free_feature_uses": {"school_finder": "9", "essay_review": "2"}, "free_essay_evaluations_used": "99"}
         free = access_snapshot(miniapp, premium=False, essay_limit=1)
         self.assertEqual(free["school_finder"]["remaining"], 0)
         self.assertEqual(free["essay_review"]["remaining"], 0)
         premium = access_snapshot(miniapp, premium=True, essay_limit=1)
         self.assertIsNone(premium["school_finder"]["limit"])
         self.assertIsNone(premium["essay_review"]["remaining"])
+
+    def test_old_essay_counter_does_not_consume_the_new_launch_credit(self):
+        snapshot = access_snapshot({"free_essay_evaluations_used": 7}, premium=False, essay_limit=1)
+        self.assertEqual(snapshot["essay_review"]["remaining"], 1)
 
 
 if __name__ == "__main__":

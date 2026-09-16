@@ -1,4 +1,8 @@
-# Current update: V18 Free First Result
+# Current update: V18.1 Essay Free Result Fix
+
+Start with [V18_1_APPLY_STEPS.md](V18_1_APPLY_STEPS.md). V18.1 gives every account a fresh one-time Essay Review instead of treating historical free Essay usage as the new launch credit. Details: [V18_1_RELEASE_NOTES.md](V18_1_RELEASE_NOTES.md).
+
+## Previous update: V18 Free First Result
 
 Start with [V18_APPLY_STEPS.md](V18_APPLY_STEPS.md). The free tier now gives each new user one successful result from every major AI tool, keeps SAT and IELTS daily allowances separate, and enforces all usage server-side. Verification details: [V18_RELEASE_NOTES.md](V18_RELEASE_NOTES.md).
 
