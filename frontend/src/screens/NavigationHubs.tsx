@@ -21,7 +21,7 @@ import {
   Trophy,
 } from "lucide-react";
 import { api } from "../api";
-import type { DashboardData, Navigate, ScreenId } from "../types";
+import type { DashboardData, Navigate, ScreenId, SubscriptionStatus } from "../types";
 import { ErrorBanner, LoadingScreen } from "../components/ui";
 import ToolArtwork from "../components/ToolArtwork";
 import { getCurrentStageIndex, getJourneyStatus, getLevelProgress } from "../lib/planJourney";
@@ -80,7 +80,28 @@ const toolGroups: ToolGroup[] = [
 ];
 
 const allTools = toolGroups.flatMap((group) => group.tools);
-const freeSampleTools = new Set<ScreenId>(["essay", "sat", "ielts"]);
+const toolFeature: Partial<Record<ScreenId, string | string[]>> = {
+  essay: "essay_review",
+  brainstorm: "brainstorm",
+  rewrite: "rewrite",
+  ec: "ec_review",
+  recommendation: "recommendation",
+  "portfolio-builder": "portfolio_review",
+  school: "school_finder",
+  plan: "application_plan",
+  boost: ["boost_wow_factor", "boost_power_words", "boost_insider_tips"],
+};
+
+function freeToolState(screen: ScreenId, subscription: SubscriptionStatus): { label: string; exhausted: boolean } {
+  if (subscription.is_premium) return { label: "", exhausted: false };
+  if (screen === "sat" || screen === "ielts") return { label: "DAILY FREE", exhausted: false };
+  if (screen === "portfolio") return { label: "FREE PROFILE", exhausted: false };
+  const keys = toolFeature[screen];
+  if (!keys) return { label: "1 FREE TRY", exhausted: false };
+  const list = Array.isArray(keys) ? keys : [keys];
+  const remaining = list.some((key) => (subscription.free_feature_access?.[key]?.remaining ?? 1) > 0);
+  return { label: remaining ? (list.length > 1 ? `${list.length} FREE CHECKS` : "1 FREE RESULT") : "PREMIUM", exhausted: !remaining };
+}
 
 function categoryPercent(data: DashboardData, keys: string[]) {
   const categories = data.readiness.categories.filter((item) => keys.includes(item.key));
@@ -89,7 +110,7 @@ function categoryPercent(data: DashboardData, keys: string[]) {
   return max ? Math.round((score / max) * 100) : 0;
 }
 
-export function ToolsHubScreen({ navigate, isAdmin = false, isPremium = false }: { navigate: Navigate; isAdmin?: boolean; isPremium?: boolean }) {
+export function ToolsHubScreen({ navigate, isAdmin = false, subscription }: { navigate: Navigate; isAdmin?: boolean; subscription: SubscriptionStatus }) {
   const [query, setQuery] = useState("");
   const normalizedQuery = query.trim().toLowerCase();
   const groups = useMemo(() => {
@@ -117,13 +138,16 @@ export function ToolsHubScreen({ navigate, isAdmin = false, isPremium = false }:
         <section className="simple-tool-group" key={group.title}>
           <div className="simple-section-heading"><h2>{group.title}</h2><span>{group.description}</span></div>
           <div className="simple-tool-grid">
-            {group.tools.map(({ title, description, screen, accent }) => (
-              <button className={`simple-tool-card tool-${accent} ${!isPremium && !freeSampleTools.has(screen) ? "tool-locked" : ""}`} key={`${title}-${screen}`} onClick={() => navigate(screen)}>
-                <ToolArtwork screen={screen} />
-                <div><strong>{title}</strong><small>{description}</small>{!isPremium ? <em>{freeSampleTools.has(screen) ? "FREE SAMPLE" : "PREMIUM"}</em> : null}</div>
-                {!isPremium && !freeSampleTools.has(screen) ? <LockKeyhole size={15} /> : <ChevronRight size={16} />}
-              </button>
-            ))}
+            {group.tools.map(({ title, description, screen, accent }) => {
+              const access = freeToolState(screen, subscription);
+              return (
+                <button className={`simple-tool-card tool-${accent} ${access.exhausted ? "tool-locked" : ""}`} key={`${title}-${screen}`} onClick={() => navigate(screen)}>
+                  <ToolArtwork screen={screen} />
+                  <div><strong>{title}</strong><small>{description}</small>{!subscription.is_premium ? <em>{access.label}</em> : null}</div>
+                  {access.exhausted ? <LockKeyhole size={15} /> : <ChevronRight size={16} />}
+                </button>
+              );
+            })}
           </div>
         </section>
       )) : <div className="simple-empty"><Search size={23} /><strong>No tool found</strong><span>Try “essay”, “EC”, “SAT” or “plan”.</span></div>}

@@ -59,6 +59,13 @@ class ApiClient {
     if (!response.ok) {
       const detail = data.detail ?? data;
       const message = detailMessage(detail);
+      if (response.status === 402) {
+        const rawFeature = detail && typeof detail === "object" && "feature" in detail ? String(detail.feature) : "Premium access";
+        const feature = rawFeature === "Premium access" ? rawFeature : rawFeature.split("_").map((part) => part[0]?.toUpperCase() + part.slice(1)).join(" ");
+        window.dispatchEvent(new CustomEvent("univenture:upgrade-required", {
+          detail: { message, feature },
+        }));
+      }
       throw new ApiError(response.status, message === "Something went wrong. Please try again." ? statusMessage(response.status) : message, detail);
     }
     return data as T;

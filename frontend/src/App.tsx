@@ -27,13 +27,7 @@ const primaryNav: Array<{ screen: ScreenId; label: string; icon: typeof Home; fe
   { screen: "portfolio", label: "Profile", icon: UserRound },
 ];
 
-const freeScreens = new Set<ScreenId>(["home", "tools", "discover", "essay", "sat", "ielts", "feedback", "free-check"]);
-const featureNames: Partial<Record<ScreenId, string>> = {
-  roadmap: "your personal roadmap", portfolio: "your saved profile", essay: "Essay Review", ec: "EC Evaluation",
-  recommendation: "Recommendation Letters", "portfolio-builder": "Portfolio Review", school: "School Finder",
-  plan: "Application Plan", coach: "AI Coach", brainstorm: "Brainstorm Studio", rewrite: "Rewrite Studio",
-  boost: "Quick Checks", prep: "the full Prep Lab",
-};
+const launchableScreens = new Set<ScreenId>(["home", "roadmap", "tools", "discover", "portfolio", "prep", "coach", "brainstorm", "rewrite", "essay", "school", "plan", "ec", "ielts", "sat", "feedback", "free-check", "recommendation", "portfolio-builder", "boost"]);
 
 function navScreen(screen: ScreenId): ScreenId {
   if (screen === "free-check") return "home";
@@ -81,15 +75,10 @@ export default function App() {
 
   const navigate: Navigate = useCallback((next) => {
     if (!window.dispatchEvent(new Event("univenture:before-navigate", { cancelable: true }))) return;
-    if (subscription && !subscription.is_premium && !freeScreens.has(next)) {
-      setUpgradeFeature(featureNames[next] || "this feature");
-      window.Telegram?.WebApp.HapticFeedback?.impactOccurred("medium");
-      return;
-    }
     setScreen(next);
     window.scrollTo({ top: 0, behavior: "smooth" });
     window.Telegram?.WebApp.HapticFeedback?.impactOccurred("light");
-  }, [subscription]);
+  }, []);
 
   const markChanged = useCallback(() => setReloadKey((value) => value + 1), []);
 
@@ -107,7 +96,7 @@ export default function App() {
         const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
         const launch = await api.get<{ intent: { screen?: ScreenId; upgrade?: boolean } | null }>("/api/launch-intent").catch(() => ({ intent: null }));
         const requestedScreen = (hashParams.get("screen") || queryParams.get("screen") || launch.intent?.screen) as ScreenId | null;
-        if (requestedScreen && freeScreens.has(requestedScreen)) setScreen(requestedScreen);
+        if (requestedScreen && launchableScreens.has(requestedScreen)) setScreen(requestedScreen);
         if (((hashParams.get("upgrade") || queryParams.get("upgrade")) === "premium" || launch.intent?.upgrade) && !access.is_premium) setUpgradeFeature("Premium access");
         const source = webApp?.initDataUnsafe?.start_param || queryParams.get("startapp") || undefined;
         void api.track("app_open", { session_id: crypto.randomUUID?.() || String(Date.now()) }, source);
@@ -118,6 +107,20 @@ export default function App() {
   useEffect(() => {
     if (user) void api.track("screen_view", { screen });
   }, [screen, user]);
+
+  useEffect(() => {
+    if (!user) return;
+    void api.get<SubscriptionStatus>("/api/subscription").then(setSubscription).catch(() => undefined);
+  }, [screen, user]);
+
+  useEffect(() => {
+    const showUpgrade = (event: Event) => {
+      const custom = event as CustomEvent<{ message?: string; feature?: string }>;
+      setUpgradeFeature(custom.detail?.feature || "Premium access");
+    };
+    window.addEventListener("univenture:upgrade-required", showUpgrade);
+    return () => window.removeEventListener("univenture:upgrade-required", showUpgrade);
+  }, []);
 
   useEffect(() => {
     const back = window.Telegram?.WebApp.BackButton;
@@ -136,7 +139,7 @@ export default function App() {
     switch (screen) {
       case "home": return <HomeScreen navigate={navigate} reloadKey={reloadKey} />;
       case "roadmap": return <RoadmapScreen navigate={navigate} reloadKey={reloadKey} />;
-      case "tools": return <ToolsHubScreen navigate={navigate} isAdmin={Boolean(user.is_admin)} isPremium={subscription.is_premium} />;
+      case "tools": return <ToolsHubScreen navigate={navigate} isAdmin={Boolean(user.is_admin)} subscription={subscription} />;
       case "discover": return <DiscoverScreen navigate={navigate} />;
       case "prep": return <PrepHubScreen navigate={navigate} />;
       case "coach": return <AICoachScreen navigate={navigate} />;
@@ -154,7 +157,7 @@ export default function App() {
       case "recommendation": return <RecommendationScreen navigate={navigate} onChanged={markChanged} />;
       case "portfolio-builder": return <PortfolioBuilderScreen navigate={navigate} onChanged={markChanged} />;
       case "boost": return <BoostToolsScreen navigate={navigate} />;
-      case "founder": return user.is_admin ? <FounderAnalyticsScreen navigate={navigate} /> : <ToolsHubScreen navigate={navigate} isAdmin={false} />;
+      case "founder": return user.is_admin ? <FounderAnalyticsScreen navigate={navigate} /> : <ToolsHubScreen navigate={navigate} isAdmin={false} subscription={subscription} />;
     }
   })();
 

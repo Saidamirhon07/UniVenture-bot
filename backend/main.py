@@ -27,6 +27,7 @@ from .documents import current_document, prepare_document, DocumentError
 from . import legacy
 from .analytics import founder_snapshot, record_event as record_product_event
 from .copilot_access import access_snapshot as copilot_access_snapshot, record_message, release_message
+from .free_access import FREE_FEATURES, access_snapshot as free_access_snapshot, release as release_free_access, reserve as reserve_free_access
 from .launch_intents import consume_launch_intent
 from .practice import BANK as PRACTICE_BANK, record_session
 from .question_factory import (
@@ -113,8 +114,7 @@ FREE_COPILOT_MESSAGES_PER_DAY = max(1, min(10, int(os.getenv("FREE_COPILOT_MESSA
 FREE_ESSAY_EVALUATIONS = max(0, min(2, int(os.getenv("FREE_ESSAY_EVALUATIONS", "1"))))
 TASHKENT = ZoneInfo("Asia/Tashkent")
 _copilot_locks: dict[int, asyncio.Lock] = {}
-_essay_locks: dict[int, asyncio.Lock] = {}
-
+_feature_locks: dict[int, asyncio.Lock] = {}
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -205,6 +205,50 @@ def active_identity(identity: TelegramIdentity = Depends(current_identity)) -> T
 
 def _is_premium(user_id: int) -> bool:
     return bool(legacy.subscription_status(user_id)["is_premium"])
+
+
+def _free_feature_snapshot(memory: dict[str, Any], premium: bool) -> dict[str, dict[str, Any]]:
+    _, miniapp = _ensure_memory(memory)
+    return free_access_snapshot(miniapp, premium, FREE_ESSAY_EVALUATIONS)
+
+
+def _subscription_snapshot(user_id: int, memory: dict[str, Any] | None = None) -> dict[str, Any]:
+    access = legacy.subscription_status(user_id)
+    stored = memory if memory is not None else legacy.load_memory(user_id)
+    return {**access, "free_feature_access": _free_feature_snapshot(stored, bool(access["is_premium"]))}
+
+
+async def _with_free_feature(identity: TelegramIdentity, feature: str, operation: Any) -> Any:
+    if _is_premium(identity.user_id):
+        return await operation()
+    if feature not in FREE_FEATURES:
+        raise RuntimeError(f"Unknown free feature: {feature}")
+    # Serialize a free user's whole reserve -> AI -> save transaction. This
+    # prevents two simultaneous tools from overwriting each other's credits or
+    # saved result in the JSON-backed store.
+    lock = _feature_locks.setdefault(identity.user_id, asyncio.Lock())
+    async with lock:
+        memory = legacy.load_memory(identity.user_id)
+        _, miniapp = _ensure_memory(memory)
+        if not reserve_free_access(miniapp, feature):
+            label = FREE_FEATURES[feature]
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail={
+                    "message": f"Your free {label} result has been used. Premium unlocks unlimited access.",
+                    "code": "free_feature_limit",
+                    "feature": feature,
+                },
+            )
+        _save_memory(identity.user_id, memory)
+        try:
+            return await operation()
+        except Exception:
+            latest = legacy.load_memory(identity.user_id)
+            _, latest_miniapp = _ensure_memory(latest)
+            release_free_access(latest_miniapp, feature)
+            _save_memory(identity.user_id, latest)
+            raise
 
 
 def _free_practice_used(practice: dict[str, Any], exam: str) -> int:
@@ -591,7 +635,7 @@ def _dashboard(memory: dict[str, Any], identity: TelegramIdentity) -> dict[str, 
         "practice_streak": _practice_snapshot(memory),
         "notifications": notifications,
         "unread_notifications": sum(1 for item in notifications if item.get("unread")),
-        "subscription": legacy.subscription_status(identity.user_id),
+        "subscription": _subscription_snapshot(identity.user_id, memory),
     }
 
 
@@ -677,7 +721,7 @@ async def auth_telegram(payload: AuthRequest) -> dict[str, Any]:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
     legacy.ensure_user(identity)
     memory = legacy.load_memory(identity.user_id)
-    access = legacy.subscription_status(identity.user_id)
+    access = _subscription_snapshot(identity.user_id, memory)
     token = issue_session_token(identity, _session_secret(), SESSION_TTL_SECONDS)
     return {"token": token, "user": _public_user(identity, memory), "subscription": access}
 
@@ -690,7 +734,7 @@ async def auth_dev(payload: DevAuthRequest) -> dict[str, Any]:
     legacy.ensure_user(identity)
     memory = legacy.load_memory(identity.user_id)
     token = issue_session_token(identity, _session_secret(), SESSION_TTL_SECONDS)
-    return {"token": token, "user": _public_user(identity, memory), "subscription": legacy.subscription_status(identity.user_id)}
+    return {"token": token, "user": _public_user(identity, memory), "subscription": _subscription_snapshot(identity.user_id, memory)}
 
 
 @app.get("/api/me")
@@ -698,12 +742,12 @@ async def me(identity: TelegramIdentity = Depends(current_identity)) -> dict[str
     memory = legacy.load_memory(identity.user_id)
     return {
         "user": _public_user(identity, memory),
-        "subscription": legacy.subscription_status(identity.user_id),
+        "subscription": _subscription_snapshot(identity.user_id, memory),
     }
 
 
 @app.get("/api/portfolio")
-async def portfolio(identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
+async def portfolio(identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
     memory = legacy.load_memory(identity.user_id)
     return {"portfolio": _portfolio(memory), "readiness": readiness_snapshot(memory)}
 
@@ -771,7 +815,7 @@ async def profile_name(payload: NameUpdateRequest, identity: TelegramIdentity = 
 
 
 @app.post("/api/profile/onboarding")
-async def profile_onboarding(payload: OnboardingRequest, identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
+async def profile_onboarding(payload: OnboardingRequest, identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
     memory = legacy.load_memory(identity.user_id)
     application, miniapp = _ensure_memory(memory)
     data = payload.model_dump()
@@ -812,7 +856,7 @@ async def profile_onboarding(payload: OnboardingRequest, identity: TelegramIdent
 
 
 @app.post("/api/profile/onboarding/skip")
-async def profile_onboarding_skip(identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
+async def profile_onboarding_skip(identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
     memory = legacy.load_memory(identity.user_id)
     _, miniapp = _ensure_memory(memory)
     miniapp["onboarding_complete"] = True
@@ -827,7 +871,7 @@ async def dashboard(identity: TelegramIdentity = Depends(current_identity)) -> d
 
 @app.get("/api/subscription")
 async def subscription(identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
-    return legacy.subscription_status(identity.user_id)
+    return _subscription_snapshot(identity.user_id)
 
 
 @app.post("/api/payment/start")
@@ -848,7 +892,7 @@ async def payment_start(identity: TelegramIdentity = Depends(current_identity)) 
 
 
 @app.post("/api/profile/update")
-async def profile_update(payload: ProfileUpdateRequest, identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
+async def profile_update(payload: ProfileUpdateRequest, identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
     memory = legacy.load_memory(identity.user_id)
     application, _ = _ensure_memory(memory)
     allowed = SECTION_FIELDS[payload.section]
@@ -893,10 +937,17 @@ async def profile_update(payload: ProfileUpdateRequest, identity: TelegramIdenti
 async def evaluate_essay(payload: EssayEvaluationRequest, identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
     topic = "essays_personal" if payload.essay_type == "personal_statement" else "essays_supplemental"
     premium = _is_premium(identity.user_id)
-    reserved = False
-    if not premium:
-        lock = _essay_locks.setdefault(identity.user_id, asyncio.Lock())
-        async with lock:
+    async def operation() -> dict[str, Any]:
+        response = await _run_compact_evaluation(identity, topic, payload.content, {"school_name": payload.school_name, "prompt": payload.prompt})
+        response["can_full_review"] = premium and response.get("can_full_review", True)
+        response["essay_access"] = {"is_premium": premium, "free_limit": None if premium else FREE_ESSAY_EVALUATIONS, "remaining": None if premium else 0}
+        return response
+    if premium:
+        return await operation()
+    lock = _feature_locks.setdefault(identity.user_id, asyncio.Lock())
+    async with lock:
+        reserved = False
+        try:
             memory = legacy.load_memory(identity.user_id)
             _, miniapp = _ensure_memory(memory)
             used = max(0, int(miniapp.get("free_essay_evaluations_used", 0) or 0))
@@ -908,19 +959,14 @@ async def evaluate_essay(payload: EssayEvaluationRequest, identity: TelegramIden
             miniapp["free_essay_evaluations_used"] = used + 1
             _save_memory(identity.user_id, memory)
             reserved = True
-    try:
-        response = await _run_compact_evaluation(identity, topic, payload.content, {"school_name": payload.school_name, "prompt": payload.prompt})
-    except Exception:
-        if reserved:
-            async with _essay_locks[identity.user_id]:
+            return await operation()
+        except Exception:
+            if reserved:
                 memory = legacy.load_memory(identity.user_id)
                 _, miniapp = _ensure_memory(memory)
                 miniapp["free_essay_evaluations_used"] = max(0, int(miniapp.get("free_essay_evaluations_used", 1) or 1) - 1)
                 _save_memory(identity.user_id, memory)
-        raise
-    response["can_full_review"] = premium and response.get("can_full_review", True)
-    response["essay_access"] = {"is_premium": premium, "free_limit": None if premium else FREE_ESSAY_EVALUATIONS, "remaining": None if premium else 0}
-    return response
+            raise
 
 
 @app.get("/api/evaluate/essay/access")
@@ -933,32 +979,46 @@ async def essay_access(identity: TelegramIdentity = Depends(current_identity)) -
 
 
 @app.post("/api/evaluate/ec")
-async def evaluate_ec(payload: ECEvaluationRequest, identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
-    return await _run_compact_evaluation(identity, "extracurriculars", payload.activity, payload.model_dump(exclude={"activity"}))
+async def evaluate_ec(payload: ECEvaluationRequest, identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
+    return await _with_free_feature(
+        identity,
+        "ec_review",
+        lambda: _run_compact_evaluation(identity, "extracurriculars", payload.activity, payload.model_dump(exclude={"activity"})),
+    )
 
 
 @app.post("/api/evaluate/ielts")
-async def evaluate_ielts(payload: IELTSEvaluationRequest, identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
+async def evaluate_ielts(payload: IELTSEvaluationRequest, identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
     topic = f"ielts_{payload.skill}"
-    return await _run_compact_evaluation(identity, topic, payload.content, {"task_type": payload.task_type, "question": payload.question, "target_band": payload.target_band})
+    return await _with_free_feature(
+        identity,
+        "ielts_feedback",
+        lambda: _run_compact_evaluation(identity, topic, payload.content, {"task_type": payload.task_type, "question": payload.question, "target_band": payload.target_band}),
+    )
 
 
 @app.post("/api/evaluate/recommendation")
-async def evaluate_recommendation(payload: RecommendationRequest, identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
-    if payload.mode == "evaluate":
-        return await _run_compact_evaluation(identity, "recommendations", payload.content, {"teacher_subject": payload.teacher_subject})
-    memory = legacy.load_memory(identity.user_id)
-    raw = await legacy.ask_ai(
-        recommendation_builder_messages(payload.mode, payload.content, legacy.module().memory_summary_for_prompt(memory), payload.teacher_subject),
-        strong=True,
-        max_tokens=1_400,
-    )
-    return {"mode": payload.mode, "result": _parse_ai_json(raw), "can_full_review": False}
+async def evaluate_recommendation(payload: RecommendationRequest, identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
+    async def operation() -> dict[str, Any]:
+        if payload.mode == "evaluate":
+            return await _run_compact_evaluation(identity, "recommendations", payload.content, {"teacher_subject": payload.teacher_subject})
+        memory = legacy.load_memory(identity.user_id)
+        raw = await legacy.ask_ai(
+            recommendation_builder_messages(payload.mode, payload.content, legacy.module().memory_summary_for_prompt(memory), payload.teacher_subject),
+            strong=True,
+            max_tokens=1_400,
+        )
+        return {"mode": payload.mode, "result": _parse_ai_json(raw), "can_full_review": False}
+    return await _with_free_feature(identity, "recommendation", operation)
 
 
 @app.post("/api/evaluate/portfolio")
-async def evaluate_portfolio(payload: PortfolioEvaluationRequest, identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
-    return await _run_compact_evaluation(identity, "portfolio", payload.projects, {"field": payload.field, "target_program": payload.target_program})
+async def evaluate_portfolio(payload: PortfolioEvaluationRequest, identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
+    return await _with_free_feature(
+        identity,
+        "portfolio_review",
+        lambda: _run_compact_evaluation(identity, "portfolio", payload.projects, {"field": payload.field, "target_program": payload.target_program}),
+    )
 
 
 @app.post("/api/full-review")
@@ -998,26 +1058,28 @@ async def refine(payload: RefineRequest, identity: TelegramIdentity = Depends(ac
 
 
 @app.post("/api/school-finder")
-async def school_finder(payload: SchoolFinderRequest, identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
-    memory = legacy.load_memory(identity.user_id)
-    query = json.dumps(payload.model_dump(), ensure_ascii=False)
-    rag = await legacy.load_rag("school_finder", query)
-    raw = await legacy.ask_ai(
-        school_finder_messages(payload.model_dump(), legacy.module().memory_summary_for_prompt(memory), rag),
-        strong=True,
-        max_tokens=2_300,
-    )
-    result = _parse_ai_json(raw)
-    application, miniapp = _ensure_memory(memory)
-    memory["profile"].update({"major": payload.intended_major, "gpa": payload.gpa, "target_countries": payload.target_countries, "budget": payload.budget, "needs_aid": payload.needs_aid})
-    application["preferences"].update({"intended_major": payload.intended_major, "target_countries": payload.target_countries, "budget": payload.budget, "needs_aid": payload.needs_aid, "environment": payload.environment})
-    miniapp["school_finder_runs"] = (miniapp["school_finder_runs"] + [{"created_at": int(time.time()), "request": payload.model_dump(), "result": result}])[-5:]
-    _save_memory(identity.user_id, memory)
-    return {"result": result}
+async def school_finder(payload: SchoolFinderRequest, identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
+    async def operation() -> dict[str, Any]:
+        memory = legacy.load_memory(identity.user_id)
+        query = json.dumps(payload.model_dump(), ensure_ascii=False)
+        rag = await legacy.load_rag("school_finder", query)
+        raw = await legacy.ask_ai(
+            school_finder_messages(payload.model_dump(), legacy.module().memory_summary_for_prompt(memory), rag),
+            strong=True,
+            max_tokens=2_300,
+        )
+        result = _parse_ai_json(raw)
+        application, miniapp = _ensure_memory(memory)
+        memory["profile"].update({"major": payload.intended_major, "gpa": payload.gpa, "target_countries": payload.target_countries, "budget": payload.budget, "needs_aid": payload.needs_aid})
+        application["preferences"].update({"intended_major": payload.intended_major, "target_countries": payload.target_countries, "budget": payload.budget, "needs_aid": payload.needs_aid, "environment": payload.environment})
+        miniapp["school_finder_runs"] = (miniapp["school_finder_runs"] + [{"created_at": int(time.time()), "request": payload.model_dump(), "result": result}])[-5:]
+        _save_memory(identity.user_id, memory)
+        return {"result": result}
+    return await _with_free_feature(identity, "school_finder", operation)
 
 
 @app.post("/api/schools/save")
-async def save_school(payload: SaveSchoolRequest, identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
+async def save_school(payload: SaveSchoolRequest, identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
     memory = legacy.load_memory(identity.user_id)
     application, _ = _ensure_memory(memory)
     schools = application.setdefault("school_list", [])
@@ -1031,30 +1093,32 @@ async def save_school(payload: SaveSchoolRequest, identity: TelegramIdentity = D
 
 
 @app.post("/api/application-plan")
-async def application_plan(payload: ApplicationPlanRequest, identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
-    memory = legacy.load_memory(identity.user_id)
-    readiness = readiness_snapshot(memory)
-    raw = await legacy.ask_ai(
-        plan_messages(payload.model_dump(), _portfolio(memory), readiness),
-        strong=True,
-        max_tokens=2_100,
-    )
-    result = _parse_ai_json(raw)
-    _, miniapp = _ensure_memory(memory)
-    plan_id = uuid.uuid4().hex
-    for section in ("today_priority", "this_week", "this_month", "before_deadline"):
-        tasks = [result.get(section)] if section == "today_priority" else list(result.get(section) or [])
-        for index, task in enumerate(tasks):
-            if isinstance(task, dict):
-                task["key"] = f"{section}-{index}"
-    record = {"id": plan_id, "created_at": int(time.time()), "request": payload.model_dump(), "result": result, "completion": {}}
-    miniapp["plans"] = (miniapp["plans"] + [record])[-5:]
-    _save_memory(identity.user_id, memory)
-    return {"plan_id": plan_id, "result": result, "readiness": readiness, "profile_completeness": _profile_completeness(memory)}
+async def application_plan(payload: ApplicationPlanRequest, identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
+    async def operation() -> dict[str, Any]:
+        memory = legacy.load_memory(identity.user_id)
+        readiness = readiness_snapshot(memory)
+        raw = await legacy.ask_ai(
+            plan_messages(payload.model_dump(), _portfolio(memory), readiness),
+            strong=True,
+            max_tokens=2_100,
+        )
+        result = _parse_ai_json(raw)
+        _, miniapp = _ensure_memory(memory)
+        plan_id = uuid.uuid4().hex
+        for section in ("today_priority", "this_week", "this_month", "before_deadline"):
+            tasks = [result.get(section)] if section == "today_priority" else list(result.get(section) or [])
+            for index, task in enumerate(tasks):
+                if isinstance(task, dict):
+                    task["key"] = f"{section}-{index}"
+        record = {"id": plan_id, "created_at": int(time.time()), "request": payload.model_dump(), "result": result, "completion": {}}
+        miniapp["plans"] = (miniapp["plans"] + [record])[-5:]
+        _save_memory(identity.user_id, memory)
+        return {"plan_id": plan_id, "result": result, "readiness": readiness, "profile_completeness": _profile_completeness(memory)}
+    return await _with_free_feature(identity, "application_plan", operation)
 
 
 @app.post("/api/application-plan/task-status")
-async def application_plan_task_status(payload: PlanTaskStatusRequest, identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
+async def application_plan_task_status(payload: PlanTaskStatusRequest, identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
     memory = legacy.load_memory(identity.user_id)
     _, miniapp = _ensure_memory(memory)
     plan = next((item for item in miniapp.get("plans", []) if item.get("id") == payload.plan_id), None)
@@ -1141,7 +1205,7 @@ async def practice_session(payload: PracticeSessionRequest, identity: TelegramId
 
 
 @app.post("/api/practice/draft")
-async def practice_draft(payload: PracticeDraftRequest, identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
+async def practice_draft(payload: PracticeDraftRequest, identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
     memory = legacy.load_memory(identity.user_id)
     _, miniapp = _ensure_memory(memory)
     draft = {"prompt": payload.prompt, "content": payload.content, "updated_at": int(time.time())}
@@ -1151,7 +1215,7 @@ async def practice_draft(payload: PracticeDraftRequest, identity: TelegramIdenti
 
 
 @app.post("/api/practice/complete")
-async def practice_complete(payload: PracticeCompletionRequest, identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
+async def practice_complete(payload: PracticeCompletionRequest, identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
     memory = legacy.load_memory(identity.user_id)
     _, miniapp = _ensure_memory(memory)
     practice = miniapp.setdefault("practice", {"days": {}})
@@ -1177,7 +1241,7 @@ async def practice_streak(identity: TelegramIdentity = Depends(current_identity)
 
 
 @app.post("/api/reminders")
-async def create_reminder(payload: ReminderCreateRequest, identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
+async def create_reminder(payload: ReminderCreateRequest, identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
     due = _parse_due_at(payload.due_at)
     if not due:
         raise HTTPException(status_code=422, detail="Choose a valid reminder time.")
@@ -1210,35 +1274,39 @@ async def notifications_read(payload: NotificationsReadRequest, identity: Telegr
 
 
 @app.post("/api/boost")
-async def boost(payload: BoostRequest, identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
+async def boost(payload: BoostRequest, identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
     memory = legacy.load_memory(identity.user_id)
     if payload.tool == "readiness":
         return {"tool": payload.tool, "result": readiness_snapshot(memory)}
-    raw = await legacy.ask_ai(
-        boost_messages(payload.tool, payload.content or "", payload.context or "", legacy.module().memory_summary_for_prompt(memory)),
-        strong=False,
-        max_tokens=1_100,
-    )
-    return {"tool": payload.tool, "result": _parse_ai_json(raw)}
+    async def operation() -> dict[str, Any]:
+        raw = await legacy.ask_ai(
+            boost_messages(payload.tool, payload.content or "", payload.context or "", legacy.module().memory_summary_for_prompt(memory)),
+            strong=False,
+            max_tokens=1_100,
+        )
+        return {"tool": payload.tool, "result": _parse_ai_json(raw)}
+    return await _with_free_feature(identity, f"boost_{payload.tool}", operation)
 
 
 @app.post("/api/coach")
-async def coach(payload: CoachRequest, identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
-    memory = legacy.load_memory(identity.user_id)
-    rag_topic = {
-        "personal_statement": "essays_personal",
-        "supplemental": "essays_supplemental",
-        "extracurricular": "extracurriculars",
-        "portfolio": "portfolio",
-        "general": "general",
-    }[payload.topic]
-    rag = await legacy.load_rag(rag_topic, payload.content[:4_000])
-    raw = await legacy.ask_ai(
-        coach_messages(payload.mode, payload.topic, payload.content, payload.goal or "", legacy.module().memory_summary_for_prompt(memory), rag),
-        strong=payload.mode == "rewrite",
-        max_tokens=2_000 if payload.mode == "rewrite" else 1_500,
-    )
-    return {"mode": payload.mode, "result": _parse_ai_json(raw)}
+async def coach(payload: CoachRequest, identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
+    async def operation() -> dict[str, Any]:
+        memory = legacy.load_memory(identity.user_id)
+        rag_topic = {
+            "personal_statement": "essays_personal",
+            "supplemental": "essays_supplemental",
+            "extracurricular": "extracurriculars",
+            "portfolio": "portfolio",
+            "general": "general",
+        }[payload.topic]
+        rag = await legacy.load_rag(rag_topic, payload.content[:4_000])
+        raw = await legacy.ask_ai(
+            coach_messages(payload.mode, payload.topic, payload.content, payload.goal or "", legacy.module().memory_summary_for_prompt(memory), rag),
+            strong=payload.mode == "rewrite",
+            max_tokens=2_000 if payload.mode == "rewrite" else 1_500,
+        )
+        return {"mode": payload.mode, "result": _parse_ai_json(raw)}
+    return await _with_free_feature(identity, payload.mode, operation)
 
 
 def _copilot_access(memory: dict[str, Any], premium: bool) -> dict[str, Any]:
@@ -1333,14 +1401,16 @@ async def copilot(payload: CopilotRequest, identity: TelegramIdentity = Depends(
 
 
 @app.post("/api/sat/coach")
-async def sat_coach(payload: SATCoachRequest, identity: TelegramIdentity = Depends(active_identity)) -> dict[str, Any]:
-    memory = legacy.load_memory(identity.user_id)
-    raw = await legacy.ask_ai(
-        sat_coach_messages(payload.model_dump(), legacy.module().memory_summary_for_prompt(memory)),
-        strong=False,
-        max_tokens=1_700,
-    )
-    return {"result": _parse_ai_json(raw)}
+async def sat_coach(payload: SATCoachRequest, identity: TelegramIdentity = Depends(current_identity)) -> dict[str, Any]:
+    async def operation() -> dict[str, Any]:
+        memory = legacy.load_memory(identity.user_id)
+        raw = await legacy.ask_ai(
+            sat_coach_messages(payload.model_dump(), legacy.module().memory_summary_for_prompt(memory)),
+            strong=False,
+            max_tokens=1_700,
+        )
+        return {"result": _parse_ai_json(raw)}
+    return await _with_free_feature(identity, "sat_coach", operation)
 
 
 @app.post("/api/feedback")
@@ -1375,7 +1445,7 @@ def _extract_uploaded_text(filename: str, content: bytes) -> str:
 
 
 @app.post("/api/files/extract")
-async def extract_file(file: UploadFile = File(...), identity: TelegramIdentity = Depends(active_identity)) -> dict[str, str]:
+async def extract_file(file: UploadFile = File(...), identity: TelegramIdentity = Depends(current_identity)) -> dict[str, str]:
     del identity
     content = await file.read(MAX_UPLOAD_BYTES + 1)
     if len(content) > MAX_UPLOAD_BYTES:
@@ -1405,9 +1475,6 @@ async def analyze_file(target: str = Form(...), payload: str = Form(...), file: 
     try:
         if target not in routes:
             raise HTTPException(status_code=422, detail="This tool does not support file analysis.")
-        # Calling handlers directly does not execute their FastAPI dependencies.
-        if target != "/api/evaluate/essay":
-            active_identity(identity)
         if len(payload) > 40000:
             raise HTTPException(status_code=413, detail="Submission details are too long.")
         try:

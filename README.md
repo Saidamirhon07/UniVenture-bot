@@ -1,4 +1,8 @@
-# Current update: V17.3 In-Chat App Launcher
+# Current update: V18 Free First Result
+
+Start with [V18_APPLY_STEPS.md](V18_APPLY_STEPS.md). The free tier now gives each new user one successful result from every major AI tool, keeps SAT and IELTS daily allowances separate, and enforces all usage server-side. Verification details: [V18_RELEASE_NOTES.md](V18_RELEASE_NOTES.md).
+
+## Previous update: V17.3 In-Chat App Launcher
 
 Start with [V17_3_APPLY_STEPS.md](V17_3_APPLY_STEPS.md). Changes and verification limits: [V17_3_RELEASE_NOTES.md](V17_3_RELEASE_NOTES.md).
 

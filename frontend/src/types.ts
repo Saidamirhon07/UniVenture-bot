@@ -70,6 +70,12 @@ export interface SubscriptionStatus {
   card_holder?: string;
   bank_name?: string;
   payment_status?: "pending" | "approved" | "rejected" | null;
+  free_feature_access?: Record<string, {
+    label: string;
+    limit: number | null;
+    used: number;
+    remaining: number | null;
+  }>;
 }
 
 export interface ProfileCompleteness {

@@ -49,9 +49,10 @@ class DocumentAPITests(unittest.TestCase):
     def test_authentication_required(self):
         main.app.dependency_overrides.clear()
         self.assertEqual(self.send().status_code,401)
-    def test_premium_cannot_be_bypassed_by_multipart(self):
-        with patch.object(main.legacy,'subscription_status',return_value={'is_premium':False}):
-            self.assertEqual(self.send().status_code,402)
+    def test_free_upload_routes_through_the_same_server_enforced_handler(self):
+        with patch.object(main.legacy,'subscription_status',return_value={'is_premium':False}), patch.object(main,'evaluate_ec',new_callable=AsyncMock,return_value={'result':{}}) as handler:
+            self.assertEqual(self.send().status_code,200)
+            handler.assert_awaited_once()
     def test_free_essay_routes_through_existing_allowance_handler(self):
         with patch.object(main.legacy,'subscription_status',return_value={'is_premium':False}), patch.object(main,'evaluate_essay',new_callable=AsyncMock,side_effect=main.HTTPException(status_code=402,detail='Free allowance used')) as handler:
             result=self.send(target='/api/evaluate/essay',content=b'A real student essay. '*10,payload='{"essay_type":"personal_statement"}')

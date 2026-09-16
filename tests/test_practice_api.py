@@ -61,7 +61,7 @@ class PracticeAPITests(unittest.TestCase):
         self.user = 202
         self.assertEqual(self.client.get("/api/practice/library").json()["sessions"],[])
 
-    def test_free_access_gets_daily_sample_but_not_premium_drafts(self):
+    def test_free_access_gets_daily_sample_and_can_save_its_draft(self):
         self.paid = False
         library = self.client.get("/api/practice/library?exam=sat")
         self.assertEqual(library.status_code,200,library.text)
@@ -69,7 +69,7 @@ class PracticeAPITests(unittest.TestCase):
         self.assertEqual(library.json()["access"]["daily_limit"],3)
         self.assertLessEqual(len(library.json()["questions"]),12)
         self.assertEqual(self.client.post("/api/practice/session",json=self.payload).status_code,200)
-        self.assertEqual(self.client.post("/api/practice/draft",json={"key":"speaking","prompt":"Example","content":"Draft"}).status_code,402)
+        self.assertEqual(self.client.post("/api/practice/draft",json={"key":"speaking","prompt":"Example","content":"Draft"}).status_code,200)
 
     def test_free_daily_practice_limit_is_server_enforced(self):
         self.paid = False
